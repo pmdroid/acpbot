@@ -49,6 +49,14 @@ the beginning of the implementation. Plan, don't do.
   decision stands. Imposes three build constraints (never set `timeoutMs`;
   client-side `fs`/`terminal` gates bypass the hook; tacp owns durability,
   listing and queueing). Findings: branch `research/acpx-runtime`.
+- [Survey the Telegram Bot API for the control surface](tickets/002-telegram-bot-api-survey.md)
+  — Topics-per-session is **viable**, and Bot API 9.3/9.4 added topics to the
+  bot's *private* chat, adding a fourth candidate that skips supergroups
+  entirely. Inline keyboards survive a restart (24 h update retention, decision
+  recoverable from `callback_data` alone) but `answerCallbackQuery` does **not** —
+  confirm by editing the message, never by answering the callback. Binding design
+  constraint: `callback_data` is 64 **bytes**, so prompts need opaque tokens.
+  Findings: branch `research/telegram-bot-api`.
 
 ## Not yet specified
 
@@ -61,7 +69,11 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   persistent sessions — so a chat or topic id can be the primary key. What remains
   open is the rest of tacp's own state: chat/topic ↔ session bindings, the session
   list acpx does not provide, and pending permission requests that must survive a
-  restart. Waits on the surface model and the round-trip.
+  restart. Both surveys converged on the same point from opposite ends — acpx's
+  session store has no `list()` and Telegram has no way to enumerate topics — so
+  **tacp must own the mapping durably; neither side can reconstruct it.** Also
+  needs to hold the opaque tokens that `callback_data`'s 64-byte cap forces.
+  Still waits on the surface model and the round-trip for its shape.
 - **Failure behaviour as the operator experiences it.** Agent process dies
   mid-turn; tacp restarts holding an unanswered permission prompt; Telegram is
   unreachable for ten minutes. What the operator sees, and what is recoverable.
