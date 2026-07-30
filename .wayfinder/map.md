@@ -43,16 +43,25 @@ the beginning of the implementation. Plan, don't do.
 
 <!-- one line per closed ticket: enough to judge relevance, then open the link -->
 
-_None yet — the map was just charted._
+- [Probe acpx/runtime for async permission interception](tickets/001-acpx-runtime-permission-probe.md)
+  — **Yes**: `onPermissionRequest` is awaited unbounded and wins over static
+  policy, so a chat round-trip can hold a permission open indefinitely. Substrate
+  decision stands. Imposes three build constraints (never set `timeoutMs`;
+  client-side `fs`/`terminal` gates bypass the hook; tacp owns durability,
+  listing and queueing). Findings: branch `research/acpx-runtime`.
 
 ## Not yet specified
 
 In scope, but not yet sharp enough to ticket. Graduates as the frontier advances.
 
-- **What tacp itself must persist.** `acpx/runtime` owns session state, but tacp
-  has its own: chat/topic ↔ session bindings, and pending permission requests that
-  must survive a bot restart. The shape of that store can't be specified until the
-  surface model and the round-trip are settled.
+- **What tacp itself must persist.** Sharpened but not yet ticketable: the probe
+  established that `AcpSessionStore` is an injectable `load`/`save` interface with
+  **no `list()`**, that a handle is fully reconstructible from one string via
+  `encodeAcpxRuntimeHandleState`, and that `acpxRecordId === sessionKey` for
+  persistent sessions — so a chat or topic id can be the primary key. What remains
+  open is the rest of tacp's own state: chat/topic ↔ session bindings, the session
+  list acpx does not provide, and pending permission requests that must survive a
+  restart. Waits on the surface model and the round-trip.
 - **Failure behaviour as the operator experiences it.** Agent process dies
   mid-turn; tacp restarts holding an unanswered permission prompt; Telegram is
   unreachable for ten minutes. What the operator sees, and what is recoverable.
@@ -61,8 +70,11 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   "local now, server later" — repo roots, agent credential resolution, process
   supervision. Sharpens once session lifecycle is decided.
 - **Agent adapter scope.** Which agents beyond `codex` and `claude` the spec
-  commits to, and how their auth resolves off the Mac. Waits on the acpx/runtime
-  probe and the portability contract.
+  commits to, and how their auth resolves off the Mac. The probe narrowed the
+  portability half: the runtime needs no TTY and takes an explicit `cwd`, so the
+  only real pin is that agents spawn as local child processes relying on their own
+  on-disk login state. Per-agent *permission* behaviour graduated out of this patch
+  into its own ticket; what stays here is the scope question.
 - **Spec assembly.** How the final document is structured and handed off. Only
   specifiable once the decisions it collects exist.
 
