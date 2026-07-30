@@ -3,7 +3,7 @@ id: "003"
 title: Pin down ACP permission and question semantics
 type: research
 status: open
-assignee: null
+assignee: research-agent (charting session)
 blocked_by: []
 ---
 

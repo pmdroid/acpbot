@@ -3,7 +3,7 @@ id: "002"
 title: Survey the Telegram Bot API for the control surface
 type: research
 status: open
-assignee: null
+assignee: research-agent (charting session)
 blocked_by: []
 ---
 
