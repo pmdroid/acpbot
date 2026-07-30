@@ -3,7 +3,7 @@ id: "004"
 title: Choose the session-to-Telegram surface model
 type: prototype
 status: open
-assignee: null
+assignee: pascal (this session)
 blocked_by: ["002"]
 ---
 
