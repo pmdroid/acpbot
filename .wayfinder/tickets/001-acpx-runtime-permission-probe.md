@@ -3,7 +3,7 @@ id: "001"
 title: Probe acpx/runtime for async permission interception
 type: research
 status: open
-assignee: null
+assignee: research-agent (charting session)
 blocked_by: []
 ---
 
