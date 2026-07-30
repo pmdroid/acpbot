@@ -66,6 +66,13 @@ the beginning of the implementation. Plan, don't do.
   too. A turn can block on permission **indefinitely**; any timeout is tacp's own
   invention. Collects 19 implementation-defined gaps (G1–G19) the spec must
   decide rather than inherit. Findings: branch `research/acp-semantics`.
+- [Choose the session-to-Telegram surface model](tickets/004-session-surface-model.md)
+  — **One topic per session (`repo/name`) in the bot's private chat.** Switching
+  is navigation — tap a topic, no `/switch`, no current-session pointer. Topic
+  name carries live state, so the list is the dashboard. Retire by rename, never
+  auto-delete. Root area is a commands-only lobby. Makes wrong-session approval
+  structurally near-impossible. Mock:
+  [`assets/004-surface-model-mock.md`](assets/004-surface-model-mock.md).
 
 ## Not yet specified
 
@@ -81,8 +88,12 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
   restart. Both surveys converged on the same point from opposite ends — acpx's
   session store has no `list()` and Telegram has no way to enumerate topics — so
   **tacp must own the mapping durably; neither side can reconstruct it.** Also
-  needs to hold the opaque tokens that `callback_data`'s 64-byte cap forces.
-  Still waits on the surface model and the round-trip for its shape.
+  needs to hold the opaque tokens that `callback_data`'s 64-byte cap forces. The
+  surface model has since fixed one half of it — the mapping is
+  `message_thread_id` → session, and owning it durably is now a hard requirement
+  rather than a preference. What still waits on the round-trip is the shape of a
+  *pending permission* record: what must be recoverable after a restart, and how a
+  64-byte callback token dereferences to it.
 - **Failure behaviour as the operator experiences it.** Agent process dies
   mid-turn; tacp restarts holding an unanswered permission prompt; Telegram is
   unreachable for ten minutes. What the operator sees, and what is recoverable.
