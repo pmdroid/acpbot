@@ -2,7 +2,7 @@
 id: "003"
 title: Pin down ACP permission and question semantics
 type: research
-status: open
+status: closed
 assignee: research-agent (charting session)
 blocked_by: []
 ---
@@ -36,3 +36,50 @@ Against the ACP specification and schema:
 Cite the spec and schema; where behaviour is implementation-defined rather than
 specified, say so explicitly — that is exactly where the spec will need to make a
 choice rather than follow the protocol.
+
+## Resolution
+
+**Asset:** `research/acp-semantics.md` on branch `research/acp-semantics`
+(~1000 lines, eight incremental commits). Answered against ACP v1 (current
+stable) on 2026-07-30 from the spec, the published JSON schema, and both Zed
+adapter sources.
+
+**Freshness caveat.** `elicitation/create` stabilized **2026-07-24 — six days
+before this research**, and the Claude adapter's HEAD is dated the same day the
+research ran. Section 5 (agent divergence) must be re-verified before anyone
+implements against it. Specifically, check whether Codex has since gained an
+elicitation path: `claude-agent-acp` anticipates one via a deliberately
+un-namespaced `_askUserQuestionCustomAnswer` marker that no Codex bridge yet uses.
+
+**Permission requests and questions are two different protocol mechanisms, and
+ACP's authors refused to merge them on purpose.**
+
+- `session/request_permission` requires `sessionId`, `toolCall`, `options`. The
+  option `kind` is an enumerated hint (4 values in v1); `optionId` and `name`
+  are free-form and agent-chosen. The response carries an `optionId` and
+  **nothing else** — there is no field for a rejection reason. Critically, the
+  accompanying metadata (title, arguments, diff, paths) is **all optional**: the
+  spec's own example sends a bare `toolCallId`, so tacp must correlate against
+  the tool-call update stream rather than read the request alone.
+- Questions **are** a protocol primitive: `elicitation/create`, form mode —
+  stabilized 2026-07-24, six days before this research.
+
+The catch is agent support, and it splits cleanly. Claude's adapter bridges its
+built-in `AskUserQuestion` tool into ACP form elicitation, **but disables the
+tool entirely unless the client advertises `clientCapabilities.elicitation.form`**.
+Codex never sends an elicitation at all and auto-declines the ones it receives.
+So tacp must build both the structured path and the unmarked-prose path, where a
+clarifying question is indistinguishable from commentary — that fallback is
+itself what the spec tells agents to do when the client lacks the capability.
+
+Also established: a turn may block on a permission response **indefinitely** —
+no deadline, timeout, or expiry exists anywhere in ACP, so any timeout is tacp's
+own policy with only two protocol-legal ways to express it.
+
+19 implementation-defined gaps are collected in §6 as G1–G19, each a decision
+the spec must make rather than inherit. The load-bearing ones for the round-trip
+ticket: **G2** (whether to advertise `elicitation.form` — the highest-leverage
+decision, since it switches Claude's questions between structured and prose),
+**G4** (timeout policy), **G5** (no channel for "no, do it this way instead"),
+**G7** (permission metadata may be absent), and **G8** (`optionId` is opaque and
+the option set is unbounded — never hardcode allow/deny).
