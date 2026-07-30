@@ -71,9 +71,11 @@ In scope, but not yet sharp enough to ticket. Graduates as the frontier advances
 Ruled beyond this destination. Never graduates; returns only as a fresh effort.
 
 - **Output volume policy** — what streams live vs. collapses into a digest, message
-  chunking against Telegram's 4096-char cap, and rate-limit backpressure.
-  Consciously deferred by the operator during charting. Flagged risk: the surface
-  model may back into this, in which case it returns as its own effort.
+  chunking against Telegram's message cap, and rate-limit backpressure. Ruled out
+  by the operator during charting and affirmed afterwards; settled, not deferred.
+  Sessions should record the Telegram limits they encounter as facts, and must not
+  design around them. If the surface model genuinely cannot be decided without a
+  volume policy, that is a new effort — not a reason to pull this back in.
 - **Multi-tenancy** — accounts, workspace isolation, per-user credentials, quotas.
   Excluded by the single-operator decision.
 - **Flows** — `acpx flow`-style multi-step orchestration over several turns. The
