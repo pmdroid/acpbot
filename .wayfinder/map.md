@@ -57,6 +57,15 @@ the beginning of the implementation. Plan, don't do.
   confirm by editing the message, never by answering the callback. Binding design
   constraint: `callback_data` is 64 **bytes**, so prompts need opaque tokens.
   Findings: branch `research/telegram-bot-api`.
+- [Pin down ACP permission and question semantics](tickets/003-acp-permission-question-semantics.md)
+  — Permissions and questions are **two separate mechanisms** and ACP's authors
+  refused to merge them on purpose. Questions *are* a primitive
+  (`elicitation/create`, stabilized six days ago), but **Claude disables its
+  question tool entirely unless tacp advertises `clientCapabilities.elicitation.form`**,
+  and **Codex never elicits at all** — so the unmarked-prose path must be built
+  too. A turn can block on permission **indefinitely**; any timeout is tacp's own
+  invention. Collects 19 implementation-defined gaps (G1–G19) the spec must
+  decide rather than inherit. Findings: branch `research/acp-semantics`.
 
 ## Not yet specified
 
