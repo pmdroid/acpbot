@@ -157,8 +157,12 @@ export function formatSessionStatus(input: {
   sessionKey: string;
   status: string;
   agent: string;
+  /** Optional human label (e.g. grok for grok-build). */
+  agentLabel?: string | undefined;
   launch?: { command: string; args: string[] } | undefined;
   mode?: string | undefined;
+  /** LLM model label from ACP configOptions */
+  model?: string | undefined;
   availableModes?: string[] | undefined;
   cwd: string;
   threadId: number;
@@ -173,13 +177,22 @@ export function formatSessionStatus(input: {
     input.launch != null
       ? `${input.launch.command}${input.launch.args.length ? " " + input.launch.args.join(" ") : ""}`
       : "(unknown)";
+  const agentLine =
+    input.agentLabel && input.agentLabel !== input.agent
+      ? `Agent: \`${input.agentLabel}\` (\`${input.agent}\`)`
+      : `Agent: \`${input.agent}\``;
   const lines = [
     `**Session** \`${input.sessionKey}\``,
     `Status: \`${input.status}\``,
-    `Agent: \`${input.agent}\``,
-    `Launch / model entry: \`${launch}\``,
+    agentLine,
+    `Launch: \`${launch}\``,
     `Mode: \`${input.mode ?? "unknown"}\``,
   ];
+  if (input.model) {
+    lines.push(`Model: \`${input.model}\``);
+  } else {
+    lines.push(`Model: _(not advertised — try /model or agent CLI)_`);
+  }
   if (input.availableModes && input.availableModes.length > 0) {
     lines.push(
       `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
@@ -208,7 +221,7 @@ export function formatSessionStatus(input: {
   }
   lines.push(
     "",
-    "Change mode: `/mode` (button list) · `/plan` · `/build`",
+    "Change: `/mode` · `/model` · `/agent` · `/plan` · `/build`",
   );
   return lines.join("\n");
 }

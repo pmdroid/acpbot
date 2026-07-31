@@ -35,6 +35,8 @@ describe("telegram menu commands", () => {
     expect(names).toContain("build");
     expect(names).toContain("mcp");
     expect(names).toContain("status");
+    expect(names).toContain("model");
+    expect(names).toContain("agent");
   });
 
   test("fingerprint changes when description changes", () => {

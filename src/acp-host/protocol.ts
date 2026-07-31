@@ -46,6 +46,14 @@ export type WorkerToHost =
       modeId: string;
     }
   | { type: "get_mode"; reqId: string; slotKey: string }
+  | { type: "get_config"; reqId: string; slotKey: string }
+  | {
+      type: "set_config";
+      reqId: string;
+      slotKey: string;
+      configId: string;
+      value: string | boolean;
+    }
   | { type: "kill"; reqId: string; slotKey: string }
   | { type: "detach"; reqId: string; slotKey: string }
   | {
@@ -139,6 +147,18 @@ export type HostToWorker =
       slotKey: string;
       currentModeId?: string;
       availableModeIds: string[];
+    }
+  | {
+      type: "get_config_ok";
+      reqId: string;
+      slotKey: string;
+      configOptions: unknown[];
+    }
+  | {
+      type: "set_config_ok";
+      reqId: string;
+      slotKey: string;
+      configOptions: unknown[];
     }
   | { type: "kill_ok" | "detach_ok" | "cancel_ok"; reqId: string; slotKey: string }
   | { type: "pong"; reqId: string }

@@ -1,5 +1,5 @@
 /**
- * IPC for MCP telegram tools → tacp daemon → sendMessage.
+ * IPC for MCP telegram tools → tacp daemon → sendMessage / sendPhoto / sendDocument.
  *
  * The MCP server is a child of the agent and cannot call Telegram.
  * It enqueues a job; the daemon delivers to the session topic and acks.
@@ -15,13 +15,20 @@ import {
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-export type TelegramJobKind = "update" | "message";
+export type TelegramJobKind = "update" | "message" | "document" | "photo";
 
 export type TelegramJobRequest = {
   id: string;
   sessionKey: string;
-  text: string;
   kind: TelegramJobKind;
+  /** Text body (update/message) or optional caption (photo/document). */
+  text: string;
+  /** Absolute path on the host for photo/document jobs (daemon reads bytes). */
+  path?: string;
+  /** Filename override for Telegram (document). */
+  filename?: string;
+  /** Optional MIME hint for logging / content-type. */
+  contentType?: string;
   createdAt: string;
 };
 
@@ -46,22 +53,47 @@ function paths(dir: string, id: string) {
   };
 }
 
+function normalizeKind(raw: unknown): TelegramJobKind {
+  if (raw === "update") return "update";
+  if (raw === "photo") return "photo";
+  if (raw === "document") return "document";
+  return "message";
+}
+
 export async function enqueueTelegramJob(input: {
   sessionKey: string;
-  text: string;
+  text?: string;
   kind?: TelegramJobKind;
+  path?: string;
+  filename?: string;
+  contentType?: string;
   queueDir?: string;
 }): Promise<TelegramJobRequest> {
   const dir = input.queueDir ?? telegramQueueDir();
   await mkdir(dir, { recursive: true });
   const id = randomUUID();
+  const kind = input.kind ?? "message";
   const job: TelegramJobRequest = {
     id,
     sessionKey: input.sessionKey.trim(),
-    text: input.text.trim(),
-    kind: input.kind ?? "message",
+    text: (input.text ?? "").trim(),
+    kind,
     createdAt: new Date().toISOString(),
   };
+  if (input.path?.trim()) job.path = input.path.trim();
+  if (input.filename?.trim()) job.filename = input.filename.trim();
+  if (input.contentType?.trim()) job.contentType = input.contentType.trim();
+
+  if (
+    (kind === "photo" || kind === "document") &&
+    !job.path
+  ) {
+    throw new Error(`telegram ${kind} job requires path`);
+  }
+  if ((kind === "update" || kind === "message") && !job.text) {
+    throw new Error(`telegram ${kind} job requires text`);
+  }
+
   const p = paths(dir, id);
   await writeFile(p.tmp, `${JSON.stringify(job)}\n`, "utf8");
   await rename(p.tmp, p.req);
@@ -111,12 +143,23 @@ export async function listPendingTelegramJobs(
     try {
       const raw = await readFile(join(dir, name), "utf8");
       const job = JSON.parse(raw) as TelegramJobRequest;
-      if (job?.id && job.sessionKey && job.text) {
-        out.push({
-          ...job,
-          kind: job.kind === "update" ? "update" : "message",
-        });
-      }
+      if (!job?.id || !job.sessionKey) continue;
+      const kind = normalizeKind(job.kind);
+      if ((kind === "photo" || kind === "document") && !job.path) continue;
+      if ((kind === "update" || kind === "message") && !job.text) continue;
+      out.push({
+        id: job.id,
+        sessionKey: job.sessionKey,
+        kind,
+        text: typeof job.text === "string" ? job.text : "",
+        createdAt:
+          typeof job.createdAt === "string"
+            ? job.createdAt
+            : new Date(0).toISOString(),
+        ...(job.path ? { path: job.path } : {}),
+        ...(job.filename ? { filename: job.filename } : {}),
+        ...(job.contentType ? { contentType: job.contentType } : {}),
+      });
     } catch {
       /* skip corrupt */
     }

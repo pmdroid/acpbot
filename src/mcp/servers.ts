@@ -3,7 +3,7 @@
  * Kept pure / config-only so tests can assert shape without spawning.
  */
 import { join } from "node:path";
-import { speakQueueDir } from "./speak-queue";
+import { workerApiSockPath } from "./worker-api";
 
 /** ACP stdio MCP server descriptor (matches @agentclientprotocol/sdk McpServer). */
 export type TacpMcpServer = {
@@ -25,9 +25,9 @@ export type BuildTacpMcpServersOptions = {
   command?: string;
   /** Extra env vars for the MCP child process. */
   env?: Array<{ name: string; value: string }>;
-  /** tacp sessionKey so speak can target the right Telegram topic. */
+  /** tacp sessionKey so outbound tools target the right Telegram topic. */
   sessionKey?: string;
-  /** State dir for speak-queue (defaults to TACP_ACPX_STATE_DIR). */
+  /** State dir for worker-api sock (defaults to TACP_ACPX_STATE_DIR). */
   stateDir?: string;
 };
 
@@ -58,7 +58,7 @@ function speechEnvFromProcess(
 
 /**
  * Host MCP servers exposed to an ACP session.
- * speak enqueues TTS for the daemon (sessionKey required in env).
+ * Outbound tools call the worker Unix API (sessionKey + sock path in env).
  */
 export function buildTacpMcpServers(
   options: BuildTacpMcpServersOptions = {},
@@ -74,11 +74,11 @@ export function buildTacpMcpServers(
     options.stateDir?.trim() ||
     process.env.TACP_ACPX_STATE_DIR?.trim() ||
     "./data/acpx-state";
-  const queueDir = speakQueueDir(stateDir);
+  const sockPath = workerApiSockPath(stateDir);
 
   const env: Array<{ name: string; value: string }> = [
-    { name: "TACP_SPEAK_QUEUE_DIR", value: stateDir },
     { name: "TACP_ACPX_STATE_DIR", value: stateDir },
+    { name: "TACP_WORKER_API_SOCK", value: sockPath },
     ...speechEnvFromProcess(),
     ...(options.sessionKey
       ? [{ name: "TACP_SESSION_KEY", value: options.sessionKey }]

@@ -1,10 +1,15 @@
 /**
- * Detect MCP/tool names for Telegram text tools (update / telegram_send).
+ * Detect MCP/tool names for Telegram outbound tools
+ * (update / telegram_send / photo / file).
  */
 
 const UPDATE_TOOL = /^(update|progress|status_update|notify)$/i;
 const MESSAGE_TOOL =
   /^(telegram_send|telegram_message|send_message|message_user|chat_send)$/i;
+const PHOTO_TOOL =
+  /^(telegram_send_photo|telegram_photo|send_photo|send_image)$/i;
+const FILE_TOOL =
+  /^(telegram_send_file|telegram_send_document|telegram_file|telegram_document|send_file|send_document)$/i;
 
 /** Last tool segment: mcp__tacp__telegram_send → telegram_send; tacp:update → update. */
 function toolBaseName(name: string): string {
@@ -31,9 +36,32 @@ export function isTelegramMessageToolName(name: string | undefined): boolean {
   return MESSAGE_TOOL.test(base) || MESSAGE_TOOL.test(trimmed);
 }
 
+export function isTelegramPhotoToolName(name: string | undefined): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  const base = toolBaseName(trimmed);
+  return PHOTO_TOOL.test(base) || PHOTO_TOOL.test(trimmed);
+}
+
+export function isTelegramFileToolName(name: string | undefined): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  const base = toolBaseName(trimmed);
+  return FILE_TOOL.test(base) || FILE_TOOL.test(trimmed);
+}
+
 /** True if any Telegram text MCP tool (update or send). */
 export function isTelegramTextToolName(name: string | undefined): boolean {
   return isTelegramUpdateToolName(name) || isTelegramMessageToolName(name);
+}
+
+/** True if any Telegram outbound MCP tool that uses the telegram queue. */
+export function isTelegramOutboundToolName(name: string | undefined): boolean {
+  return (
+    isTelegramTextToolName(name) ||
+    isTelegramPhotoToolName(name) ||
+    isTelegramFileToolName(name)
+  );
 }
 
 /** Extract text from common tool input shapes. */

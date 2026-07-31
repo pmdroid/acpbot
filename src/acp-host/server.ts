@@ -661,6 +661,57 @@ export async function startAcpHostServer(
         });
         return;
       }
+      case "get_config": {
+        const slot = slots.get(msg.slotKey);
+        if (!slot) {
+          send(sock, {
+            type: "get_config_ok",
+            reqId: msg.reqId,
+            slotKey: msg.slotKey,
+            configOptions: [],
+          });
+          return;
+        }
+        send(sock, {
+          type: "get_config_ok",
+          reqId: msg.reqId,
+          slotKey: msg.slotKey,
+          configOptions: slot.host.getConfigOptions(msg.slotKey),
+        });
+        return;
+      }
+      case "set_config": {
+        const slot = slots.get(msg.slotKey);
+        if (!slot) {
+          send(sock, {
+            type: "err",
+            reqId: msg.reqId,
+            error: `no slot ${msg.slotKey}`,
+          });
+          return;
+        }
+        slot.owner = sock;
+        try {
+          const opts = await slot.host.setConfigOption(
+            msg.slotKey,
+            msg.configId,
+            msg.value,
+          );
+          send(sock, {
+            type: "set_config_ok",
+            reqId: msg.reqId,
+            slotKey: msg.slotKey,
+            configOptions: opts,
+          });
+        } catch (err) {
+          send(sock, {
+            type: "err",
+            reqId: msg.reqId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
       case "kill": {
         const slot = slots.get(msg.slotKey);
         if (slot) {

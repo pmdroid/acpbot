@@ -269,15 +269,74 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       };
     },
 
+    async getSessionConfigOptions(sessionKey) {
+      return host.getConfigOptions(sessionKey);
+    },
+
+    async setSessionConfigOption(sessionKey, configId, value) {
+      return host.setConfigOption(sessionKey, configId, value);
+    },
+
+    async switchSessionAgent(identity, agentId) {
+      const key = sessionKeyOf(identity);
+      const repos = options.config.repos ?? {};
+      const cwd = repos[identity.repo];
+      if (!cwd) {
+        throw new Error(
+          `unknown repo "${identity.repo}" — add it to TACP_REPOS_JSON / config.repos`,
+        );
+      }
+      const agent = agentId.trim();
+      if (!agent) throw new Error("agent id is required");
+
+      log.info("switchSessionAgent", {
+        sessionKey: key,
+        from: identity.agent,
+        to: agent,
+      });
+      try {
+        await host.cancel(key, "operator /agent switch");
+      } catch {
+        /* */
+      }
+      if (host.disposeSession) {
+        await host.disposeSession(key);
+      }
+      handles.delete(key);
+
+      const hs = await host.ensureSession({
+        sessionKey: key,
+        agent,
+        cwd,
+      });
+      const resolvedIdentity = { ...identity, agent };
+      handles.set(key, {
+        identity: resolvedIdentity,
+        cwd,
+        agentSessionId: hs.agentSessionId,
+      });
+      return {
+        sessionKey: key,
+        identity: resolvedIdentity,
+        cwd,
+      };
+    },
+
     async ensureSession(identity) {
       const key = sessionKeyOf(identity);
+      const agent =
+        identity.agent ?? options.config.defaultAgent ?? "grok-build";
       const existing = handles.get(key);
-      if (existing) {
+      if (existing && existing.identity.agent === agent) {
         return {
           sessionKey: key,
           identity: existing.identity,
           cwd: existing.cwd,
         };
+      }
+      // Agent change with a cached handle — clear and respawn via host.
+      if (existing) {
+        handles.delete(key);
       }
 
       const repos = options.config.repos ?? {};
@@ -287,9 +346,6 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           `unknown repo "${identity.repo}" — add it to TACP_REPOS_JSON / config.repos`,
         );
       }
-
-      const agent =
-        identity.agent ?? options.config.defaultAgent ?? "grok-build";
 
       log.info("ensureSession", { sessionKey: key, agent, cwd });
       try {

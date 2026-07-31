@@ -145,6 +145,14 @@ export type SendDocumentParams = {
   caption?: string;
 };
 
+export type SendPhotoParams = {
+  chatId: number;
+  data: Uint8Array;
+  filename?: string;
+  messageThreadId?: number;
+  caption?: string;
+};
+
 export type TelegramFileInfo = {
   file_id: string;
   file_unique_id?: string;
@@ -242,6 +250,7 @@ export interface TelegramPort {
   downloadFile?(fileId: string): Promise<Uint8Array>;
   sendVoice?(params: SendVoiceParams): Promise<{ message_id: number }>;
   sendDocument?(params: SendDocumentParams): Promise<{ message_id: number }>;
+  sendPhoto?(params: SendPhotoParams): Promise<{ message_id: number }>;
   /** Register slash menu; optional on fakes that never hit Telegram. */
   setMyCommands?(params: SetMyCommandsParams): Promise<void>;
   deleteMyCommands?(params?: DeleteMyCommandsParams): Promise<void>;
@@ -415,6 +424,48 @@ export interface AgentsPort {
   getSessionMode?(
     sessionKey: string,
   ): Promise<{ currentModeId?: string; availableModeIds: string[] }>;
+
+  /**
+   * ACP session configOptions (model select, etc.).
+   * Empty when the agent does not advertise options.
+   */
+  getSessionConfigOptions?(
+    sessionKey: string,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      type: string;
+      category?: string | null;
+      currentValue?: string | boolean | null;
+      options: Array<{ value: string; name?: string }>;
+    }>
+  >;
+
+  /** ACP session/set_config_option (e.g. model value). */
+  setSessionConfigOption?(
+    sessionKey: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<
+    Array<{
+      id: string;
+      name: string;
+      type: string;
+      category?: string | null;
+      currentValue?: string | boolean | null;
+      options: Array<{ value: string; name?: string }>;
+    }>
+  >;
+
+  /**
+   * Switch agent binary for an existing session (respawn process).
+   * Updates identity.agent and recreates the live ACP session.
+   */
+  switchSessionAgent?(
+    identity: SessionIdentity,
+    agentId: string,
+  ): Promise<AgentSessionHandle>;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────
