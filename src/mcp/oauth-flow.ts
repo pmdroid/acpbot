@@ -1,14 +1,19 @@
 /**
  * MCP OAuth flow orchestration: start PKCE, complete via callback or pasted code.
  *
- * Discovery is intentionally light for MVP:
- * 1. Env overrides: TACP_MCP_OAUTH_<ID>_AUTH_URL / _TOKEN_URL / _CLIENT_ID / _SCOPE
- * 2. Optional well-known OAuth AS metadata at resource origin
- * 3. Common pattern fallbacks (same origin /authorize + /token)
+ * Discovery (no per-gateway env client_id / auth URL):
+ * 1. Protected-resource metadata (RFC 9728) via WWW-Authenticate or well-known
+ * 2. Authorization server metadata (RFC 8414)
+ * 3. Dynamic client registration (RFC 7591) for a public PKCE client
  *
- * Some gateways need explicit metadata via env — document that in README.
+ * Tokens + pending PKCE live under absolute `$TACP_ACPX_STATE_DIR` (worker + acp-host).
+ * Authorize URL is returned for Telegram — host never opens a browser.
  */
 import { resolve } from "node:path";
+import {
+  discoverMcpOAuth,
+  registerOAuthClient,
+} from "./oauth-discovery";
 import {
   buildAuthorizeUrl,
   createPkcePair,
@@ -28,14 +33,6 @@ import {
   type McpOAuthPendingRecord,
   type McpOAuthTokenRecord,
 } from "./oauth-store";
-
-export type OAuthEndpoints = {
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
-  clientId: string;
-  clientSecret?: string;
-  scope?: string;
-};
 
 export type StartMcpAuthInput = {
   /** Gateway id from mcp.json (e.g. "linear"). */
@@ -62,6 +59,11 @@ export type StartMcpAuthResult = {
   repoKey: string;
   id: string;
   pendingPath: string;
+  /** Discovered OAuth resource indicator. */
+  resource: string;
+  /** Scopes requested at authorize. */
+  scopes: string[];
+  clientId: string;
 };
 
 export type CompleteMcpAuthResult = {
@@ -70,110 +72,6 @@ export type CompleteMcpAuthResult = {
   tokenPath: string;
   record: McpOAuthTokenRecord;
 };
-
-/** Env key segment: LINEAR from id "linear". */
-function envIdSegment(id: string): string {
-  return id
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
-/**
- * Resolve OAuth endpoints for a gateway.
- * Prefers env overrides; otherwise attempts lightweight discovery.
- */
-export async function resolveOAuthEndpoints(
-  id: string,
-  resourceUrl: string,
-  env: NodeJS.ProcessEnv = process.env,
-  fetchImpl: typeof fetch = fetch,
-): Promise<OAuthEndpoints> {
-  const seg = envIdSegment(id);
-  const authUrl = env[`TACP_MCP_OAUTH_${seg}_AUTH_URL`]?.trim();
-  const tokenUrl = env[`TACP_MCP_OAUTH_${seg}_TOKEN_URL`]?.trim();
-  const clientId =
-    env[`TACP_MCP_OAUTH_${seg}_CLIENT_ID`]?.trim() ||
-    env.TACP_MCP_OAUTH_CLIENT_ID?.trim() ||
-    "tacp";
-  const clientSecret =
-    env[`TACP_MCP_OAUTH_${seg}_CLIENT_SECRET`]?.trim() ||
-    env.TACP_MCP_OAUTH_CLIENT_SECRET?.trim();
-  const scope =
-    env[`TACP_MCP_OAUTH_${seg}_SCOPE`]?.trim() ||
-    env.TACP_MCP_OAUTH_SCOPE?.trim();
-
-  if (authUrl && tokenUrl) {
-    return {
-      authorizationEndpoint: authUrl,
-      tokenEndpoint: tokenUrl,
-      clientId,
-      ...(clientSecret ? { clientSecret } : {}),
-      ...(scope ? { scope } : {}),
-    };
-  }
-
-  // Try OAuth Authorization Server Metadata (RFC 8414) at resource origin.
-  let parsed: URL;
-  try {
-    parsed = new URL(resourceUrl);
-  } catch {
-    throw new Error(
-      `invalid MCP url for OAuth: ${resourceUrl}. Set TACP_MCP_OAUTH_${seg}_AUTH_URL and _TOKEN_URL.`,
-    );
-  }
-
-  const origin = parsed.origin;
-  const wellKnownUrls = [
-    `${origin}/.well-known/oauth-authorization-server`,
-    `${origin}/.well-known/openid-configuration`,
-  ];
-
-  for (const wk of wellKnownUrls) {
-    try {
-      const res = await fetchImpl(wk, {
-        headers: { accept: "application/json" },
-      });
-      if (!res.ok) continue;
-      const meta = (await res.json()) as Record<string, unknown>;
-      const authorizationEndpoint =
-        typeof meta.authorization_endpoint === "string"
-          ? meta.authorization_endpoint
-          : undefined;
-      const tokenEndpoint =
-        typeof meta.token_endpoint === "string"
-          ? meta.token_endpoint
-          : undefined;
-      if (authorizationEndpoint && tokenEndpoint) {
-        return {
-          authorizationEndpoint: authUrl || authorizationEndpoint,
-          tokenEndpoint: tokenUrl || tokenEndpoint,
-          clientId,
-          ...(clientSecret ? { clientSecret } : {}),
-          ...(scope ? { scope } : {}),
-        };
-      }
-    } catch {
-      // try next
-    }
-  }
-
-  if (authUrl || tokenUrl) {
-    throw new Error(
-      `incomplete OAuth env for "${id}": set both TACP_MCP_OAUTH_${seg}_AUTH_URL and TACP_MCP_OAUTH_${seg}_TOKEN_URL`,
-    );
-  }
-
-  // Last-resort common pattern (many simple gateways).
-  return {
-    authorizationEndpoint: `${origin}/authorize`,
-    tokenEndpoint: `${origin}/token`,
-    clientId,
-    ...(clientSecret ? { clientSecret } : {}),
-    ...(scope ? { scope } : {}),
-  };
-}
 
 export function oauthCallbackBase(
   env: NodeJS.ProcessEnv = process.env,
@@ -222,14 +120,13 @@ export function oauthListenHost(
 }
 
 /**
- * Start PKCE: store pending, return authorize URL for Telegram (do not open browser on host).
- * Prunes expired pending and clears prior pending for the same id+repoKey.
+ * Start PKCE: discover AS + DCR, store pending, return authorize URL for Telegram
+ * (do not open browser on host).
  */
 export async function startMcpOAuth(
   input: StartMcpAuthInput,
 ): Promise<StartMcpAuthResult> {
   const env = input.env ?? process.env;
-  // Always absolute so worker and acp-host agree regardless of CWD.
   const stateDir = resolveOAuthStateDir(input.stateDir);
   const id = input.id.trim();
   if (!id) throw new Error("MCP id is required");
@@ -237,19 +134,20 @@ export async function startMcpOAuth(
   const callbackBase = oauthCallbackBase(env, input.callbackBase);
   const redirectUri = oauthRedirectUri(callbackBase);
   const repoKey = repoKeyForOAuth(input.repoKey, input.repoRoot);
+  const fetchImpl = input.fetchImpl ?? fetch;
 
   await pruneExpiredPendingOAuth(stateDir);
-  // One in-flight flow per gateway — reduces bare-code ambiguity.
   await deletePendingForGateway(stateDir, id, repoKey);
 
-  const endpoints = await resolveOAuthEndpoints(
-    id,
-    input.resourceUrl,
-    env,
-    input.fetchImpl ?? fetch,
+  const discovered = await discoverMcpOAuth(input.resourceUrl, { fetchImpl });
+  const client = await registerOAuthClient(
+    discovered.registrationEndpoint,
+    redirectUri,
+    { fetchImpl },
   );
 
   const pkce = createPkcePair();
+  const scope = discovered.scopes.join(" ");
   const pending: McpOAuthPendingRecord = {
     state: pkce.state,
     codeVerifier: pkce.codeVerifier,
@@ -257,29 +155,28 @@ export async function startMcpOAuth(
     repoKey,
     repoRoot: resolve(input.repoRoot),
     redirectUri,
-    clientId: endpoints.clientId,
-    authorizationEndpoint: endpoints.authorizationEndpoint,
-    tokenEndpoint: endpoints.tokenEndpoint,
+    clientId: client.client_id,
+    authorizationEndpoint: discovered.authorizationEndpoint,
+    tokenEndpoint: discovered.tokenEndpoint,
     createdAt: Date.now(),
-    resourceUrl: input.resourceUrl,
-    ...(endpoints.clientSecret ? { clientSecret: endpoints.clientSecret } : {}),
-    ...(endpoints.scope ? { scope: endpoints.scope } : {}),
+    // Store discovered resource for token exchange (RFC 8707).
+    resourceUrl: discovered.resource,
+    scope,
+    authorizationServer: discovered.authorizationServer,
+    mcpUrl: input.resourceUrl,
   };
 
   const pendingPath = await writePendingOAuth(stateDir, pending);
 
   const authorizeUrl = buildAuthorizeUrl({
-    authorizationEndpoint: endpoints.authorizationEndpoint,
-    clientId: endpoints.clientId,
+    authorizationEndpoint: discovered.authorizationEndpoint,
+    clientId: client.client_id,
     redirectUri,
     state: pkce.state,
     codeChallenge: pkce.codeChallenge,
     codeChallengeMethod: pkce.codeChallengeMethod,
-    ...(endpoints.scope ? { scope: endpoints.scope } : {}),
-    // MCP OAuth resource indicator when useful
-    extraParams: input.resourceUrl
-      ? { resource: input.resourceUrl }
-      : undefined,
+    scope,
+    extraParams: { resource: discovered.resource },
   });
 
   return {
@@ -289,6 +186,9 @@ export async function startMcpOAuth(
     repoKey,
     id,
     pendingPath,
+    resource: discovered.resource,
+    scopes: discovered.scopes,
+    clientId: client.client_id,
   };
 }
 
@@ -311,8 +211,15 @@ function tokenRecordFromResponse(
   };
   if (tokens.refresh_token) rec.refreshToken = tokens.refresh_token;
   if (expiresAt !== undefined) rec.expiresAt = expiresAt;
-  if (tokens.scope) rec.scope = tokens.scope;
+  if (tokens.scope || pending.scope) {
+    rec.scope = tokens.scope || pending.scope;
+  }
   if (pending.resourceUrl) rec.resourceUrl = pending.resourceUrl;
+  if (pending.clientId) rec.clientId = pending.clientId;
+  if (pending.authorizationServer) {
+    rec.authorizationServer = pending.authorizationServer;
+  }
+  if (pending.mcpUrl) rec.mcpUrl = pending.mcpUrl;
   return rec;
 }
 
@@ -343,7 +250,6 @@ export async function completeMcpOAuthCallback(
   const code = input.code?.trim();
   if (!code) throw new Error("missing OAuth code");
 
-  // readPendingOAuth drops expired (TTL) records.
   const pending = await readPendingOAuth(stateDir, state);
   if (!pending) {
     throw new Error(
@@ -351,7 +257,6 @@ export async function completeMcpOAuthCallback(
     );
   }
 
-  // Constant-time-ish compare for state (already key lookup); re-check field.
   if (pending.state !== state) {
     throw new Error("OAuth state mismatch");
   }
@@ -362,6 +267,7 @@ export async function completeMcpOAuthCallback(
     redirectUri: pending.redirectUri,
     codeVerifier: pending.codeVerifier,
     clientId: pending.clientId,
+    ...(pending.resourceUrl ? { resource: pending.resourceUrl } : {}),
     ...(pending.clientSecret ? { clientSecret: pending.clientSecret } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   });
@@ -382,16 +288,11 @@ export async function completeMcpOAuthCallback(
 
 /**
  * Fallback when redirect cannot reach the host: paste callback URL or code.
- * `/mcp code <callback-url-or-code> [id]`
- *
- * Prefer the **full** redirect URL (`code` + `state`). Bare code + id is a
- * last resort (uses latest non-expired pending for that id after `/mcp auth`
- * cleared prior pendings for the same gateway).
+ * Prefer the **full** redirect URL (`code` + `state`).
  */
 export async function completeMcpOAuthFromPaste(
   input: {
     callbackUrlOrCode: string;
-    /** Required for bare code (uses most recent non-expired pending for id). */
     id?: string;
     repoKey?: string;
     stateDir?: string;
@@ -410,7 +311,6 @@ export async function completeMcpOAuthFromPaste(
     );
   }
 
-  // Preferred: full URL with state (CSRF-bound).
   if (parsed.state && parsed.code) {
     return completeMcpOAuthCallback({
       state: parsed.state,
@@ -424,7 +324,6 @@ export async function completeMcpOAuthFromPaste(
     throw new Error("callback missing code parameter");
   }
 
-  // Bare code — require id; pending was unique after /mcp auth for that gateway.
   if (parsed.code && input.id) {
     const pending = await findLatestPendingForId(
       stateDir,
