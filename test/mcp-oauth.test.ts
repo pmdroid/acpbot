@@ -477,14 +477,80 @@ describe("merge OAuth headers into remote MCP", () => {
   });
 });
 
+/** Mock fetch: protected-resource + AS metadata + DCR for a fake gateway. */
+function mockDiscoverFetch(opts?: {
+  clientId?: string;
+  resource?: string;
+}): typeof fetch {
+  const clientId = opts?.clientId ?? "dyn-client-xyz";
+  const resource = opts?.resource ?? "https://mcp.example/linear";
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    const method = (init?.method ?? "GET").toUpperCase();
+
+    // MCP probe — return WWW-Authenticate resource_metadata
+    if (url === "https://mcp.example/linear" && method === "POST") {
+      return new Response("{}", {
+        status: 401,
+        headers: {
+          "www-authenticate":
+            'Bearer realm="mcp", resource_metadata="https://mcp.example/.well-known/oauth-protected-resource/linear"',
+        },
+      });
+    }
+    if (url.includes("oauth-protected-resource")) {
+      return new Response(
+        JSON.stringify({
+          resource,
+          authorization_servers: ["https://auth.example"],
+          scopes_supported: ["mcp", "offline_access"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.includes("oauth-authorization-server") || url.includes("openid-configuration")) {
+      return new Response(
+        JSON.stringify({
+          issuer: "https://auth.example",
+          authorization_endpoint: "https://auth.example/authorize",
+          token_endpoint: "https://auth.example/token",
+          registration_endpoint: "https://auth.example/register",
+          code_challenge_methods_supported: ["S256"],
+          scopes_supported: ["mcp", "offline_access"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url === "https://auth.example/register" && method === "POST") {
+      return new Response(
+        JSON.stringify({
+          client_id: clientId,
+          client_id_issued_at: Math.floor(Date.now() / 1000),
+          token_endpoint_auth_method: "none",
+          redirect_uris: ["http://100.9.9.9:8788/oauth/callback"],
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url === "https://auth.example/token" && method === "POST") {
+      return new Response(
+        JSON.stringify({
+          access_token: "via-discover",
+          token_type: "Bearer",
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    throw new Error(`unexpected fetch: ${method} ${url}`);
+  };
+}
+
 describe("startMcpOAuth + oauth-http callback", () => {
-  test("start builds authorize URL with env overrides (no network discovery)", async () => {
+  test("start discovers AS + DCR (no env client_id / auth URL)", async () => {
     await withTempDirs(async ({ state, repo }) => {
       const env: NodeJS.ProcessEnv = {
         TACP_OAUTH_CALLBACK_BASE: "http://100.9.9.9:8788",
-        TACP_MCP_OAUTH_LINEAR_AUTH_URL: "https://auth.example/authorize",
-        TACP_MCP_OAUTH_LINEAR_TOKEN_URL: "https://auth.example/token",
-        TACP_MCP_OAUTH_LINEAR_CLIENT_ID: "tacp-client",
       };
       const started = await startMcpOAuth({
         id: "linear",
@@ -493,21 +559,24 @@ describe("startMcpOAuth + oauth-http callback", () => {
         repoKey: "demo",
         stateDir: state,
         env,
-        // discovery should not be needed
-        fetchImpl: async () => {
-          throw new Error("fetch should not be called when env overrides set");
-        },
+        fetchImpl: mockDiscoverFetch({ clientId: "dyn-client-xyz" }),
       });
       expect(started.authorizeUrl).toContain("https://auth.example/authorize");
       expect(started.authorizeUrl).toContain("code_challenge");
+      expect(started.authorizeUrl).toContain("client_id=dyn-client-xyz");
+      expect(started.authorizeUrl).toContain(
+        encodeURIComponent("https://mcp.example/linear"),
+      );
+      expect(started.clientId).toBe("dyn-client-xyz");
       expect(started.redirectUri).toBe(
         "http://100.9.9.9:8788/oauth/callback",
       );
       expect(started.pendingPath.startsWith(state)).toBe(true);
-      // pending under state, not repo
       expect(started.pendingPath.includes(repo)).toBe(false);
       const paths = oauthStorePaths(state);
       expect(started.pendingPath.startsWith(paths.pending)).toBe(true);
+      // no static env client id path
+      expect(started.authorizeUrl).not.toContain("client_id=tacp&");
     });
   });
 

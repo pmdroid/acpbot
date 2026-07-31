@@ -99,8 +99,10 @@ export type ExchangeCodeInput = {
   redirectUri: string;
   codeVerifier: string;
   clientId: string;
-  /** Optional confidential-client secret. */
+  /** Optional confidential-client secret (unused for public DCR clients). */
   clientSecret?: string;
+  /** RFC 8707 resource indicator (MCP OAuth). */
+  resource?: string;
   fetchImpl?: typeof fetch;
 };
 
@@ -121,6 +123,9 @@ export async function exchangeAuthorizationCode(
   });
   if (input.clientSecret) {
     body.set("client_secret", input.clientSecret);
+  }
+  if (input.resource?.trim()) {
+    body.set("resource", input.resource.trim());
   }
 
   const res = await fetchFn(input.tokenEndpoint, {

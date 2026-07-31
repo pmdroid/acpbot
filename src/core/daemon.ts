@@ -1485,6 +1485,7 @@ export function createDaemon(
           session,
           `Authorize MCP **${started.id}** (open on your phone):\n\n` +
             `${started.authorizeUrl}\n\n` +
+            `Discovered client \`${started.clientId}\` · resource \`${started.resource}\`\n` +
             `Redirect: \`${started.redirectUri}\`\n` +
             `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
             `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n` +
