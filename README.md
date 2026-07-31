@@ -83,7 +83,8 @@ run through Grok over ACP.
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
 | Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD + host auto-fire via acp-host) |
-| Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse pass-through) |
+| Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse; OAuth Bearer from host store) |
+| Remote MCP OAuth (`/mcp auth`, host callback) | **Yes** (PKCE; tokens under `TACP_ACPX_STATE_DIR`) |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
 
@@ -116,6 +117,9 @@ Missing or invalid JSON → built-in only (warn on invalid). Example:
 }
 ```
 
+Topic commands: `/mcp status|add|remove` (registry id+url only) and
+`/mcp auth <id>` / `/mcp code …` (OAuth — see below).
+
 See also `demo/.tacp/mcp.json.example`.
 
 ### In-repo schedules (`.tacp/schedules/`)
@@ -147,6 +151,51 @@ claim in place (no hot-loop; re-due once jobs via `schedule_run_now`). Works eve
 the Telegram worker is down.
 
 Skill: `demo/.agents/skills/schedule/`.
+
+### Remote MCP OAuth
+
+Tokens are **never** written to the repo (not under `.tacp/`). They live under:
+
+`$TACP_ACPX_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json` (files mode `0600`)
+
+**Shared absolute state dir:** `/mcp auth` runs in the **Telegram worker** and
+writes pending PKCE; `GET /oauth/callback` and session ensure run on **acp-host**.
+Both processes must use the **same absolute** `TACP_ACPX_STATE_DIR` (resolved at
+startup). Prefer an absolute path in `.env` so different CWDs cannot diverge.
+Boot logs print the resolved path on both processes.
+
+Flow:
+
+1. Set `TACP_OAUTH_CALLBACK_BASE` to a URL the **phone browser** can reach
+   (prefer **Tailscale Serve**; or `http://100.x.y.z:8788` on your tailnet).
+2. Run `bun run acp-host` — it listens for `GET /oauth/callback` when the base is set.
+   If bind fails (port in use), **acp-host exits** with a clear error; fix the port
+   or use paste fallback below.
+3. In a session topic: `/mcp add linear https://…` then `/mcp auth linear`.
+4. Open the **tappable authorize URL** in Telegram (host does not open a browser).
+5. On callback, PKCE completes and Bearer tokens are merged into remote MCP at ensure.
+   Pending PKCE expires after **15 minutes**.
+
+When `TACP_OAUTH_CALLBACK_BASE` is set, ensure **fail-closes** if a remote MCP
+has no token: `MCP "<id>" has no OAuth token; run /mcp auth <id>`.
+
+Fallback if the redirect cannot reach the host (or the listener failed):
+prefer `/mcp code <full-callback-url>` (includes `code` + `state`); bare
+`/mcp code <code> <id>` is last resort.
+
+**Listen surface:** default `TACP_OAUTH_LISTEN_HOST=0.0.0.0` so phone redirects
+work. Anyone who can hit the port can *attempt* a callback; protection is
+high-entropy `state` + PKCE (`code_verifier` never leaves the host). Prefer
+Serve/tailnet over public Funnel/IP without understanding that model.
+
+Some gateways need endpoint overrides (no AS metadata):
+
+```bash
+TACP_MCP_OAUTH_LINEAR_AUTH_URL=…
+TACP_MCP_OAUTH_LINEAR_TOKEN_URL=…
+TACP_MCP_OAUTH_LINEAR_CLIENT_ID=tacp
+```
+
 
 ## ACP host (keep agents alive across worker restarts)
 

@@ -60,7 +60,8 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/mcp",
     scope: "topic",
-    summary: "List/add/remove repo MCP gateways (id+url; no tokens)",
+    summary:
+      "MCP gateways: status|add|remove|auth|code (tokens on host, not in repo)",
   },
   {
     name: "/help",

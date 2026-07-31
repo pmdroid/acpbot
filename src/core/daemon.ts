@@ -105,11 +105,25 @@ import {
   removeMcpServer,
   writeRemoteMcpServer,
 } from "../mcp/repo-mcp";
+import {
+  completeMcpOAuthFromPaste,
+  startMcpOAuth,
+} from "../mcp/oauth-flow";
+import {
+  listOAuthTokenIds,
+  repoKeyForOAuth,
+  resolveOAuthStateDir,
+} from "../mcp/oauth-store";
 import type { AcpTurnEvent, PromptAttachment } from "../env/types";
 
 export type DaemonOptions = {
   pollTimeoutSec?: number;
   conflictBackoffMs?: number;
+  /**
+   * Absolute (or resolvable) acpx state dir — **must match acp-host**
+   * `TACP_ACPX_STATE_DIR` so OAuth pending/tokens are shared across processes.
+   */
+  acpxStateDir?: string;
 };
 
 export type Daemon = {
@@ -153,6 +167,8 @@ export function createDaemon(
   const pollTimeoutSec = options.pollTimeoutSec ?? 25;
   const conflictBackoffMs = options.conflictBackoffMs ?? 1000;
   const log = (env.log ?? silentLogger()).child("daemon");
+  // Same absolute path worker + acp-host must share for OAuth pending/tokens.
+  const acpxStateDir = resolveOAuthStateDir(options.acpxStateDir);
 
   let sessionIndex: SessionIndex = emptySessionIndex();
   let operatorChatId: number | undefined = env.config.operatorChatId;
@@ -1342,14 +1358,19 @@ export function createDaemon(
 
 
   /**
-   * /mcp [status|add <id> <url>|remove <id>] — repo `.tacp/mcp.json` registry.
-   * Uses session.cwd (topic-bound repo). Never writes tokens.
+   * /mcp [status|add|remove|auth|code] — repo `.tacp/mcp.json` registry + host OAuth.
+   * Uses session.cwd (topic-bound repo). Tokens never written to the repo.
    */
   async function handleMcpCommand(
     session: PersistedSession,
     args: string[],
   ): Promise<void> {
     const repoRoot = session.cwd;
+    const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
+    const oauthStateDir = acpxStateDir;
+    const oauthConfigured = Boolean(
+      process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
+    );
     const sub = (args[0] ?? "status").toLowerCase();
 
     try {
@@ -1359,9 +1380,15 @@ export function createDaemon(
           return;
         }
         const config = await readMcpConfig(repoRoot);
+        const tokenIds = oauthConfigured
+          ? await listOAuthTokenIds(oauthStateDir, repoKey)
+          : [];
         await sendInTopic(
           session,
-          formatMcpRegistryStatus(config, repoRoot),
+          formatMcpRegistryStatus(config, repoRoot, {
+            tokenIds,
+            oauthEnabled: oauthConfigured,
+          }),
         );
         return;
       }
@@ -1391,6 +1418,7 @@ export function createDaemon(
           session,
           `Added MCP **${entry.name}** (${entry.type})\n${entry.url}\n\n` +
             `Written to \`.tacp/mcp.json\` (id + url only; no tokens).\n` +
+            `Authorize with \`/mcp auth ${entry.name}\` if the gateway needs OAuth.\n` +
             `Active on next session ensure / restart.`,
         );
         return;
@@ -1417,6 +1445,85 @@ export function createDaemon(
         await sendInTopic(
           session,
           `Removed MCP **${id}** from \`.tacp/mcp.json\`.`,
+        );
+        return;
+      }
+
+      if (sub === "auth") {
+        const id = args[1];
+        if (!id || args.length > 2) {
+          await sendInTopic(session, "Usage: `/mcp auth <id>`");
+          return;
+        }
+        const config = await readMcpConfig(repoRoot);
+        const entry = config.mcpServers.find(
+          (s) => typeof s.name === "string" && s.name.trim() === id.trim(),
+        );
+        if (!entry || typeof entry.url !== "string" || !entry.url.trim()) {
+          await sendInTopic(
+            session,
+            `No remote MCP **${id}** with a url in \`.tacp/mcp.json\`.\n` +
+              `Add one first: \`/mcp add ${id} <url>\``,
+          );
+          return;
+        }
+        const started = await startMcpOAuth({
+          id: id.trim(),
+          resourceUrl: entry.url.trim(),
+          repoRoot,
+          repoKey,
+          stateDir: oauthStateDir,
+        });
+        log.info("mcp oauth auth started", {
+          sessionKey: session.sessionKey,
+          id: started.id,
+          repoKey: started.repoKey,
+          // never log verifier / tokens
+        });
+        // Tappable authorize URL in Telegram — do NOT open a browser on the host.
+        await sendInTopic(
+          session,
+          `Authorize MCP **${started.id}** (open on your phone):\n\n` +
+            `${started.authorizeUrl}\n\n` +
+            `Redirect: \`${started.redirectUri}\`\n` +
+            `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
+            `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n` +
+            `Active on next ensure.\n\n` +
+            `If the browser cannot reach the host (or acp-host OAuth listen failed), ` +
+            `paste the **full** final redirect URL:\n` +
+            `\`/mcp code <callback-url>\``,
+        );
+        return;
+      }
+
+      if (sub === "code") {
+        // /mcp code <callback-url-or-code> [id]
+        const payload = args[1];
+        const idHint = args[2];
+        if (!payload || args.length > 3) {
+          await sendInTopic(
+            session,
+            "Usage: `/mcp code <callback-url-or-code> [id]`\n\n" +
+              "Prefer the full redirect URL (code + state). " +
+              "Fallback when the OAuth redirect cannot reach this host.",
+          );
+          return;
+        }
+        const result = await completeMcpOAuthFromPaste({
+          callbackUrlOrCode: payload,
+          ...(idHint ? { id: idHint } : {}),
+          repoKey,
+          stateDir: oauthStateDir,
+        });
+        log.info("mcp oauth code complete", {
+          sessionKey: session.sessionKey,
+          id: result.id,
+          repoKey: result.repoKey,
+        });
+        await sendInTopic(
+          session,
+          `OAuth complete for MCP **${result.id}**.\n` +
+            `Token stored on host (not in repo). Active on next session ensure / restart.`,
         );
         return;
       }
