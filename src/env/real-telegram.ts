@@ -128,10 +128,8 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
       log.info("outbound sendMessage", {
         chatId: params.chatId,
         thread: params.messageThreadId,
-        text:
-          params.text.length > 160
-            ? `${params.text.slice(0, 160)}…`
-            : params.text,
+        text: previewOutboundText(params.text),
+        textLen: params.text.length,
         hasKeyboard: Boolean(params.replyMarkup),
       });
       const result = await call<{ message_id: number }>("sendMessage", {
@@ -149,10 +147,8 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
       log.info("outbound editMessageText", {
         chatId: params.chatId,
         messageId: params.messageId,
-        text:
-          params.text.length > 120
-            ? `${params.text.slice(0, 120)}…`
-            : params.text,
+        text: previewOutboundText(params.text, 200),
+        textLen: params.text.length,
       });
       await call("editMessageText", {
         chat_id: params.chatId,
@@ -391,6 +387,18 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+/**
+ * Log preview for outbound text. Prefer first + last so long multi-line
+ * errors (e.g. OAuth) are not cut mid-sentence in logs only.
+ * The full `text` is still sent to Telegram unchanged.
+ */
+export function previewOutboundText(text: string, max = 400): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.65);
+  const tail = max - head - 5;
+  return `${text.slice(0, head)}\n…\n${text.slice(-tail)}`;
+}
+
 function summarizeTelegramBody(
   method: string,
   body?: Record<string, unknown>,
@@ -408,8 +416,8 @@ function summarizeTelegramBody(
     if (key in body) out[key] = body[key];
   }
   if (typeof body.text === "string") {
-    const t = body.text;
-    out.text = t.length > 120 ? `${t.slice(0, 120)}…` : t;
+    out.text = previewOutboundText(body.text, 200);
+    out.text_len = body.text.length;
   }
   if (body.reply_markup) out.has_reply_markup = true;
   return out;

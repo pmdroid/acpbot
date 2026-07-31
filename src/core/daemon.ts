@@ -1531,10 +1531,17 @@ export function createDaemon(
 
       await sendInTopic(session, MCP_COMMAND_USAGE);
     } catch (err) {
+      const detail =
+        err instanceof Error ? err.message : String(err);
+      // Full multi-line body — do not compress into one truncated log-style line.
       await sendInTopic(
         session,
-        `MCP registry error: ${err instanceof Error ? err.message : String(err)}`,
+        `MCP registry error\n\n${detail}`,
       );
+      log.warn("mcp command failed", {
+        sessionKey: session.sessionKey,
+        error: detail,
+      });
     }
   }
 
