@@ -11,7 +11,7 @@
  * - `~` / `~/…` expands to the process home directory (then treated as absolute).
  * - Built-in server name `tacp` is reserved; repo entries with that name are skipped.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import type { McpServer } from "@agentclientprotocol/sdk";
@@ -504,7 +504,11 @@ export async function readMcpConfig(
   return { mcpServers };
 }
 
-/** Atomic write of mcp.json (temp file + rename). */
+/**
+ * Atomic write of mcp.json (temp file + rename).
+ * Single-writer assumption (one operator / sequential topic commands); concurrent
+ * RMW on the same repo can last-write-win.
+ */
 export async function writeMcpConfig(
   repoRoot: string,
   config: McpConfigFile,
@@ -514,8 +518,13 @@ export async function writeMcpConfig(
   await mkdir(dirname(configPath), { recursive: true });
   const payload = `${JSON.stringify({ mcpServers: config.mcpServers }, null, 2)}\n`;
   const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, payload, "utf8");
-  await rename(tmp, configPath);
+  try {
+    await writeFile(tmp, payload, "utf8");
+    await rename(tmp, configPath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 const REMOTE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -534,6 +543,10 @@ function validateRemoteName(name: string): string {
   return n;
 }
 
+/**
+ * Validate remote MCP URL. Rejects credentials in userinfo (`user:pass@`) so
+ * secrets cannot land in git-tracked mcp.json via the URL string.
+ */
 function validateRemoteUrl(url: string): string {
   const u = url.trim();
   if (!u) throw new Error("MCP url is required");
@@ -546,12 +559,29 @@ function validateRemoteUrl(url: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`MCP url must be http(s): ${u}`);
   }
+  // Fail closed: userinfo is a common secret channel (Basic auth / API tokens).
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new Error(
+      "MCP url must not include credentials (user:pass@); tokens are never stored in the repo",
+    );
+  }
   return u;
+}
+
+/** True when an existing entry looks like stdio (command, no remote url type). */
+function isStdioConfigEntry(s: Record<string, unknown>): boolean {
+  const typeRaw =
+    typeof s.type === "string" ? s.type.trim().toLowerCase() : undefined;
+  if (typeRaw === "http" || typeRaw === "sse") return false;
+  return typeof s.command === "string" && s.command.trim() !== "";
 }
 
 /**
  * Add or replace a remote (http/sse) MCP entry. Writes **only** `name`, `type`, `url`
  * — never tokens, headers, env, or other secret fields.
+ *
+ * Same-id replace overwrites an existing **remote** entry. Refuses to clobber a
+ * **stdio** entry (command/args/env) — remove it first.
  */
 export async function writeRemoteMcpServer(
   repoRoot: string,
@@ -574,6 +604,12 @@ export async function writeRemoteMcpServer(
     (s) => typeof s.name === "string" && s.name.trim() === name,
   );
   if (idx >= 0) {
+    const existing = config.mcpServers[idx]!;
+    if (isStdioConfigEntry(existing)) {
+      throw new Error(
+        `MCP id "${name}" is already a stdio server; run /mcp remove ${name} first before adding a remote URL`,
+      );
+    }
     config.mcpServers[idx] = { ...clean };
   } else {
     config.mcpServers.push({ ...clean });
@@ -644,5 +680,6 @@ export const MCP_COMMAND_USAGE =
   "`/mcp` or `/mcp status` — list gateways\n" +
   "`/mcp add <id> <url>` — register remote http MCP (id + url only)\n" +
   "`/mcp remove <id>` — remove entry\n\n" +
-  "Tokens are never written to the repo.";
+  "Tokens are never written to the repo (no user:pass@ in URLs).\n" +
+  "Same id replaces an existing remote entry; stdio entries require `/mcp remove` first.";
 
