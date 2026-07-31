@@ -123,24 +123,39 @@ See also `demo/.tacp/mcp.json.example`.
 
 ### Remote MCP OAuth
 
-Tokens are **never** written to the repo. They live under:
+Tokens are **never** written to the repo (not under `.tacp/`). They live under:
 
-`$TACP_ACPX_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json`
+`$TACP_ACPX_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json` (files mode `0600`)
+
+**Shared absolute state dir:** `/mcp auth` runs in the **Telegram worker** and
+writes pending PKCE; `GET /oauth/callback` and session ensure run on **acp-host**.
+Both processes must use the **same absolute** `TACP_ACPX_STATE_DIR` (resolved at
+startup). Prefer an absolute path in `.env` so different CWDs cannot diverge.
+Boot logs print the resolved path on both processes.
 
 Flow:
 
 1. Set `TACP_OAUTH_CALLBACK_BASE` to a URL the **phone browser** can reach
-   (Tailscale Serve/Funnel, or `http://100.x.y.z:8788`).
+   (prefer **Tailscale Serve**; or `http://100.x.y.z:8788` on your tailnet).
 2. Run `bun run acp-host` — it listens for `GET /oauth/callback` when the base is set.
+   If bind fails (port in use), **acp-host exits** with a clear error; fix the port
+   or use paste fallback below.
 3. In a session topic: `/mcp add linear https://…` then `/mcp auth linear`.
 4. Open the **tappable authorize URL** in Telegram (host does not open a browser).
 5. On callback, PKCE completes and Bearer tokens are merged into remote MCP at ensure.
+   Pending PKCE expires after **15 minutes**.
 
 When `TACP_OAUTH_CALLBACK_BASE` is set, ensure **fail-closes** if a remote MCP
 has no token: `MCP "<id>" has no OAuth token; run /mcp auth <id>`.
 
-Fallback if the redirect cannot reach the host:
-`/mcp code <callback-url-or-code> [id]`.
+Fallback if the redirect cannot reach the host (or the listener failed):
+prefer `/mcp code <full-callback-url>` (includes `code` + `state`); bare
+`/mcp code <code> <id>` is last resort.
+
+**Listen surface:** default `TACP_OAUTH_LISTEN_HOST=0.0.0.0` so phone redirects
+work. Anyone who can hit the port can *attempt* a callback; protection is
+high-entropy `state` + PKCE (`code_verifier` never leaves the host). Prefer
+Serve/tailnet over public Funnel/IP without understanding that model.
 
 Some gateways need endpoint overrides (no AS metadata):
 

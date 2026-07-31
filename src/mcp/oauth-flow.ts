@@ -8,6 +8,7 @@
  *
  * Some gateways need explicit metadata via env — document that in README.
  */
+import { resolve } from "node:path";
 import {
   buildAuthorizeUrl,
   createPkcePair,
@@ -16,10 +17,12 @@ import {
   type TokenResponse,
 } from "./oauth-pkce";
 import {
-  defaultOAuthStateDir,
+  deletePendingForGateway,
   deletePendingOAuth,
+  pruneExpiredPendingOAuth,
   readPendingOAuth,
   repoKeyForOAuth,
+  resolveOAuthStateDir,
   writeOAuthToken,
   writePendingOAuth,
   type McpOAuthPendingRecord,
@@ -220,18 +223,24 @@ export function oauthListenHost(
 
 /**
  * Start PKCE: store pending, return authorize URL for Telegram (do not open browser on host).
+ * Prunes expired pending and clears prior pending for the same id+repoKey.
  */
 export async function startMcpOAuth(
   input: StartMcpAuthInput,
 ): Promise<StartMcpAuthResult> {
   const env = input.env ?? process.env;
-  const stateDir = input.stateDir ?? defaultOAuthStateDir(env);
+  // Always absolute so worker and acp-host agree regardless of CWD.
+  const stateDir = resolveOAuthStateDir(input.stateDir);
   const id = input.id.trim();
   if (!id) throw new Error("MCP id is required");
 
   const callbackBase = oauthCallbackBase(env, input.callbackBase);
   const redirectUri = oauthRedirectUri(callbackBase);
   const repoKey = repoKeyForOAuth(input.repoKey, input.repoRoot);
+
+  await pruneExpiredPendingOAuth(stateDir);
+  // One in-flight flow per gateway — reduces bare-code ambiguity.
+  await deletePendingForGateway(stateDir, id, repoKey);
 
   const endpoints = await resolveOAuthEndpoints(
     id,
@@ -246,7 +255,7 @@ export async function startMcpOAuth(
     codeVerifier: pkce.codeVerifier,
     id,
     repoKey,
-    repoRoot: input.repoRoot,
+    repoRoot: resolve(input.repoRoot),
     redirectUri,
     clientId: endpoints.clientId,
     authorizationEndpoint: endpoints.authorizationEndpoint,
@@ -320,7 +329,7 @@ export async function completeMcpOAuthCallback(
     fetchImpl?: typeof fetch;
   },
 ): Promise<CompleteMcpAuthResult> {
-  const stateDir = input.stateDir ?? defaultOAuthStateDir();
+  const stateDir = resolveOAuthStateDir(input.stateDir);
   const state = input.state?.trim();
   if (!state) throw new Error("missing OAuth state");
 
@@ -334,10 +343,11 @@ export async function completeMcpOAuthCallback(
   const code = input.code?.trim();
   if (!code) throw new Error("missing OAuth code");
 
+  // readPendingOAuth drops expired (TTL) records.
   const pending = await readPendingOAuth(stateDir, state);
   if (!pending) {
     throw new Error(
-      "invalid or expired OAuth state (no pending PKCE; run /mcp auth <id> again)",
+      "invalid or expired OAuth state (no pending PKCE or past 15m TTL; run /mcp auth <id> again)",
     );
   }
 
@@ -374,20 +384,21 @@ export async function completeMcpOAuthCallback(
  * Fallback when redirect cannot reach the host: paste callback URL or code.
  * `/mcp code <callback-url-or-code> [id]`
  *
- * If only a bare code is provided, `id` is required to find the pending by scanning
- * is not supported — state must be present in the URL, or the latest pending for id.
+ * Prefer the **full** redirect URL (`code` + `state`). Bare code + id is a
+ * last resort (uses latest non-expired pending for that id after `/mcp auth`
+ * cleared prior pendings for the same gateway).
  */
 export async function completeMcpOAuthFromPaste(
   input: {
     callbackUrlOrCode: string;
-    /** Optional id hint when pasting a bare code (uses most recent pending for id). */
+    /** Required for bare code (uses most recent non-expired pending for id). */
     id?: string;
     repoKey?: string;
     stateDir?: string;
     fetchImpl?: typeof fetch;
   },
 ): Promise<CompleteMcpAuthResult> {
-  const stateDir = input.stateDir ?? defaultOAuthStateDir();
+  const stateDir = resolveOAuthStateDir(input.stateDir);
   const parsed = parseCallbackPayload(input.callbackUrlOrCode);
 
   if (parsed.error) {
@@ -399,6 +410,7 @@ export async function completeMcpOAuthFromPaste(
     );
   }
 
+  // Preferred: full URL with state (CSRF-bound).
   if (parsed.state && parsed.code) {
     return completeMcpOAuthCallback({
       state: parsed.state,
@@ -412,7 +424,7 @@ export async function completeMcpOAuthFromPaste(
     throw new Error("callback missing code parameter");
   }
 
-  // Bare code — need pending by id (optional helper)
+  // Bare code — require id; pending was unique after /mcp auth for that gateway.
   if (parsed.code && input.id) {
     const pending = await findLatestPendingForId(
       stateDir,
@@ -421,7 +433,7 @@ export async function completeMcpOAuthFromPaste(
     );
     if (!pending) {
       throw new Error(
-        `no pending OAuth for "${input.id}"; run /mcp auth ${input.id} first`,
+        `no pending OAuth for "${input.id}"; run /mcp auth ${input.id} first (15m TTL)`,
       );
     }
     return completeMcpOAuthCallback({
@@ -433,7 +445,7 @@ export async function completeMcpOAuthFromPaste(
   }
 
   throw new Error(
-    "could not parse callback — paste the full redirect URL (with code & state), " +
+    "could not parse callback — prefer the full redirect URL (with code & state), " +
       "or `/mcp code <code> <id>` after /mcp auth",
   );
 }
@@ -444,7 +456,7 @@ async function findLatestPendingForId(
   repoKey?: string,
 ): Promise<McpOAuthPendingRecord | undefined> {
   const { readdir, readFile } = await import("node:fs/promises");
-  const { oauthStorePaths } = await import("./oauth-store");
+  const { isPendingExpired, oauthStorePaths } = await import("./oauth-store");
   const paths = oauthStorePaths(stateDir);
   let names: string[];
   try {
@@ -461,6 +473,7 @@ async function findLatestPendingForId(
       const rec = JSON.parse(text) as McpOAuthPendingRecord;
       if (rec.id !== id) continue;
       if (repoKey && rec.repoKey !== repoKey) continue;
+      if (isPendingExpired(rec)) continue;
       if (!best || rec.createdAt > best.createdAt) best = rec;
     } catch {
       /* skip */

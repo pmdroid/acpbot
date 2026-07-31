@@ -15,7 +15,7 @@ import {
   oauthListenHost,
   oauthListenPort,
 } from "../mcp/oauth-flow";
-import { defaultOAuthStateDir } from "../mcp/oauth-store";
+import { resolveOAuthStateDir } from "../mcp/oauth-store";
 
 export type OauthHttpServerOptions = {
   stateDir?: string;
@@ -100,7 +100,8 @@ export async function startOauthHttpServer(
 ): Promise<OauthHttpServer> {
   const env = options.env ?? process.env;
   const log = (options.log ?? silentLogger()).child("oauth-http");
-  const stateDir = options.stateDir ?? defaultOAuthStateDir(env);
+  // Absolute path — must match worker's /mcp auth pending store.
+  const stateDir = resolveOAuthStateDir(options.stateDir);
   const host = options.host ?? oauthListenHost(env);
   const port = options.port ?? oauthListenPort(env);
 

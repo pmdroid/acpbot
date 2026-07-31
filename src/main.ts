@@ -12,6 +12,8 @@ import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
+  // loadConfig already resolves acpxStateDir to absolute.
+  const acpxStateDirAbs = cfg.acpxStateDir;
   const log = createLogger({ level: cfg.logLevel, name: "tacp" });
   const store = await createJsonFileStore(cfg.storePath);
 
@@ -51,7 +53,7 @@ async function main(): Promise<void> {
       ? echoAgents(tacpConfig)
       : realAgents({
           config: tacpConfig,
-          acpxStateDir: cfg.acpxStateDir,
+          acpxStateDir: acpxStateDirAbs,
           verbose: cfg.verbose,
           log,
         });
@@ -66,7 +68,7 @@ async function main(): Promise<void> {
     speech,
   };
 
-  const daemon = createDaemon(env);
+  const daemon = createDaemon(env, { acpxStateDir: acpxStateDirAbs });
   const ac = new AbortController();
 
   const stop = () => {
@@ -80,6 +82,13 @@ async function main(): Promise<void> {
     console.error(
       `tacp starting (agent backend: ${cfg.agentBackend}, agent: ${cfg.defaultAgent}, log: ${cfg.logLevel})…`,
     );
+    console.error(`tacp acpx state dir: ${acpxStateDirAbs}`);
+    if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {
+      console.error(
+        `tacp oauth: worker shares state with acp-host at ${acpxStateDirAbs}/mcp-oauth ` +
+          `(set the same absolute TACP_ACPX_STATE_DIR on both processes)`,
+      );
+    }
     await daemon.run(ac.signal);
     console.error("tacp stopped.");
   } catch (err) {
