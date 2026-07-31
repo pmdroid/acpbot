@@ -7,9 +7,18 @@ Defined in `src/acp/agent-launch.ts`. The `/agent` picker **only lists agents wh
 | Id | Label | Launch | Requires |
 |---|---|---|---|
 | `grok-build` | grok | `grok agent stdio` | `grok` |
-| `claude` | claude | `npx -y @agentclientprotocol/claude-agent-acp` | `npx`, `claude` |
-| `codex` | codex | `npx -y @agentclientprotocol/codex-acp` | `npx`, `codex` |
+| `claude` | claude | `npx -y @agentclientprotocol/claude-agent-acp@0.64.0` | `npx`, `claude` |
+| `codex` | codex | `npx -y @agentclientprotocol/codex-acp@1.1.7` | `npx`, `codex` |
 | `opencode` | opencode | `opencode acp` | `opencode` |
+
+Adapter pins (npm):
+
+| Env | Default |
+|---|---|
+| `TACP_CLAUDE_ACP_PKG` | `@agentclientprotocol/claude-agent-acp@0.64.0` |
+| `TACP_CODEX_ACP_PKG` | `@agentclientprotocol/codex-acp@1.1.7` |
+
+Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp).
 
 **Aliases** (normalized before launch):
 
@@ -28,12 +37,10 @@ TACP_AGENT_COMMAND_JSON='{"grok-build":{"command":"grok","args":["agent","stdio"
 
 JSON overrides merge on top of the built-in registry (same shape: `command` + `args`).
 
-### Backends
+### Backend
 
-| `TACP_AGENT_BACKEND` | Behavior |
-|---|---|
-| `echo` | No child process; canned echo for Telegram path demos |
-| `real` | Spawn via ACP SDK host (or acp-host slots) |
+The worker **always** uses real ACP agents (`realAgents` → acp-host by default).  
+Unit tests may still import `echoAgents` as an in-memory fake.
 
 ## `/agent` — switch process mid-session
 
@@ -89,7 +96,7 @@ Pick a skill, then send a prompt that includes it for the agent. Full write-up: 
 
 ## acp-host notes
 
-When `TACP_ACP_HOST=1` (or the socket already exists):
+With acp-host (default; opt out via `TACP_ACP_HOST=0`):
 
 - Agent stdio lives in the host process
 - Worker restart does not kill agents

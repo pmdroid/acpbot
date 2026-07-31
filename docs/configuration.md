@@ -29,25 +29,20 @@ Keep it private (owner-only). Default `data/` is gitignored.
 
 Quote the JSON value in `.env` so shells/dotenv keep it intact.
 
-## Agent backend
+## Agents
 
 | Variable | Purpose |
 |---|---|
-| `TACP_AGENT_BACKEND` | `real` (ACP) or `echo` / `fake` (no agent process) |
 | `TACP_DEFAULT_AGENT` | Default agent id (`grok-build`, `claude`, `codex`, `opencode`, …) |
 | `TACP_AGENT_COMMAND_JSON` | Spawn overrides: `{"id":{"command":"…","args":[…]}}` |
-
-Grok without cached login:
-
-```bash
-XAI_API_KEY=…
-```
+| `TACP_CLAUDE_ACP_PKG` | Full npm package pin for Claude ACP, e.g. `@agentclientprotocol/claude-agent-acp@0.64.0` |
+| `TACP_CODEX_ACP_PKG` | Full npm package pin for Codex ACP, e.g. `@agentclientprotocol/codex-acp@1.1.7` |
 
 ## acp-host
 
 | Variable | Purpose |
 |---|---|
-| `TACP_ACP_HOST` | `1` force attach; `0` force in-process; default auto if socket exists |
+| `TACP_ACP_HOST` | Default **on** (worker uses acp-host). Set `0` / `false` for in-process SessionHost |
 | `TACP_ACP_HOST_SOCK` | Override host socket path |
 
 ```bash
@@ -119,18 +114,7 @@ No per-gateway `CLIENT_ID` / `AUTH_URL` env vars — discovery + DCR only. See [
 
 ## Minimal examples
 
-### Echo (Telegram only)
-
-```bash
-TACP_BOT_TOKEN=…
-TACP_OPERATOR_USER_ID=…
-TACP_STORE_PATH=./data/tacp-store.json
-TACP_ACPX_STATE_DIR=/abs/path/data/acpx-state
-TACP_REPOS_JSON='{"demo":"/abs/path/demo"}'
-TACP_AGENT_BACKEND=echo
-```
-
-### Real Grok + host
+### Real Grok + host (default path)
 
 ```bash
 TACP_BOT_TOKEN=…
@@ -138,12 +122,10 @@ TACP_OPERATOR_USER_ID=…
 TACP_STORE_PATH=./data/tacp-store.json
 TACP_ACPX_STATE_DIR=/abs/path/data/acpx-state
 TACP_REPOS_JSON='{"demo":"/abs/path/demo","tacp":"/abs/path"}'
-TACP_AGENT_BACKEND=real
 TACP_DEFAULT_AGENT=grok-build
-# XAI_API_KEY=…   # if needed
 ```
 
 ```bash
 bun run acp-host
-TACP_ACP_HOST=1 bun run start
+bun run start
 ```

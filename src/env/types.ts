@@ -127,6 +127,14 @@ export type SendMessageParams = {
   parseMode?: string;
 };
 
+/** Telegram sendChatAction (typing / upload indicators; optional utility). */
+export type SendChatActionParams = {
+  chatId: number;
+  /** e.g. "typing", "upload_photo", "upload_document", "record_voice" */
+  action: string;
+  messageThreadId?: number;
+};
+
 export type SendVoiceParams = {
   chatId: number;
   /** Raw OGG/Opus (or other) bytes */
@@ -167,6 +175,11 @@ export type EditMessageTextParams = {
   text: string;
   replyMarkup?: unknown;
   parseMode?: string;
+};
+
+export type DeleteMessageParams = {
+  chatId: number;
+  messageId: number;
 };
 
 export type EditForumTopicParams = {
@@ -241,9 +254,15 @@ export interface TelegramPort {
   getUpdates(params: GetUpdatesParams): Promise<TelegramUpdate[]>;
   sendMessage(params: SendMessageParams): Promise<{ message_id: number }>;
   editMessageText(params: EditMessageTextParams): Promise<void>;
+  deleteMessage(params: DeleteMessageParams): Promise<void>;
   editForumTopic(params: EditForumTopicParams): Promise<void>;
   createForumTopic(params: CreateForumTopicParams): Promise<ForumTopic>;
   answerCallbackQuery(params: AnswerCallbackQueryParams): Promise<void>;
+  /**
+   * Show a chat action (typing, upload, …). Telegram expires these ~5s;
+   * callers should refresh while work is in progress.
+   */
+  sendChatAction(params: SendChatActionParams): Promise<void>;
   /** Resolve file_id → path for download */
   getFile?(fileId: string): Promise<TelegramFileInfo>;
   /** Download file bytes by file_id (uses getFile + fetch under the hood). */

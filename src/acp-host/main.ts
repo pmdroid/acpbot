@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   console.error(`tacp acp-host listening on ${sockPath}`);
   console.error(`tacp acp-host state dir: ${stateDir}`);
   console.error(
-    "Slots keyed by sessionKey (repo/name). Worker: TACP_ACP_HOST=1",
+    "Slots keyed by sessionKey (repo/name). Worker attaches by default (TACP_ACP_HOST=0 to disable)",
   );
   if (Object.keys(repos).length > 0) {
     console.error(

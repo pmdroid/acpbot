@@ -23,12 +23,15 @@ All bodies are JSON. Responses are JSON `{ ok: true, … }` or `{ ok: false, err
 
 | Method / path | Body | Effect |
 |---|---|---|
-| `POST /telegram/message` | `sessionKey`, `text`, optional `kind` (`update` \| `message`) | Send text to the session topic |
-| `POST /telegram/photo` | `sessionKey`, `path`, optional `caption`, `filename` | `sendPhoto` |
-| `POST /telegram/document` | `sessionKey`, `path`, optional `caption`, `filename` | `sendDocument` |
-| `POST /telegram/speak` | `sessionKey`, `text` | TTS + `sendVoice` |
+| `POST /v1/telegram/message` | `sessionKey`, `text`, optional `kind` (`update` \| `message`) | `kind=update` → edit (or create) the live **working bubble**; `kind=message` → new permanent message |
+| `POST /v1/telegram/photo` | `sessionKey`, `path`, optional `caption`, `filename` | `sendPhoto` |
+| `POST /v1/telegram/document` | `sessionKey`, `path`, optional `caption`, `filename` | `sendDocument` |
+| `POST /v1/telegram/speak` | `sessionKey`, `text` | TTS + `sendVoice` |
+| `GET /v1/health` | — | Liveness |
 
 Exact path strings are defined in `src/mcp/worker-api.ts` / the server; MCP tool wrappers hide them from agents.
+
+The working bubble is owned by the worker (posted at turn start, deleted at turn end). Topic forum titles are **not** renamed for status — see [architecture.md](architecture.md#turn-ux-working-bubble).
 
 ## Path safety (photo / file)
 
@@ -41,7 +44,7 @@ Agent-supplied paths are resolved with `resolvePathUnderRepo` (`src/mcp/repo-pat
 
 ## Delivery path
 
-MCP tools call this API **directly** (HTTP over the Unix socket). There is no mid-turn disk queue on the happy path. Legacy queue drain may still run on the worker poll loop for leftover files only.
+MCP tools call this API **directly** (HTTP over the Unix socket). There is no disk queue.
 
 Start the API by starting the worker:
 

@@ -24,7 +24,7 @@
 │  · either embeds ACP host  OR  talks to acp-host.sock       │
 └───────────────┬─────────────────────────────┬───────────────┘
                 │                             │
-                │  TACP_ACP_HOST=1            │  MCP tools POST
+                │  worker → acp-host (default)│  MCP tools POST
                 ▼                             ▼
 ┌──────────────────────────────┐   ┌──────────────────────────┐
 │  acp-host (optional)         │   │  Host MCP (stdio child)  │
@@ -75,7 +75,7 @@ src/core/     pure daemon logic
 src/env/      ports + fakes + real telegram / agents / speech / store
 ```
 
-`Environment` bundles `telegram`, `agents`, `clock`, `store` (and speech when configured). Acceptance tests run against fakes; production wires `realTelegram` + `realAgents` or `echoAgents`.
+`Environment` bundles `telegram`, `agents`, `clock`, `store` (and speech when configured). Acceptance tests run against fakes (`fakeTelegram`, `echoAgents`, …); production wires `realTelegram` + `realAgents`.
 
 ## On-disk layout
 
@@ -95,15 +95,32 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 
 ## Session model
 
-1. Lobby `/new` → pick repo (+ name) → create forum topic
+1. Lobby `/new` → pick repo (+ name) → create forum topic (stable title `⏸ repo/name`)
 2. Topic messages become ACP `prompt` turns (with optional media prep)
 3. Permissions / questions → inline keyboards; answers complete the RPC
 4. `/agent` may respawn a different process for the same topic
 5. `/model` uses ACP `session/set_model` or config options when available
 
+**Topic titles are not rewritten for turn status.** Live status lives in a single in-topic **working bubble** (see below).
+
+## Turn UX (working bubble)
+
+While a turn is in flight the worker posts **one** message in the topic and keeps it current:
+
+| State | Bubble text (examples) |
+|---|---|
+| Turn running | `⏳ Working…` |
+| MCP `update` | `⏳ …` (edits the same message) |
+| Permission / question | `❓ Waiting for your decision…` |
+| Turn ends / cancel / fail | Bubble **deleted**, then final reply or error |
+
+- Multi-topic / multi-agent safe: status is always **in that session’s thread**, not a chat-level typing indicator
+- `telegram_send` / photo / file / speak still create **separate** permanent messages
+- Session status is still tracked in the store for `/status` and steer vs prompt; only the **Telegram topic name** stays fixed
+
 ## Message volume policy
 
-Provisional: **buffer agent text during the turn, flush once at the end**, chunked to Telegram limits. Mid-turn pings use explicit MCP tools (`update`, `telegram_send`, photo, file, speak) via the worker API instead of streaming every token.
+**Buffer agent text during the turn, flush once at the end**, chunked to Telegram limits. Mid-turn pings use explicit MCP tools (`update` → edit working bubble; `telegram_send`, photo, file, speak → new messages) via the worker API instead of streaming every token.
 
 ## Security notes
 

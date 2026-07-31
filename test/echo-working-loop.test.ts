@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { createDaemon } from "../src/core/daemon";
-import { topicName } from "../src/core/status";
 import { systemClock } from "../src/env/clock";
 import { echoAgents } from "../src/env/echo-agents";
 import { fakeTelegram } from "../src/env/fake-telegram";
@@ -101,11 +100,22 @@ describe("working surface with shipped echoAgents", () => {
       expect(m.messageThreadId).toBe(session.messageThreadId);
     }
 
-    const names = telegram.outbound
-      .filter((c) => c.method === "editForumTopic")
-      .map((c) => (c.method === "editForumTopic" ? c.params.name : ""));
-    expect(names).toContain(topicName("tacp", "demo", "running"));
-    expect(names).toContain(topicName("tacp", "demo", "done"));
+    // Topic titles are never rewritten for turn status.
+    expect(
+      telegram.outbound.filter((c) => c.method === "editForumTopic"),
+    ).toHaveLength(0);
+
+    // Live turn posts a “⏳ Working…” bubble in-topic, then deletes it.
+    const workingPosts = telegram
+      .sentMessages()
+      .filter(
+        (m) =>
+          m.messageThreadId === session.messageThreadId &&
+          m.text?.startsWith("⏳"),
+      );
+    expect(workingPosts.length).toBeGreaterThan(0);
+    const deletes = telegram.outbound.filter((c) => c.method === "deleteMessage");
+    expect(deletes.length).toBeGreaterThan(0);
   });
 
   test("non-operator gets silence on echo-backed core", async () => {

@@ -8,9 +8,9 @@ import type {
 } from "./types";
 
 /**
- * No-process agent backend for proving the Telegram surface without a
- * logged-in coding agent. Replies with an echo so the operator sees a full
- * loop: topic → prompt → status → final message.
+ * Test-only no-process agent fake. Not used by the production worker entry
+ * (`src/main.ts` always uses `realAgents`). Replies with an echo so tests can
+ * exercise topic → prompt → status → final message without a coding agent.
  */
 export function echoAgents(config: TacpConfig): AgentsPort {
   const sessions = new Map<string, AgentSessionHandle>();
@@ -76,7 +76,7 @@ export function echoAgents(config: TacpConfig): AgentsPort {
 
       const reply =
         `[echo/${handle.identity.repo}] ${input.text}\n` +
-        `(cwd=${handle.cwd}; agent backend=echo — set TACP_AGENT_BACKEND=real for ACP)`;
+        `(cwd=${handle.cwd}; test echoAgents fake)`;
 
       const events = (async function* () {
         if (ac.signal.aborted) {

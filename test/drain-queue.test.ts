@@ -5,8 +5,8 @@ import type { AcpTurnEvent, TelegramUpdate } from "../src/env/types";
 
 /**
  * Ticket 03: event queue must be drained without awaiting Telegram inside
- * the for-await consumer. We prove it by making editForumTopic async-slow
- * and asserting every event is pulled before the first Telegram side-effect.
+ * the for-await consumer. Working bubble may post before the stream; once
+ * pulls start, no Telegram I/O may interleave until the stream is exhausted.
  */
 
 const OPERATOR = 3;
@@ -45,7 +45,7 @@ function topic(
 }
 
 describe("drainTurn does not gate the event queue on Telegram", () => {
-  test("all events are consumed before any editForumTopic/sendMessage for the turn", async () => {
+  test("all events are consumed before drain-side Telegram I/O", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -55,20 +55,18 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
     });
 
     const seq: string[] = [];
-    const originalEdit = env.telegram.editForumTopic.bind(env.telegram);
     const originalSend = env.telegram.sendMessage.bind(env.telegram);
+    const originalDelete = env.telegram.deleteMessage.bind(env.telegram);
 
-    env.telegram.editForumTopic = async (params) => {
-      seq.push(`telegram:editForumTopic:${params.name ?? ""}`);
-      // Slow outbound — if the consumer awaited this mid-stream, later
-      // event pulls would happen after this marker.
-      await Bun.sleep(30);
-      return originalEdit(params);
-    };
     env.telegram.sendMessage = async (params) => {
       seq.push(`telegram:sendMessage`);
       await Bun.sleep(10);
       return originalSend(params);
+    };
+    env.telegram.deleteMessage = async (params) => {
+      seq.push(`telegram:deleteMessage`);
+      await Bun.sleep(10);
+      return originalDelete(params);
     };
 
     const daemon = createDaemon(env);
@@ -117,7 +115,7 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
 
     expect(pullCount).toBe(scripted.length);
 
-    const firstTelegram = seq.findIndex((s) => s.startsWith("telegram:"));
+    const firstPull = seq.findIndex((s) => s.startsWith("pull:"));
     const lastPull = (() => {
       let idx = -1;
       for (let i = 0; i < seq.length; i++) {
@@ -126,10 +124,14 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
       return idx;
     })();
 
-    expect(firstTelegram).toBeGreaterThan(-1);
+    expect(firstPull).toBeGreaterThan(-1);
     expect(lastPull).toBeGreaterThan(-1);
-    // Every event pull completes before any Telegram side-effect of the turn.
-    expect(lastPull).toBeLessThan(firstTelegram);
+
+    // Working bubble may post before pulls; once streaming starts, no Telegram
+    // side-effects may interleave until every event has been pulled.
+    for (let i = firstPull; i <= lastPull; i++) {
+      expect(seq[i]!.startsWith("pull:")).toBe(true);
+    }
 
     // Reply still delivered after drain.
     const replies = env.telegram

@@ -12,14 +12,22 @@ The name `tacp` is reserved.
 | Tool | Purpose |
 |---|---|
 | `speak` | TTS → voice note in the topic |
-| `update` | Short mid-turn progress ping |
-| `telegram_send` | Mid-turn text (not a status ping) |
+| `update` | Edit the live **working bubble** (`⏳ …`) — one message, no spam |
+| `telegram_send` | Permanent mid-turn text (not the working bubble) |
 | `telegram_send_photo` | Image under the session repo |
 | `telegram_send_file` | Document under the session repo |
 | `schedule_create` | Create a delayed / recurring job |
 | `schedule_list` | List jobs for this session (or whole repo) |
 | `schedule_cancel` | Disable a job |
 | `schedule_run_now` | Mark due so the host fires on the next tick |
+
+### Working bubble vs permanent messages
+
+- On turn start the worker posts `⏳ Working…` in the topic.
+- **`update`** edits that same message (progress text). Prefer short 1–3 sentence pings.
+- When the turn needs the operator (permission / question), the bubble becomes `❓ Waiting for…`.
+- When the turn ends, the worker **deletes** the bubble, then delivers the final assistant reply.
+- Use **`telegram_send`** for content that should stay in the chat history (links, intermediate results).
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [worker-api.md](worker-api.md).
 

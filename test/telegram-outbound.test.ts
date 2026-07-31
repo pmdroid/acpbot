@@ -6,13 +6,6 @@ import { createDaemon } from "../src/core/daemon";
 import { createFakeEnvironment } from "../src/env/fake-env";
 import type { TelegramUpdate } from "../src/env/types";
 import {
-  completeTelegramJob,
-  enqueueTelegramJob,
-  listPendingTelegramJobs,
-  telegramQueueDir,
-  waitForTelegramAck,
-} from "../src/mcp/telegram-queue";
-import {
   basenameOf,
   resolvePathUnderRepo,
   TELEGRAM_PHOTO_MAX_BYTES,
@@ -43,87 +36,30 @@ function root(text: string, id: number): TelegramUpdate {
   };
 }
 
-describe("telegram-queue", () => {
-  test("enqueue + list + complete ack", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tg-q-"));
-    const queueDir = telegramQueueDir(dir);
-    const job = await enqueueTelegramJob({
-      sessionKey: "demo/a",
-      text: "halfway done",
-      kind: "update",
-      queueDir,
-    });
-    const pending = await listPendingTelegramJobs(queueDir);
-    expect(pending.some((j) => j.id === job.id)).toBe(true);
-    expect(pending.find((j) => j.id === job.id)?.kind).toBe("update");
-
-    const wait = waitForTelegramAck(job.id, { queueDir, timeoutMs: 2000 });
-    await completeTelegramJob(job, { ok: true }, queueDir);
-    const ack = await wait;
-    expect(ack.ok).toBe(true);
-
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  test("photo/document jobs require path and list correctly", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tg-q-media-"));
-    const queueDir = telegramQueueDir(dir);
-    const photo = await enqueueTelegramJob({
-      sessionKey: "demo/a",
-      kind: "photo",
-      path: "/tmp/shot.png",
-      filename: "shot.png",
-      text: "caption",
-      queueDir,
-    });
-    const doc = await enqueueTelegramJob({
-      sessionKey: "demo/a",
-      kind: "document",
-      path: "/tmp/out.log",
-      filename: "out.log",
-      queueDir,
-    });
-    const pending = await listPendingTelegramJobs(queueDir);
-    expect(pending.find((j) => j.id === photo.id)?.kind).toBe("photo");
-    expect(pending.find((j) => j.id === photo.id)?.path).toBe("/tmp/shot.png");
-    expect(pending.find((j) => j.id === doc.id)?.kind).toBe("document");
-
-    await expect(
-      enqueueTelegramJob({
-        sessionKey: "demo/a",
-        kind: "photo",
-        queueDir,
-      }),
-    ).rejects.toThrow(/path/);
-
-    await rm(dir, { recursive: true, force: true });
-  });
-});
-
 describe("repo-path", () => {
   test("resolves relative path under repo and rejects escapes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "repo-"));
-    await mkdir(join(root, "out"), { recursive: true });
-    const file = join(root, "out", "a.png");
+    const rootDir = await mkdtemp(join(tmpdir(), "repo-"));
+    await mkdir(join(rootDir, "out"), { recursive: true });
+    const file = join(rootDir, "out", "a.png");
     await writeFile(file, "png-bytes");
 
-    const ok = resolvePathUnderRepo(root, "out/a.png");
+    const ok = resolvePathUnderRepo(rootDir, "out/a.png");
     expect(ok.ok).toBe(true);
     if (ok.ok) {
       expect(ok.size).toBe(9);
       expect(ok.rel.replace(/\\/g, "/")).toBe("out/a.png");
     }
 
-    const escape = resolvePathUnderRepo(root, "../secret");
+    const escape = resolvePathUnderRepo(rootDir, "../secret");
     expect(escape.ok).toBe(false);
 
-    const missing = resolvePathUnderRepo(root, "nope.bin");
+    const missing = resolvePathUnderRepo(rootDir, "nope.bin");
     expect(missing.ok).toBe(false);
 
     expect(basenameOf("/a/b/c.txt")).toBe("c.txt");
     expect(TELEGRAM_PHOTO_MAX_BYTES).toBeGreaterThan(1_000_000);
 
-    await rm(root, { recursive: true, force: true });
+    await rm(rootDir, { recursive: true, force: true });
   });
 });
 
@@ -168,13 +104,10 @@ describe("daemon worker API delivers photo/file", () => {
         repos: { demo: repoDir },
       },
     });
-    // Drive daemon session map via handleUpdate, then exercise worker handlers
-    // the same way createDaemon wires them (session lookup + sendPhoto).
     const daemon = createDaemon(env, { acpxStateDir: stateDir });
     await daemon.handleUpdate(root("/new demo mediaout", 1));
     const session = (await daemon.listSessions())[0]!;
 
-    // Inline server with the same delivery path as the daemon handlers.
     const { createWorkerApiServer } = await import(
       "../src/core/worker-api-server"
     );
@@ -222,10 +155,9 @@ describe("daemon worker API delivers photo/file", () => {
     });
     await server.listen();
     try {
-      const {
-        workerSendDocument,
-        workerSendPhoto,
-      } = await import("../src/mcp/worker-api");
+      const { workerSendDocument, workerSendPhoto } = await import(
+        "../src/mcp/worker-api"
+      );
       const photo = await workerSendPhoto(
         {
           sessionKey: session.sessionKey,

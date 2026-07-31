@@ -25,12 +25,13 @@ You (Telegram) ──topic──► tacp worker ──ACP──► grok / claude
 - **Lobby → topic sessions** — `/new` opens a forum topic bound to a repo + agent
 - **Real agents** — Grok Build, Claude, Codex, OpenCode (PATH-gated picker)
 - **Mid-session switch** — `/model` and `/agent` without leaving the topic
+- **Working bubble** — one editable `⏳` / `❓` status message per turn (MCP `update`); topic titles stay fixed
 - **Permissions & questions** — inline keyboards for ACP permissions, elicitation, ask-user
 - **Media in / out** — photos, files, voice STT; agent TTS / photo / file via MCP
 - **Host MCP** — built-in `tacp` tools + per-repo `.tacp/mcp.json` (stdio / HTTP / SSE)
 - **Remote MCP OAuth** — PKCE + dynamic client registration; tokens stay off-repo
 - **Schedules** — durable in-repo jobs; `acp-host` fires them even if the worker is down
-- **Optional acp-host** — keep agent processes warm across worker restarts
+- **acp-host by default** — keep agent processes warm across worker restarts
 
 Full capability matrix and design notes live under [`docs/`](docs/).
 
@@ -62,7 +63,7 @@ Minimum:
 | `TACP_STORE_PATH` | Durable JSON store path |
 | `TACP_ACPX_STATE_DIR` | Host state dir (sessions, OAuth, sockets) — prefer **absolute** |
 | `TACP_REPOS_JSON` | `{"repoKey":"/absolute/cwd",…}` |
-| `TACP_AGENT_BACKEND` | `echo` (no agent) or `real` |
+| `TACP_DEFAULT_AGENT` | `grok-build` (default), `claude`, `codex`, `opencode`, … |
 
 See [docs/configuration.md](docs/configuration.md) and [docs/getting-started.md](docs/getting-started.md).
 
@@ -77,31 +78,24 @@ set -a && source .env && set +a
 bun run start            # also installs skills unless TACP_SKIP_SKILL_INSTALL=1
 ```
 
-**Prove Telegram without an agent login:**
+**Real ACP agents** (default). Example with Grok:
 
 ```bash
-TACP_AGENT_BACKEND=echo bun run start
-```
-
-**Real agent (example: Grok):**
-
-```bash
-# TACP_AGENT_BACKEND=real
-# TACP_DEFAULT_AGENT=grok-build
-# requires `grok` on PATH (or XAI_API_KEY)
+# TACP_DEFAULT_AGENT=grok-build   # requires `grok` on PATH + normal Grok login
 bun run start
 ```
 
-**Optional long-lived agent owner** (recommended for real agents):
+**Recommended layout** (acp-host is the default for the worker):
 
 ```bash
-# Terminal 1
+# Terminal 1 — agents + schedule ticker
 bun run acp-host
 
-# Terminal 2
-TACP_ACP_HOST=1 bun run start
-# (auto-uses acp-host if the socket already exists)
+# Terminal 2 — Telegram worker + worker API
+bun run start
 ```
+
+Opt out of acp-host (in-process agents): `TACP_ACP_HOST=0 bun run start`.
 
 ### 4. In Telegram
 
