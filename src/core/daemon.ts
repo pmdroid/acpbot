@@ -18,11 +18,13 @@ import {
   type AskUserQuestionBroker,
 } from "./ask-user-question";
 import {
+  encodeModeCallback,
   encodeNewRepoCallback,
   keyboardFromButtons,
   newToken,
   parseAskQuestionCallback,
   parseElicitationCallback,
+  parseModeCallback,
   parseNewRepoCallback,
   parsePermissionCallback,
   parseSkillCallback,
@@ -99,12 +101,15 @@ import {
 import { initialTopicName, reduceStatus, topicName } from "./status";
 import {
   formatModeStatus,
+  formatSessionStatus,
   resolveBuildModeId,
   resolveModeToken,
   resolvePlanModeId,
   togglePlanBuildModeId,
 } from "../acp/session-mode";
+import { resolveAgentLaunch } from "../acp/agent-launch";
 import {
+  buildSessionMcpServers,
   formatMcpRegistryStatus,
   MCP_COMMAND_USAGE,
   readMcpConfig,
@@ -190,6 +195,11 @@ export function createDaemon(
   const skillPicks = new Map<string, PendingSkillPick>();
   /** sessionKey → waiting for operator text after skill pick */
   const skillTextPending = new Map<string, PendingSkillText>();
+  /** Mode picker: token → available modes for this session. */
+  const modePicks = new Map<
+    string,
+    { sessionKey: string; modes: string[]; current?: string }
+  >();
   /**
    * In-memory only — never persisted. Restart always exits naming mode.
    * While set, a valid one-word free-text creates a session topic; must be
@@ -1611,6 +1621,106 @@ export function createDaemon(
     }
   }
 
+  async function applySessionMode(
+    session: PersistedSession,
+    modeId: string,
+    via: string,
+  ): Promise<void> {
+    if (!env.agents.setSessionMode) {
+      await sendInTopic(
+        session,
+        "This agent backend does not support session modes.",
+      );
+      return;
+    }
+    try {
+      const next = await env.agents.setSessionMode(session.sessionKey, modeId);
+      const cur = next.currentModeId ?? modeId;
+      const avail = next.availableModeIds ?? [];
+      await sendInTopic(
+        session,
+        `Mode → **\`${cur}\`**\n\n` +
+          formatModeStatus({ current: cur, available: avail }),
+        undefined,
+        { html: true },
+      );
+      log.info("session mode set", {
+        sessionKey: session.sessionKey,
+        modeId: cur,
+        via,
+      });
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Failed to set mode \`${modeId}\`: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * /mode with no args → inline picker of advertised modes.
+   */
+  async function showModePicker(session: PersistedSession): Promise<void> {
+    if (!env.agents.getSessionMode || !env.agents.setSessionMode) {
+      await sendInTopic(
+        session,
+        "This agent backend does not support session modes.",
+      );
+      return;
+    }
+    try {
+      await env.agents.ensureSession(session.identity);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Could not attach agent: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    const state = await env.agents.getSessionMode(session.sessionKey);
+    const available = state.availableModeIds ?? [];
+    if (available.length === 0) {
+      await sendInTopic(
+        session,
+        formatModeStatus({
+          current: state.currentModeId,
+          available,
+        }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    const token = newToken();
+    modePicks.set(token, {
+      sessionKey: session.sessionKey,
+      modes: available,
+      ...(state.currentModeId ? { current: state.currentModeId } : {}),
+    });
+    const buttons = available.map((id, i) => ({
+      text:
+        (id === state.currentModeId ? "✓ " : "") +
+        (id.length > 28 ? `${id.slice(0, 27)}…` : id),
+      callback_data: encodeModeCallback(token, i),
+    }));
+    buttons.push({
+      text: "Cancel",
+      callback_data: encodeModeCallback(token, -1),
+    });
+    await sendInTopic(
+      session,
+      formatModeStatus({
+        current: state.currentModeId,
+        available,
+      }) + "\n\n_Pick a mode:_",
+      keyboardFromButtons(buttons),
+      { html: true },
+    );
+  }
+
   /**
    * /plan /build /mode — ACP session/set_mode control (like acpx session modes).
    */
@@ -1640,7 +1750,18 @@ export function createDaemon(
     const state = await env.agents.getSessionMode(session.sessionKey);
     const available = state.availableModeIds ?? [];
 
+    // /mode → button list (not silent toggle)
     if (name === "/mode" && args.length === 0) {
+      await showModePicker(session);
+      return;
+    }
+
+    // /mode toggle → plan ↔ build
+    if (
+      name === "/mode" &&
+      args.length === 1 &&
+      args[0]!.toLowerCase() === "toggle"
+    ) {
       const target = togglePlanBuildModeId(state.currentModeId, available);
       if (!target || target === state.currentModeId) {
         await sendInTopic(
@@ -1654,27 +1775,7 @@ export function createDaemon(
         );
         return;
       }
-      try {
-        const next = await env.agents.setSessionMode(
-          session.sessionKey,
-          target,
-        );
-        const cur = next.currentModeId ?? target;
-        const avail =
-          next.availableModeIds?.length ? next.availableModeIds : available;
-        await sendInTopic(
-          session,
-          `Mode → **\`${cur}\`** (toggled)\n\n` +
-            formatModeStatus({ current: cur, available: avail }),
-          undefined,
-          { html: true },
-        );
-      } catch (err) {
-        await sendInTopic(
-          session,
-          `Failed to set mode \`${target}\`: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      await applySessionMode(session, target, "/mode toggle");
       return;
     }
 
@@ -1718,29 +1819,169 @@ export function createDaemon(
       return;
     }
 
+    await applySessionMode(session, modeId, name);
+  }
+
+  async function handleStatusCommand(session: PersistedSession): Promise<void> {
+    const agent =
+      session.identity.agent ??
+      env.config.defaultAgent ??
+      "grok-build";
+    const launch = resolveAgentLaunch(agent);
+
+    let mode: string | undefined;
+    let availableModes: string[] = [];
     try {
-      const next = await env.agents.setSessionMode(session.sessionKey, modeId);
-      const cur = next.currentModeId ?? modeId;
-      const avail =
-        next.availableModeIds?.length ? next.availableModeIds : available;
-      await sendInTopic(
-        session,
-        `Mode → **\`${cur}\`**\n\n` +
-          formatModeStatus({ current: cur, available: avail }),
-        undefined,
-        { html: true },
-      );
-      log.info("session mode set", {
-        sessionKey: session.sessionKey,
-        modeId: cur,
-        via: name,
-      });
+      await env.agents.ensureSession(session.identity);
+      if (env.agents.getSessionMode) {
+        const st = await env.agents.getSessionMode(session.sessionKey);
+        mode = st.currentModeId;
+        availableModes = st.availableModeIds ?? [];
+      }
     } catch (err) {
-      await sendInTopic(
-        session,
-        `Failed to set mode \`${modeId}\`: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      log.warn("status: ensure/getSessionMode failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
+
+    let mcpCount = 0;
+    let mcpNames: string[] = [];
+    const mcpEnabled = env.config.mcpEnabled !== false;
+    if (mcpEnabled) {
+      try {
+        const servers = await buildSessionMcpServers({
+          cwd: session.cwd,
+          sessionKey: session.sessionKey,
+          stateDir:
+            process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state",
+          enabled: true,
+        });
+        mcpCount = servers.length;
+        mcpNames = servers.map((s) => {
+          const n = (s as { name?: string }).name;
+          return typeof n === "string" ? n : "?";
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const acpHost =
+      process.env.TACP_ACP_HOST === "1" ||
+      process.env.TACP_ACP_HOST === "true";
+
+    await sendInTopic(
+      session,
+      formatSessionStatus({
+        sessionKey: session.sessionKey,
+        status: session.status,
+        agent,
+        launch,
+        mode,
+        availableModes,
+        cwd: session.cwd,
+        threadId: session.messageThreadId,
+        chatId: session.chatId,
+        mcpEnabled,
+        mcpCount,
+        mcpNames,
+        acpHost,
+      }),
+      undefined,
+      { html: true },
+    );
+  }
+
+  async function handleModeCallback(
+    data: string,
+    callbackQueryId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    const parsed = parseModeCallback(data);
+    if (!parsed) return;
+
+    const pick = modePicks.get(parsed.token);
+    if (!pick) {
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Picker expired — run /mode again",
+        });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    const session = sessionIndex.byKey[pick.sessionKey];
+    if (!session) {
+      modePicks.delete(parsed.token);
+      return;
+    }
+
+    if (parsed.modeIndex === -1) {
+      modePicks.delete(parsed.token);
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Cancelled",
+        });
+      } catch {
+        /* ignore */
+      }
+      if (message) {
+        try {
+          await env.telegram.editMessageText({
+            chatId: message.chat.id,
+            messageId: message.message_id,
+            text: "Mode picker cancelled.",
+            replyMarkup: { inline_keyboard: [] },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
+    const modeId = pick.modes[parsed.modeIndex];
+    modePicks.delete(parsed.token);
+    if (!modeId) {
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Invalid mode",
+        });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    try {
+      await env.telegram.answerCallbackQuery({
+        callbackQueryId,
+        text: `→ ${modeId}`,
+      });
+    } catch {
+      /* ignore */
+    }
+
+    if (message) {
+      try {
+        await env.telegram.editMessageText({
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          text: `Setting mode → ${modeId}…`,
+          replyMarkup: { inline_keyboard: [] },
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
+    await applySessionMode(session, modeId, "/mode picker");
   }
 
   async function handleTopicMessage(msg: TelegramMessage): Promise<void> {
@@ -1798,6 +2039,10 @@ export function createDaemon(
         slash.name === "/build"
       ) {
         await handleSessionModeCommand(session, slash.name, slash.args);
+        return;
+      }
+      if (slash.name === "/status") {
+        await handleStatusCommand(session);
         return;
       }
       if (slash.name === "/mcp") {
@@ -2188,6 +2433,12 @@ export function createDaemon(
     const skill = parseSkillCallback(cq.data);
     if (skill) {
       await handleSkillCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const mode = parseModeCallback(cq.data);
+    if (mode) {
+      await handleModeCallback(cq.data, cq.id, cq.message);
       return;
     }
 

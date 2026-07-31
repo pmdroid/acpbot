@@ -147,7 +147,68 @@ export function formatModeStatus(input: {
   }
   lines.push(
     "",
-    "Commands: `/plan` · `/build` · `/mode` (toggle) · `/mode <id>`",
+    "Commands: `/mode` (picker) · `/mode toggle` · `/mode <id>` · `/plan` · `/build`",
+  );
+  return lines.join("\n");
+}
+
+/** Session /status dump for the operator. */
+export function formatSessionStatus(input: {
+  sessionKey: string;
+  status: string;
+  agent: string;
+  launch?: { command: string; args: string[] };
+  mode?: string;
+  availableModes?: string[];
+  cwd: string;
+  threadId: number;
+  chatId: number;
+  mcpEnabled?: boolean;
+  mcpCount?: number;
+  mcpNames?: string[];
+  acpHost?: boolean;
+  agentSessionId?: string;
+}): string {
+  const launch =
+    input.launch != null
+      ? `${input.launch.command}${input.launch.args.length ? " " + input.launch.args.join(" ") : ""}`
+      : "(unknown)";
+  const lines = [
+    `**Session** \`${input.sessionKey}\``,
+    `Status: \`${input.status}\``,
+    `Agent: \`${input.agent}\``,
+    `Launch / model entry: \`${launch}\``,
+    `Mode: \`${input.mode ?? "unknown"}\``,
+  ];
+  if (input.availableModes && input.availableModes.length > 0) {
+    lines.push(
+      `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
+    );
+  }
+  lines.push(
+    `Thread: \`${input.threadId}\` · chat \`${input.chatId}\``,
+    `Cwd: \`${input.cwd}\``,
+  );
+  if (input.agentSessionId) {
+    lines.push(`ACP session id: \`${input.agentSessionId}\``);
+  }
+  if (input.mcpEnabled === false) {
+    lines.push("MCP: off");
+  } else {
+    const names =
+      input.mcpNames && input.mcpNames.length > 0
+        ? input.mcpNames.join(", ")
+        : "(none listed)";
+    lines.push(
+      `MCP: on · ${input.mcpCount ?? 0} server(s): ${names}`,
+    );
+  }
+  if (input.acpHost != null) {
+    lines.push(`acp-host: ${input.acpHost ? "yes" : "no"}`);
+  }
+  lines.push(
+    "",
+    "Change mode: `/mode` (button list) · `/plan` · `/build`",
   );
   return lines.join("\n");
 }

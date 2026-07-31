@@ -45,7 +45,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/mode",
     scope: "topic",
-    summary: "Show/toggle session mode (plan ↔ build), or /mode <id>",
+    summary: "Pick session mode from a list, or /mode <id>|toggle",
   },
   {
     name: "/plan",
@@ -56,6 +56,11 @@ export const COMMANDS: readonly CommandDef[] = [
     name: "/build",
     scope: "topic",
     summary: "Switch agent to build/code mode (tools on)",
+  },
+  {
+    name: "/status",
+    scope: "topic",
+    summary: "Session context: agent, mode, cwd, MCP, thread",
   },
   {
     name: "/mcp",

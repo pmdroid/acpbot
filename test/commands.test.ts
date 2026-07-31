@@ -62,6 +62,7 @@ describe("command registry", () => {
       "/plan",
       "/sessions",
       "/skills",
+      "/status",
     ]);
   });
 
