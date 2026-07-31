@@ -131,6 +131,8 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
 
   // Skill discovery roots (absolute). Session cwd subdirs are added at list time.
   const skillRoots: string[] = [];
+  // Always include package-bundled skills (telegram, schedules, …).
+  skillRoots.push(join(import.meta.dir, "..", "skills"));
   if (file.skillRoots) skillRoots.push(...file.skillRoots);
   if (env.TACP_SKILL_ROOTS) {
     for (const part of env.TACP_SKILL_ROOTS.split(/[:;,]/)) {

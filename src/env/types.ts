@@ -35,7 +35,7 @@ export type TacpConfig = {
   acpMediaAttachments?: boolean;
   /**
    * TTS policy:
-   * - agent (default): only when the model requests speak (marker or speak tool)
+   * - agent (default): only when the model calls the MCP speak tool
    * - always: every text reply
    * - off: never
    */

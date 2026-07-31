@@ -54,7 +54,9 @@ Each tick:
 | Slot busy | Claim rolled back, `lastStatus: busy`, retry next tick |
 | Fire error | Claim left in place (no hot-loop); re-due once jobs via `schedule_run_now` |
 
-Works without the Telegram worker. Skill example may live under `demo/.agents/skills/schedule/`.
+Works without the Telegram worker (create/list/cancel only need MCP). Firing needs **acp-host**. Delivering Telegram photos/files from a fire needs the **worker** (worker API).
+
+Agent skill: package [`skills/schedules`](../skills/schedules/SKILL.md) — install with `bun run skills:install` (see [skills.md](skills.md)).
 
 ## Implementation map
 
@@ -63,4 +65,5 @@ Works without the Telegram worker. Skill example may live under `demo/.agents/sk
 | Store / types | `src/schedules/` |
 | Host ticker | `src/acp-host/scheduler.ts` |
 | MCP tools | `src/mcp/server.ts` (built-in `tacp`) |
+| Agent skill | `skills/schedules/` |
 | Tests | `test/host-scheduler.test.ts`, `test/schedules-store.test.ts` |

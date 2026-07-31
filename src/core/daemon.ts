@@ -73,8 +73,8 @@ import {
   textForTts,
 } from "./media";
 import {
-  extractSpeakFromReply,
   isSpeakToolName,
+  stripSpeakMarkers,
   type SpeakRequest,
 } from "./speak";
 import {
@@ -1173,7 +1173,7 @@ export function createDaemon(
     const statusTransitions: SessionStatus[] = [];
     const textParts: string[] = [];
     let deathError: string | undefined;
-    /** Agent requested voice (tool or will parse marker from reply). */
+    /** Agent requested voice via MCP speak tool. */
     let speakFromTool: SpeakRequest | undefined;
 
     try {
@@ -1187,10 +1187,9 @@ export function createDaemon(
           textParts.push(event.text);
         }
         if (event.type === "tool_call") {
-          // Outbound Telegram MCP tools (update/photo/file/speak) call the
-          // worker Unix API directly — no mid-turn queue drain needed.
+          // Outbound Telegram MCP tools call the worker Unix API directly.
           if (isSpeakToolName(event.title)) {
-            // MCP speak delivers via worker API; skip end-of-turn marker TTS.
+            // MCP speak already delivered; skip end-of-turn TTS.
             speakFromTool = { source: "tool", text: "" };
             log.info("agent requested speak (worker API)", {
               sessionKey: session.sessionKey,
@@ -1242,15 +1241,15 @@ export function createDaemon(
       }
 
       const rawReply = textParts.join("");
-      const { visibleText, speak: speakFromMarker } =
-        extractSpeakFromReply(rawReply);
+      // Strip any legacy speak markers from text; TTS is MCP speak (or always mode).
+      const visibleText = stripSpeakMarkers(rawReply);
       const ttsMode = env.config.ttsMode ?? "agent";
       const speakReq: SpeakRequest | undefined =
         ttsMode === "always"
-          ? { source: "marker", text: undefined }
+          ? { source: "always", text: undefined }
           : ttsMode === "off"
             ? undefined
-            : (speakFromTool ?? speakFromMarker);
+            : speakFromTool;
 
       if (visibleText.trim()) {
         await sendInTopic(session, visibleText, undefined, { html: true });

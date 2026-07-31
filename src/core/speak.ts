@@ -1,18 +1,11 @@
 /**
- * Agent-controlled TTS: the model decides whether to speak.
+ * Agent-controlled TTS via the host MCP `speak` tool.
  *
- * Conventions (any one is enough):
- * 1) Explicit block in the assistant message (stripped before Telegram text):
- *      <<<speak>>>
- *      optional override text
- *      <<<
- *    Empty body → speak the rest of the reply (after stripping the block).
- *
- * 2) MCP / tool call whose name ends with speak / tts / send_voice / voice
- *    (e.g. speak, tacp:speak, mcp__tacp__speak) with { "text": "..." }.
+ * Tool names that end with speak / tts / send_voice / voice
+ * (e.g. speak, tacp:speak, mcp__tacp__speak) with { "text": "..." }.
  */
 
-/** Opening tag; body until closing tag or end of message. */
+/** Legacy markers still stripped from Telegram text if a model emits them. */
 const SPEAK_BLOCK =
   /<<<\s*speak\s*>>>\s*([\s\S]*?)(?:<<<\s*\/\s*speak\s*>>>|<<<\s*end\s*>>>|(?=\n*<<<)|$)/i;
 
@@ -26,7 +19,7 @@ export type SpeakRequest = {
    * - "" after mid-turn MCP delivery → already spoken (skip end-of-turn TTS)
    */
   text?: string | undefined;
-  source: "marker" | "tool";
+  source: "tool" | "always";
 };
 
 export function isSpeakToolName(name: string | undefined): boolean {
@@ -62,32 +55,20 @@ export function speakTextFromToolInput(raw: unknown): string | undefined {
 }
 
 /**
- * Strip speak markers from assistant text and return whether to TTS.
+ * Strip legacy speak markers from assistant text (do not trigger TTS).
+ * TTS is MCP `speak` only (or ttsMode=always).
+ */
+export function stripSpeakMarkers(reply: string): string {
+  if (!SPEAK_BLOCK.test(reply)) return reply;
+  return reply.replace(SPEAK_BLOCK, "").trim();
+}
+
+/**
+ * @deprecated Use stripSpeakMarkers. Kept for tests; never returns speak.
  */
 export function extractSpeakFromReply(reply: string): {
   visibleText: string;
-  speak: SpeakRequest | undefined;
+  speak: undefined;
 } {
-  const m = reply.match(SPEAK_BLOCK);
-  if (!m) {
-    return { visibleText: reply, speak: undefined };
-  }
-  const override = (m[1] ?? "").trim();
-  const visibleText = reply.replace(SPEAK_BLOCK, "").trim();
-  return {
-    visibleText,
-    speak: {
-      source: "marker",
-      text: override || undefined,
-    },
-  };
-}
-
-export type TtsMode = "off" | "always" | "agent";
-
-export function parseTtsMode(raw: string | undefined): TtsMode {
-  const n = (raw ?? "agent").trim().toLowerCase();
-  if (n === "off" || n === "0" || n === "false" || n === "never") return "off";
-  if (n === "always" || n === "1" || n === "true" || n === "on") return "always";
-  return "agent";
+  return { visibleText: stripSpeakMarkers(reply), speak: undefined };
 }

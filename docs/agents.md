@@ -71,13 +71,21 @@ Modes use ACP session mode APIs when the agent advertises them.
 
 ## Skills
 
-`/skills` discovers skill collections from:
+tacp ships **telegram** and **schedules** under package [`skills/`](../skills/). Install globally so every agent CLI sees them:
 
-- Session cwd (agent convention dirs)
-- `TACP_SKILL_ROOTS` (colon-separated extras)
+```bash
+bun run skills:install
+# also runs on worker start (skip: TACP_SKIP_SKILL_INSTALL=1)
+```
+
+`/skills` (topic) discovers collections from:
+
+- Package `skills/` (always on `skillRoots`)
+- Session cwd (`.agents/skills`, `.grok/skills`, …)
+- `TACP_SKILL_ROOTS` (extra dirs)
 - Defaults under `$HOME`: `.grok/skills`, `.grok/bundled/skills`, `.agents/skills`, `.claude/skills`
 
-Pick a skill, then send a prompt that includes it for the agent.
+Pick a skill, then send a prompt that includes it for the agent. Full write-up: [skills.md](skills.md).
 
 ## acp-host notes
 

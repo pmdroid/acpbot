@@ -68,6 +68,29 @@ async function main(): Promise<void> {
     speech,
   };
 
+  // Install bundled skills into global agent dirs so all CLIs (Grok/Claude/…) see them.
+  if (process.env.TACP_SKIP_SKILL_INSTALL !== "1") {
+    try {
+      const { installBundledSkills } = await import("./core/bundled-skills");
+      const inst = await installBundledSkills({ log });
+      const n = inst.installed.filter((i) => i.mode !== "skip").length;
+      if (n > 0) {
+        console.error(
+          `tacp skills: installed ${n} link(s) into global agent skill dirs`,
+        );
+      }
+      if (inst.errors.length) {
+        log.warn("bundled skill install had errors", {
+          errors: inst.errors.slice(0, 5),
+        });
+      }
+    } catch (err) {
+      log.warn("bundled skill install failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const daemon = createDaemon(env, { acpxStateDir: acpxStateDirAbs });
   const ac = new AbortController();
 
