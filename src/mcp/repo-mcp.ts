@@ -25,8 +25,8 @@ import {
 import { missingOAuthTokenMessage } from "./oauth-flow";
 import {
   bearerForMcp,
-  defaultOAuthStateDir,
   repoKeyForOAuth,
+  resolveOAuthStateDir,
 } from "./oauth-store";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
@@ -507,10 +507,10 @@ export async function buildSessionMcpServers(
   ];
 
   // OAuth: merge Bearer from host store (never from repo mcp.json).
-  const oauthStateDir =
-    options.oauthStateDir?.trim() ||
-    options.stateDir?.trim() ||
-    defaultOAuthStateDir();
+  // Always absolute so ensure (acp-host) matches /mcp auth (worker).
+  const oauthStateDir = resolveOAuthStateDir(
+    options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
+  );
   const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
   const failClosed = oauthFailClosedDefault(options.oauthFailClosed);
   merged = await applyOAuthTokensToServers(merged, {
@@ -741,10 +741,18 @@ export async function removeMcpServer(
 export function formatMcpRegistryStatus(
   config: McpConfigFile,
   repoRoot?: string,
-  auth?: { tokenIds?: string[] },
+  auth?: {
+    tokenIds?: string[];
+    /**
+     * When true (TACP_OAUTH_CALLBACK_BASE set), show auth ok/missing for remotes.
+     * When false/omitted, omit auth notes (public remotes without OAuth infra).
+     */
+    oauthEnabled?: boolean;
+  },
 ): string {
   const rootNote = repoRoot ? `\nRepo: \`${resolve(repoRoot)}\`` : "";
   const tokenSet = new Set(auth?.tokenIds ?? []);
+  const showAuth = auth?.oauthEnabled === true;
   if (config.mcpServers.length === 0) {
     return (
       `No MCP servers in \`.tacp/mcp.json\`.${rootNote}\n\n` +
@@ -759,9 +767,12 @@ export function formatMcpRegistryStatus(
         typeof s.type === "string" && s.type.trim()
           ? s.type.trim()
           : "http";
-      const authNote = tokenSet.has(name)
-        ? " · auth: ok"
-        : " · auth: missing (run `/mcp auth " + name + "`)";
+      let authNote = "";
+      if (showAuth) {
+        authNote = tokenSet.has(name)
+          ? " · auth: ok"
+          : " · auth: missing (run `/mcp auth " + name + "`)";
+      }
       return `• **${name}** (${type}) ${s.url}${authNote}`;
     }
     if (typeof s.command === "string") {

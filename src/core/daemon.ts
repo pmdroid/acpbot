@@ -110,15 +110,20 @@ import {
   startMcpOAuth,
 } from "../mcp/oauth-flow";
 import {
-  defaultOAuthStateDir,
   listOAuthTokenIds,
   repoKeyForOAuth,
+  resolveOAuthStateDir,
 } from "../mcp/oauth-store";
 import type { AcpTurnEvent, PromptAttachment } from "../env/types";
 
 export type DaemonOptions = {
   pollTimeoutSec?: number;
   conflictBackoffMs?: number;
+  /**
+   * Absolute (or resolvable) acpx state dir — **must match acp-host**
+   * `TACP_ACPX_STATE_DIR` so OAuth pending/tokens are shared across processes.
+   */
+  acpxStateDir?: string;
 };
 
 export type Daemon = {
@@ -162,6 +167,8 @@ export function createDaemon(
   const pollTimeoutSec = options.pollTimeoutSec ?? 25;
   const conflictBackoffMs = options.conflictBackoffMs ?? 1000;
   const log = (env.log ?? silentLogger()).child("daemon");
+  // Same absolute path worker + acp-host must share for OAuth pending/tokens.
+  const acpxStateDir = resolveOAuthStateDir(options.acpxStateDir);
 
   let sessionIndex: SessionIndex = emptySessionIndex();
   let operatorChatId: number | undefined = env.config.operatorChatId;
@@ -1360,7 +1367,10 @@ export function createDaemon(
   ): Promise<void> {
     const repoRoot = session.cwd;
     const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
-    const oauthStateDir = defaultOAuthStateDir();
+    const oauthStateDir = acpxStateDir;
+    const oauthConfigured = Boolean(
+      process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
+    );
     const sub = (args[0] ?? "status").toLowerCase();
 
     try {
@@ -1370,10 +1380,15 @@ export function createDaemon(
           return;
         }
         const config = await readMcpConfig(repoRoot);
-        const tokenIds = await listOAuthTokenIds(oauthStateDir, repoKey);
+        const tokenIds = oauthConfigured
+          ? await listOAuthTokenIds(oauthStateDir, repoKey)
+          : [];
         await sendInTopic(
           session,
-          formatMcpRegistryStatus(config, repoRoot, { tokenIds }),
+          formatMcpRegistryStatus(config, repoRoot, {
+            tokenIds,
+            oauthEnabled: oauthConfigured,
+          }),
         );
         return;
       }
@@ -1471,9 +1486,11 @@ export function createDaemon(
           `Authorize MCP **${started.id}** (open on your phone):\n\n` +
             `${started.authorizeUrl}\n\n` +
             `Redirect: \`${started.redirectUri}\`\n` +
-            `After approve, tokens are stored on the host under acpx state ` +
-            `(not in the repo). Active on next ensure.\n\n` +
-            `If the browser cannot reach the host, paste the final URL:\n` +
+            `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
+            `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n` +
+            `Active on next ensure.\n\n` +
+            `If the browser cannot reach the host (or acp-host OAuth listen failed), ` +
+            `paste the **full** final redirect URL:\n` +
             `\`/mcp code <callback-url>\``,
         );
         return;
@@ -1487,6 +1504,7 @@ export function createDaemon(
           await sendInTopic(
             session,
             "Usage: `/mcp code <callback-url-or-code> [id]`\n\n" +
+              "Prefer the full redirect URL (code + state). " +
               "Fallback when the OAuth redirect cannot reach this host.",
           );
           return;

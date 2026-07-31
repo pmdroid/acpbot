@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   base64Url,
@@ -14,9 +14,13 @@ import {
 import {
   assertNotRepoPath,
   bearerForMcp,
+  isPendingExpired,
   oauthStorePaths,
+  PENDING_OAUTH_TTL_MS,
   readOAuthToken,
+  readPendingOAuth,
   repoKeyForOAuth,
+  resolveOAuthStateDir,
   writeOAuthToken,
   writePendingOAuth,
 } from "../src/mcp/oauth-store";
@@ -29,6 +33,7 @@ import {
 import {
   applyOAuthTokensToServers,
   buildSessionMcpServers,
+  formatMcpRegistryStatus,
 } from "../src/mcp/repo-mcp";
 import { startOauthHttpServer } from "../src/acp-host/oauth-http";
 import type { TacpMcpRemoteServer } from "../src/mcp/repo-mcp";
@@ -98,7 +103,15 @@ describe("oauth-pkce", () => {
 });
 
 describe("oauth-store", () => {
-  test("tokens land under state dir, never under repo .tacp", async () => {
+  test("resolveOAuthStateDir is always absolute", () => {
+    const abs = resolveOAuthStateDir("./relative-state");
+    expect(isAbsolute(abs)).toBe(true);
+    expect(abs).toBe(resolve("./relative-state"));
+    const already = resolveOAuthStateDir("/tmp/absolute-oauth");
+    expect(already).toBe("/tmp/absolute-oauth");
+  });
+
+  test("tokens land under state dir, never under repo .tacp; mode 0600", async () => {
     await withTempDirs(async ({ state, repo }) => {
       const repoKey = repoKeyForOAuth("demo", repo);
       const path = await writeOAuthToken(
@@ -115,9 +128,17 @@ describe("oauth-store", () => {
       );
 
       expect(path.startsWith(state)).toBe(true);
+      expect(isAbsolute(path)).toBe(true);
       expect(path.includes(`${join("mcp-oauth", "by-repo")}`)).toBe(true);
       expect(path.includes(join(".tacp"))).toBe(false);
       expect(path.includes(repo)).toBe(false);
+
+      const st = await stat(path);
+      // On unix: owner read/write only (0600). Skip strict check on platforms
+      // that don't honor mode (Windows).
+      if (process.platform !== "win32") {
+        expect(st.mode & 0o777).toBe(0o600);
+      }
 
       // Repo mcp.json must not receive the token
       await mkdir(join(repo, ".tacp"), { recursive: true });
@@ -159,6 +180,35 @@ describe("oauth-store", () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
     expect(a).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  test("pending PKCE TTL: expired records are dropped", async () => {
+    await withTempDirs(async ({ state, repo }) => {
+      const old = Date.now() - PENDING_OAUTH_TTL_MS - 1000;
+      await writePendingOAuth(state, {
+        state: "expired-state",
+        codeVerifier: generateCodeVerifier(),
+        id: "linear",
+        repoKey: "demo",
+        repoRoot: repo,
+        redirectUri: "http://127.0.0.1:9/oauth/callback",
+        clientId: "tacp",
+        authorizationEndpoint: "https://auth.example/authorize",
+        tokenEndpoint: "https://auth.example/token",
+        createdAt: old,
+      });
+      expect(isPendingExpired({ createdAt: old })).toBe(true);
+      const got = await readPendingOAuth(state, "expired-state");
+      expect(got).toBeUndefined();
+
+      await expect(
+        completeMcpOAuthCallback({
+          state: "expired-state",
+          code: "x",
+          stateDir: state,
+        }),
+      ).rejects.toThrow(/invalid or expired|15m TTL/i);
+    });
   });
 });
 
@@ -286,6 +336,36 @@ describe("oauth callback state validation", () => {
       const auth = await bearerForMcp(state, "demo", "gql");
       expect(auth?.value).toBe("Bearer from-paste");
     });
+  });
+});
+
+describe("status auth notes", () => {
+  test("omits auth notes when oauthEnabled is false", () => {
+    const text = formatMcpRegistryStatus(
+      {
+        mcpServers: [
+          { name: "linear", type: "http", url: "https://mcp.example/linear" },
+        ],
+      },
+      undefined,
+      { oauthEnabled: false, tokenIds: [] },
+    );
+    expect(text).toContain("linear");
+    expect(text).not.toContain("auth: missing");
+    expect(text).not.toContain("auth: ok");
+  });
+
+  test("shows auth missing when oauthEnabled and no token", () => {
+    const text = formatMcpRegistryStatus(
+      {
+        mcpServers: [
+          { name: "linear", type: "http", url: "https://mcp.example/linear" },
+        ],
+      },
+      undefined,
+      { oauthEnabled: true, tokenIds: [] },
+    );
+    expect(text).toContain("auth: missing");
   });
 });
 

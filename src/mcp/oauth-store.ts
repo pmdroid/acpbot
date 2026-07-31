@@ -1,14 +1,17 @@
 /**
  * MCP OAuth token + pending PKCE store.
  *
- * Layout (under `$TACP_ACPX_STATE_DIR`, never under a git repo):
- *   mcp-oauth/by-repo/<repoKey>/<id>.json   — access/refresh tokens
- *   mcp-oauth/pending/<state>.json         — in-flight PKCE
+ * Layout (under absolute `$TACP_ACPX_STATE_DIR` — same path for worker + acp-host):
+ *   mcp-oauth/by-repo/<repoKey>/<id>.json   — access/refresh tokens (mode 0600)
+ *   mcp-oauth/pending/<state>.json         — in-flight PKCE (mode 0600, TTL 15m)
  *
- * Tokens must never be written into `<repo>/.tacp/mcp.json`.
+ * Tokens must never be written into `<repo>/.tacp/mcp.json` (or any `.tacp` path).
+ * Prefer a private state directory (owner-only). Default `data/` is gitignored;
+ * avoid placing state under a tracked tree if you can use an absolute path outside the repo.
  */
 import { createHash } from "node:crypto";
 import {
+  chmod,
   mkdir,
   readFile,
   readdir,
@@ -17,6 +20,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+
+/** Pending PKCE lifetime (code_verifier retention). */
+export const PENDING_OAUTH_TTL_MS = 15 * 60 * 1000;
+
+const FILE_MODE = 0o600;
+const DIR_MODE = 0o700;
 
 export type McpOAuthTokenRecord = {
   id: string;
@@ -50,27 +59,44 @@ export type McpOAuthPendingRecord = {
 };
 
 export type OAuthStorePaths = {
+  /** Absolute state dir root. */
   stateDir: string;
   root: string;
   byRepo: string;
   pending: string;
 };
 
-/** Default state dir from env (same as acp-host / sessions). */
+/**
+ * Resolve OAuth / acpx state directory to an **absolute** path.
+ * Worker and acp-host must share the same absolute path for pending PKCE + tokens.
+ */
 export function defaultOAuthStateDir(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return (
+  const raw =
     env.TACP_ACPX_STATE_DIR?.trim() ||
     env.TACP_OAUTH_STATE_DIR?.trim() ||
-    "./data/acpx-state"
-  );
+    "./data/acpx-state";
+  return resolve(raw);
+}
+
+/**
+ * Normalize any stateDir input to absolute (path.resolve).
+ * Prefer this at every store entrypoint so relative paths never diverge by CWD.
+ */
+export function resolveOAuthStateDir(stateDir?: string): string {
+  if (stateDir && stateDir.trim()) {
+    const s = stateDir.trim();
+    return isAbsolute(s) ? s : resolve(s);
+  }
+  return defaultOAuthStateDir();
 }
 
 export function oauthStorePaths(stateDir: string): OAuthStorePaths {
-  const root = join(resolve(stateDir), "mcp-oauth");
+  const abs = resolveOAuthStateDir(stateDir);
+  const root = join(abs, "mcp-oauth");
   return {
-    stateDir: resolve(stateDir),
+    stateDir: abs,
     root,
     byRepo: join(root, "by-repo"),
     pending: join(root, "pending"),
@@ -111,12 +137,26 @@ function sanitizeSegment(s: string): string {
   return t;
 }
 
+async function ensurePrivateDir(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true, mode: DIR_MODE });
+  try {
+    await chmod(dir, DIR_MODE);
+  } catch {
+    /* best-effort on platforms that ignore mode */
+  }
+}
+
 async function atomicWrite(filePath: string, payload: string): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
+  await ensurePrivateDir(dirname(filePath));
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    await writeFile(tmp, payload, "utf8");
+    await writeFile(tmp, payload, { encoding: "utf8", mode: FILE_MODE });
     await rename(tmp, filePath);
+    try {
+      await chmod(filePath, FILE_MODE);
+    } catch {
+      /* best-effort */
+    }
   } catch (err) {
     await unlink(tmp).catch(() => {});
     throw err;
@@ -124,8 +164,13 @@ async function atomicWrite(filePath: string, payload: string): Promise<void> {
 }
 
 /**
- * Guard: refuse to write oauth files under a path that looks like a repo's
- * `.tacp` directory or any path containing `/.git/`. Callers pass stateDir only.
+ * Guard: refuse to write OAuth material under `.git` or any `.tacp` path
+ * (including mcp.json). Does not forbid a state dir that happens to live
+ * under the repo tree outside `.tacp` (e.g. gitignored `data/`) — prefer an
+ * absolute private path outside the git worktree when possible.
+ *
+ * Set `TACP_OAUTH_ALLOW_IN_REPO_STATE=1` is reserved for future tightening;
+ * currently paths under repoRoot but outside `.tacp` are allowed.
  */
 export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
   const abs = resolve(targetPath);
@@ -133,26 +178,34 @@ export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
   if (norm.includes("/.git/") || norm.endsWith("/.git")) {
     throw new Error(`refusing to write OAuth data under .git: ${abs}`);
   }
-  // Explicitly never write into <repo>/.tacp/mcp-oauth or mcp.json
-  if (norm.includes("/.tacp/mcp") || /\/\.tacp\/mcp\.json$/i.test(norm)) {
+  // Never write into <repo>/.tacp/… (mcp.json, mcp-oauth, etc.)
+  if (norm.includes("/.tacp/") || /\/\.tacp$/i.test(norm)) {
     throw new Error(
-      `refusing to write OAuth tokens into repo .tacp path: ${abs}`,
+      `refusing to write OAuth tokens under repo .tacp path: ${abs}`,
     );
   }
   if (repoRoot) {
     const root = resolve(repoRoot);
     const prefix = root.endsWith(sep) ? root : root + sep;
-    // Allow only if target is outside the repo (state dir is typically outside)
-    if (abs === root || abs.startsWith(prefix)) {
-      // Exception: if stateDir is intentionally inside repo (dev), still block
-      // writing next to mcp.json — require mcp-oauth not under .tacp
-      if (norm.includes("/.tacp/")) {
-        throw new Error(
-          `refusing to store OAuth tokens under repo .tacp (use TACP_ACPX_STATE_DIR): ${abs}`,
-        );
-      }
+    if (
+      (abs === root || abs.startsWith(prefix)) &&
+      process.env.TACP_OAUTH_ALLOW_IN_REPO_STATE !== "1" &&
+      process.env.TACP_OAUTH_ALLOW_IN_REPO_STATE !== "true"
+    ) {
+      // Soft policy: only refuse if clearly under .tacp (already handled).
+      // Document that absolute TACP_ACPX_STATE_DIR outside the worktree is preferred.
+      void 0;
     }
   }
+}
+
+export function isPendingExpired(
+  record: { createdAt: number },
+  now: number = Date.now(),
+  ttlMs: number = PENDING_OAUTH_TTL_MS,
+): boolean {
+  if (!Number.isFinite(record.createdAt) || record.createdAt <= 0) return true;
+  return now - record.createdAt > ttlMs;
 }
 
 export async function writePendingOAuth(
@@ -161,15 +214,22 @@ export async function writePendingOAuth(
 ): Promise<string> {
   const paths = oauthStorePaths(stateDir);
   assertNotRepoPath(paths.root, record.repoRoot);
+  await ensurePrivateDir(paths.root);
+  await ensurePrivateDir(paths.pending);
   const file = pendingPath(paths, record.state);
   assertNotRepoPath(file, record.repoRoot);
   await atomicWrite(file, `${JSON.stringify(record, null, 2)}\n`);
   return file;
 }
 
+/**
+ * Read pending PKCE by state. Returns undefined if missing or **expired**
+ * (expired files are deleted).
+ */
 export async function readPendingOAuth(
   stateDir: string,
   state: string,
+  opts?: { now?: number; ttlMs?: number },
 ): Promise<McpOAuthPendingRecord | undefined> {
   const paths = oauthStorePaths(stateDir);
   const file = pendingPath(paths, state);
@@ -178,6 +238,10 @@ export async function readPendingOAuth(
     const parsed = JSON.parse(text) as McpOAuthPendingRecord;
     if (!parsed || typeof parsed !== "object") return undefined;
     if (parsed.state !== state) return undefined;
+    if (isPendingExpired(parsed, opts?.now, opts?.ttlMs)) {
+      await unlink(file).catch(() => {});
+      return undefined;
+    }
     return parsed;
   } catch (err) {
     const code =
@@ -208,6 +272,72 @@ export async function deletePendingOAuth(
   }
 }
 
+/**
+ * Delete all pending PKCE records for a gateway id (optional repoKey filter).
+ * Used on `/mcp auth` start so only one in-flight flow remains.
+ */
+export async function deletePendingForGateway(
+  stateDir: string,
+  id: string,
+  repoKey?: string,
+): Promise<number> {
+  const paths = oauthStorePaths(stateDir);
+  let names: string[];
+  try {
+    names = await readdir(paths.pending);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const file = join(paths.pending, name);
+    try {
+      const text = await readFile(file, "utf8");
+      const rec = JSON.parse(text) as McpOAuthPendingRecord;
+      if (rec.id !== id) continue;
+      if (repoKey && rec.repoKey !== repoKey) continue;
+      await unlink(file);
+      n++;
+    } catch {
+      /* skip corrupt */
+    }
+  }
+  return n;
+}
+
+/** Remove expired pending files. Returns count deleted. */
+export async function pruneExpiredPendingOAuth(
+  stateDir: string,
+  opts?: { now?: number; ttlMs?: number },
+): Promise<number> {
+  const paths = oauthStorePaths(stateDir);
+  let names: string[];
+  try {
+    names = await readdir(paths.pending);
+  } catch {
+    return 0;
+  }
+  const now = opts?.now ?? Date.now();
+  const ttl = opts?.ttlMs ?? PENDING_OAUTH_TTL_MS;
+  let n = 0;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const file = join(paths.pending, name);
+    try {
+      const text = await readFile(file, "utf8");
+      const rec = JSON.parse(text) as McpOAuthPendingRecord;
+      if (isPendingExpired(rec, now, ttl)) {
+        await unlink(file);
+        n++;
+      }
+    } catch {
+      /* skip */
+    }
+  }
+  return n;
+}
+
 export async function writeOAuthToken(
   stateDir: string,
   record: McpOAuthTokenRecord,
@@ -215,6 +345,8 @@ export async function writeOAuthToken(
 ): Promise<string> {
   const paths = oauthStorePaths(stateDir);
   assertNotRepoPath(paths.root, opts?.repoRoot);
+  await ensurePrivateDir(paths.root);
+  await ensurePrivateDir(paths.byRepo);
   const file = tokenPath(paths, record.repoKey, record.id);
   assertNotRepoPath(file, opts?.repoRoot);
   await atomicWrite(file, `${JSON.stringify(record, null, 2)}\n`);
@@ -309,11 +441,7 @@ export async function bearerForMcp(
   };
 }
 
-/** Resolve absolute state dir; useful in tests. */
+/** @deprecated Use resolveOAuthStateDir */
 export function resolveStateDir(stateDir?: string): string {
-  if (stateDir && stateDir.trim()) {
-    const s = stateDir.trim();
-    return isAbsolute(s) ? s : resolve(s);
-  }
-  return resolve(defaultOAuthStateDir());
+  return resolveOAuthStateDir(stateDir);
 }
