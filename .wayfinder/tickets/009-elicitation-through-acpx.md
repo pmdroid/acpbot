@@ -3,7 +3,7 @@ id: "009"
 title: Decide how tacp obtains structured questions through acpx
 type: grilling
 status: open
-assignee: null
+assignee: pascal (this session)
 blocked_by: []
 ---
 
