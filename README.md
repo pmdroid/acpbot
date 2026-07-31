@@ -82,6 +82,7 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
+| Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD; host auto-fire is separate) |
 | Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse pass-through) |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
@@ -116,6 +117,26 @@ Missing or invalid JSON → built-in only (warn on invalid). Example:
 ```
 
 See also `demo/.tacp/mcp.json.example`.
+
+### In-repo schedules (`.tacp/schedules/`)
+
+Agents can create **durable jobs** via built-in MCP tools on server **`tacp`**:
+
+| Tool | Action |
+|------|--------|
+| `schedule_create` | `prompt` (required) + optional `script` path + `once`/`cron` → `.tacp/schedules/<id>.json` |
+| `schedule_list` | jobs for `TACP_SESSION_KEY` (or whole repo with `all: true`) |
+| `schedule_cancel` | soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
+
+`script` must be **relative to the repo root** (no `..` escapes). Prefer
+`.tacp/schedules/scripts/<name>`. Cron is 5-field (`m h dom mon dow`). **Next-run
+is always computed in UTC** for MVP — the `timezone` field is stored (and non-UTC
+values get a create warning) but does **not** shift the schedule yet. When both
+day-of-month and day-of-week are restricted, classic cron **OR** applies (either
+may match). **Host fire** (waking the session when due) is a separate step —
+creating a job only persists intent.
+
+Skill: `demo/.agents/skills/schedule/`.
 
 ## ACP host (keep agents alive across worker restarts)
 
