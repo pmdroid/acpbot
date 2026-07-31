@@ -117,6 +117,37 @@ Missing or invalid JSON → built-in only (warn on invalid). Example:
 
 See also `demo/.tacp/mcp.json.example`.
 
+### MCP profiles (multi-topic, one repo)
+
+When one repo hosts different kinds of topics (e.g. life automation vs coding),
+declare an optional allowlist profile so sessions only see a subset of repo MCP:
+
+```json
+// <repo>/.tacp/config.json
+{
+  "defaultAgent": "grok-build",
+  "mcpProfile": "automation"
+}
+```
+
+```json
+// <repo>/.tacp/mcp.profiles.json
+{
+  "automation": ["schedule", "homeassistant"],
+  "coding": []
+}
+```
+
+Rules:
+
+- If `mcpProfile` is set **and** the named key exists in `mcp.profiles.json`,
+  repo MCP is filtered to that name list before merge with built-in `tacp`.
+- Empty list `[]` → no repo MCP for that profile (built-in `tacp` still added).
+- Missing config, missing profiles file, or **unknown** profile name → no filter
+  (all servers from `mcp.json`).
+- `defaultAgent` is read from config for future per-repo agent defaults; session
+  create still uses the global `TACP_DEFAULT_AGENT` / config default today.
+
 ## ACP host (keep agents alive across worker restarts)
 
 Like Ursula’s `acp-host`: a long-lived process owns agent stdio for **any** ACP agent

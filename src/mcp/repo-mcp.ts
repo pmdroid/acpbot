@@ -10,6 +10,12 @@
  *   are left unchanged. Write repo-relative scripts as `./path` or `.tacp/…`.
  * - `~` / `~/…` expands to the process home directory (then treated as absolute).
  * - Built-in server name `tacp` is reserved; repo entries with that name are skipped.
+ *
+ * Optional topic profiles (`.tacp/config.json` + `.tacp/mcp.profiles.json`):
+ * - When `mcpProfile` is set and the named profile exists, repo MCP is filtered
+ *   to that allowlist before merge with built-in tacp.
+ * - Empty profile list `[]` → no repo MCP (built-in still added).
+ * - Missing config, missing profiles file, or unknown profile name → no filter.
  */
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -34,10 +40,33 @@ export type TacpMcpRemoteServer = {
 /** Stdio or remote MCP descriptor for a session (matches ACP McpServer shapes we emit). */
 export type SessionMcpServer = TacpMcpServer | TacpMcpRemoteServer;
 
+/** Optional per-repo tacp settings from `<repo>/.tacp/config.json`. */
+export type RepoTacpConfig = {
+  /** Preferred agent for sessions in this repo (not applied at create yet; reserved). */
+  defaultAgent?: string;
+  /** Name of an allowlist in `.tacp/mcp.profiles.json`. */
+  mcpProfile?: string;
+};
+
+/** Map profile name → MCP server names from `<repo>/.tacp/mcp.profiles.json`. */
+export type RepoMcpProfiles = Record<string, string[]>;
+
 export type LoadRepoMcpServersOptions = {
   log?: Logger;
   /** Override path to mcp.json (tests). Default: `<repoRoot>/.tacp/mcp.json`. */
   configPath?: string;
+};
+
+export type LoadRepoTacpConfigOptions = {
+  log?: Logger;
+  /** Override path to config.json (tests). Default: `<repoRoot>/.tacp/config.json`. */
+  configPath?: string;
+};
+
+export type LoadRepoMcpProfilesOptions = {
+  log?: Logger;
+  /** Override path to mcp.profiles.json (tests). */
+  profilesPath?: string;
 };
 
 export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
@@ -46,6 +75,15 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
   log?: Logger;
   /** Override path to mcp.json (tests). */
   configPath?: string;
+  /** Override path to config.json (tests). */
+  repoConfigPath?: string;
+  /** Override path to mcp.profiles.json (tests). */
+  profilesPath?: string;
+  /**
+   * Override profile name (tests / future per-session selection).
+   * When undefined, uses `mcpProfile` from `.tacp/config.json` if present.
+   */
+  mcpProfile?: string;
 };
 
 /** Reserved built-in host MCP name (speak). */
@@ -270,6 +308,153 @@ function parseOneServer(
   }
 }
 
+/** Read a UTF-8 file; returns undefined on ENOENT or other I/O errors (warns on non-ENOENT). */
+async function readOptionalText(
+  path: string,
+  log: Logger,
+  label: string,
+): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === "ENOENT") return undefined;
+    log.warn(`repo mcp: failed to read ${label}`, {
+      path,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+/**
+ * Read `<repoRoot>/.tacp/config.json`.
+ * Missing / invalid → `{}`. Surfaced fields: `defaultAgent`, `mcpProfile`.
+ * `defaultAgent` is reserved for future session create; callers may read it now.
+ */
+export async function loadRepoTacpConfig(
+  repoRoot: string,
+  options: LoadRepoTacpConfigOptions = {},
+): Promise<RepoTacpConfig> {
+  const log = options.log ?? silentLogger();
+  const root = resolve(repoRoot);
+  const configPath =
+    options.configPath ?? join(root, ".tacp", "config.json");
+
+  const text = await readOptionalText(configPath, log, "config.json");
+  if (text === undefined) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch (err) {
+    log.warn("repo mcp: invalid JSON in config.json; ignoring", {
+      configPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {};
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    log.warn("repo mcp: config.json root must be an object", { configPath });
+    return {};
+  }
+
+  const rec = parsed as Record<string, unknown>;
+  const out: RepoTacpConfig = {};
+  if (typeof rec.defaultAgent === "string" && rec.defaultAgent.trim()) {
+    out.defaultAgent = rec.defaultAgent.trim();
+  }
+  if (typeof rec.mcpProfile === "string" && rec.mcpProfile.trim()) {
+    out.mcpProfile = rec.mcpProfile.trim();
+  }
+  return out;
+}
+
+/**
+ * Read `<repoRoot>/.tacp/mcp.profiles.json`.
+ * Missing file → undefined (no filtering).
+ * Invalid JSON / non-object → warn + undefined.
+ * Values must be string arrays of MCP server names; other entries skipped.
+ */
+export async function loadRepoMcpProfiles(
+  repoRoot: string,
+  options: LoadRepoMcpProfilesOptions = {},
+): Promise<RepoMcpProfiles | undefined> {
+  const log = options.log ?? silentLogger();
+  const root = resolve(repoRoot);
+  const profilesPath =
+    options.profilesPath ?? join(root, ".tacp", "mcp.profiles.json");
+
+  const text = await readOptionalText(profilesPath, log, "mcp.profiles.json");
+  if (text === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch (err) {
+    log.warn("repo mcp: invalid JSON in mcp.profiles.json; no profile filter", {
+      profilesPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    log.warn("repo mcp: mcp.profiles.json root must be an object", {
+      profilesPath,
+    });
+    return undefined;
+  }
+
+  const out: RepoMcpProfiles = {};
+  for (const [name, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (!name.trim()) continue;
+    if (!Array.isArray(value)) {
+      log.warn("repo mcp: profile value must be an array of server names", {
+        profile: name,
+      });
+      continue;
+    }
+    const names: string[] = [];
+    for (const entry of value) {
+      if (typeof entry === "string" && entry.trim()) {
+        names.push(entry.trim());
+      }
+    }
+    out[name] = names;
+  }
+  return out;
+}
+
+/**
+ * Filter repo MCP servers by profile allowlist.
+ *
+ * - No profile name, no profiles map, or unknown profile name → no filter (all).
+ * - Known profile with `[]` → empty list (no repo MCP).
+ * - Known profile with names → only servers whose name is in the allowlist.
+ *   Names listed but absent from mcp.json are ignored.
+ */
+export function filterRepoMcpByProfile(
+  servers: SessionMcpServer[],
+  profileName: string | undefined,
+  profiles: RepoMcpProfiles | undefined,
+): SessionMcpServer[] {
+  if (!profileName || !profiles) return servers;
+  if (!Object.prototype.hasOwnProperty.call(profiles, profileName)) {
+    return servers;
+  }
+  const allow = profiles[profileName]!;
+  if (allow.length === 0) return [];
+  const allowed = new Set(allow);
+  return servers.filter((s) => allowed.has(s.name));
+}
+
 /**
  * Read `<repoRoot>/.tacp/mcp.json` and return parsed servers.
  * Missing file → []; invalid JSON → warn + [].
@@ -368,9 +553,12 @@ export function injectSessionEnv(
 }
 
 /**
- * Merge order: **repo MCP first**, then **built-in tacp** (speak).
+ * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in tacp** (speak).
  * Missing/invalid repo config → built-in only.
  * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_STATE_DIR into every stdio child.
+ *
+ * Profile filter (when `.tacp/config.json` has `mcpProfile` and profiles file exists):
+ * see `filterRepoMcpByProfile`. Built-in `tacp` is never filtered out.
  *
  * Returns ACP `McpServer[]` (stdio + optional http/sse).
  */
@@ -386,12 +574,29 @@ export async function buildSessionMcpServers(
   const repoStateDir = join(repoRoot, ".tacp");
   const log = options.log ?? silentLogger();
 
-  const repo = await loadRepoMcpServers(repoRoot, {
-    log,
-    ...(options.configPath !== undefined
-      ? { configPath: options.configPath }
-      : {}),
-  });
+  const [repoRaw, repoConfig, profiles] = await Promise.all([
+    loadRepoMcpServers(repoRoot, {
+      log,
+      ...(options.configPath !== undefined
+        ? { configPath: options.configPath }
+        : {}),
+    }),
+    loadRepoTacpConfig(repoRoot, {
+      log,
+      ...(options.repoConfigPath !== undefined
+        ? { configPath: options.repoConfigPath }
+        : {}),
+    }),
+    loadRepoMcpProfiles(repoRoot, {
+      log,
+      ...(options.profilesPath !== undefined
+        ? { profilesPath: options.profilesPath }
+        : {}),
+    }),
+  ]);
+
+  const profileName = options.mcpProfile ?? repoConfig.mcpProfile;
+  const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles);
 
   const tacp = buildTacpMcpServers({
     enabled: true,
