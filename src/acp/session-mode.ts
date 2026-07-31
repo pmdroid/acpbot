@@ -123,7 +123,7 @@ export function togglePlanBuildModeId(
 }
 
 export function formatModeStatus(input: {
-  current?: string;
+  current?: string | undefined;
   available: string[];
 }): string {
   const { current, available } = input;
@@ -157,17 +157,17 @@ export function formatSessionStatus(input: {
   sessionKey: string;
   status: string;
   agent: string;
-  launch?: { command: string; args: string[] };
-  mode?: string;
-  availableModes?: string[];
+  launch?: { command: string; args: string[] } | undefined;
+  mode?: string | undefined;
+  availableModes?: string[] | undefined;
   cwd: string;
   threadId: number;
   chatId: number;
-  mcpEnabled?: boolean;
-  mcpCount?: number;
-  mcpNames?: string[];
-  acpHost?: boolean;
-  agentSessionId?: string;
+  mcpEnabled?: boolean | undefined;
+  mcpCount?: number | undefined;
+  mcpNames?: string[] | undefined;
+  acpHost?: boolean | undefined;
+  agentSessionId?: string | undefined;
 }): string {
   const launch =
     input.launch != null
