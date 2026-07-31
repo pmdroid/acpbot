@@ -77,6 +77,12 @@ import {
   speakQueueDir,
 } from "../mcp/speak-queue";
 import {
+  completeTelegramJob,
+  listPendingTelegramJobs,
+  telegramQueueDir,
+} from "../mcp/telegram-queue";
+import { isTelegramTextToolName } from "./telegram-tools";
+import {
   buildSkillsKeyboard,
   clampSkillPage,
   composeSkillAgentPrompt,
@@ -1143,6 +1149,14 @@ export function createDaemon(
           textParts.push(event.text);
         }
         if (event.type === "tool_call") {
+          // Any MCP telegram text tool: drain so the tool can ack mid-turn.
+          if (isTelegramTextToolName(event.title)) {
+            log.info("agent requested telegram text (tool/mcp)", {
+              sessionKey: session.sessionKey,
+              title: event.title,
+            });
+            await drainTelegramQueue();
+          }
           if (isSpeakToolName(event.title)) {
             const text = speakTextFromToolInput(event.rawInput);
             speakFromTool = {
@@ -1240,7 +1254,8 @@ export function createDaemon(
           await maybeSendTts(session, toSpeak, speakReq.source);
         }
       }
-      // Catch MCP speak jobs that finished enqueue after the tool_call event.
+      // Catch MCP speak / telegram jobs that finished enqueue after tool_call.
+      await drainTelegramQueue();
       await drainSpeakQueue();
     } catch (err) {
       try {
@@ -1255,6 +1270,57 @@ export function createDaemon(
     }
   }
 
+
+  /**
+   * MCP update / telegram_send tools enqueue text; deliver to the topic.
+   */
+  async function drainTelegramQueue(): Promise<void> {
+    const stateDir =
+      process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state";
+    const qDir = telegramQueueDir(stateDir);
+    let jobs;
+    try {
+      jobs = await listPendingTelegramJobs(qDir);
+    } catch {
+      return;
+    }
+    for (const job of jobs) {
+      const session = sessionIndex.byKey[job.sessionKey];
+      if (!session) {
+        await completeTelegramJob(
+          job,
+          { ok: false, error: `unknown sessionKey: ${job.sessionKey}` },
+          qDir,
+        );
+        log.warn("telegram queue: unknown session", {
+          sessionKey: job.sessionKey,
+          id: job.id,
+          kind: job.kind,
+        });
+        continue;
+      }
+      try {
+        const prefix = job.kind === "update" ? "↻ " : "";
+        await sendInTopic(session, `${prefix}${job.text}`);
+        await completeTelegramJob(job, { ok: true }, qDir);
+        log.info("telegram queue: delivered", {
+          sessionKey: job.sessionKey,
+          id: job.id,
+          kind: job.kind,
+          textLen: job.text.length,
+        });
+      } catch (err) {
+        await completeTelegramJob(
+          job,
+          {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          qDir,
+        );
+      }
+    }
+  }
 
   /**
    * MCP speak tool enqueues jobs; deliver TTS to the matching Telegram topic.
@@ -2281,7 +2347,8 @@ export function createDaemon(
         await saveUpdateOffset(env.store, offset);
         log.debug("acked update offset", { offset });
       }
-        // Deliver MCP speak jobs even when Telegram is idle.
+        // Deliver MCP telegram/speak jobs even when Telegram is idle.
+        await drainTelegramQueue();
         await drainSpeakQueue();
     }
   }
