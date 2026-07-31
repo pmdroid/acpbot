@@ -31,8 +31,8 @@ export { pickSessionModeId, pickReadOnlyModeId };
 export type RealAgentsOptions = {
   config: TacpConfig;
   /**
-   * Directory reserved for host state (compat name from acpx era).
-   * Thin host currently keeps process state in memory.
+   * Durable ACP session store directory (`<dir>/sessions/*.json`).
+   * Same env as before: TACP_ACPX_STATE_DIR.
    */
   acpxStateDir: string;
   verbose?: boolean;

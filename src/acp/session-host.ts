@@ -21,6 +21,11 @@ import { decisionToPermissionResponse } from "./permission-map";
 import { buildTacpMcpServers } from "../mcp/servers";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
+import {
+  createFileHostSessionStore,
+  type HostSessionRecord,
+  type HostSessionStore,
+} from "./session-store";
 
 export type SessionHostHooks = {
   onPermissionRequest?: (
@@ -39,8 +44,13 @@ export type SessionHostHooks = {
 
 export type SessionHostOptions = {
   config: TacpConfig;
-  /** Kept for API compat with real-agents callers (unused by thin host). */
+  /**
+   * Durable session records live under `<stateDir>/sessions/`.
+   * When set, agentSessionId is persisted so restarts can session/load.
+   */
   stateDir?: string;
+  /** Inject store (tests). Overrides stateDir file store when provided. */
+  sessionStore?: HostSessionStore;
   mcpEnabled?: boolean;
   log?: Logger;
   hooks?: SessionHostHooks;
@@ -129,6 +139,35 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   const agentIdToKey = new Map<string, string>();
   let hooks: SessionHostHooks = { ...options.hooks };
   const terminals = new Map<string, TerminalRec>();
+  const sessionStore: HostSessionStore | undefined =
+    options.sessionStore ??
+    (options.stateDir
+      ? createFileHostSessionStore(options.stateDir)
+      : undefined);
+
+  async function persistRecord(
+    partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
+      createdAt?: string;
+    },
+  ): Promise<void> {
+    if (!sessionStore) return;
+    const prev = await sessionStore.load(partial.sessionKey);
+    const now = new Date().toISOString();
+    const record: HostSessionRecord = {
+      sessionKey: partial.sessionKey,
+      agentSessionId: partial.agentSessionId,
+      agent: partial.agent,
+      cwd: partial.cwd,
+      ...(partial.modeId ? { modeId: partial.modeId } : prev?.modeId ? { modeId: prev.modeId } : {}),
+      createdAt: partial.createdAt ?? prev?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await sessionStore.save(record);
+    log.debug("session record saved", {
+      sessionKey: record.sessionKey,
+      agentSessionId: record.agentSessionId,
+    });
+  }
 
   function resolveKey(agentOrTacp: string): string {
     return agentIdToKey.get(agentOrTacp) ?? agentOrTacp;
@@ -433,19 +472,75 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             enabled: options.config.mcpEnabled !== false,
           });
 
-    // SDK McpServer shape — stdio entries omit type
-    const session = await connection.agent
-      .buildSession({
-        cwd: input.cwd,
-        mcpServers: mcpServers as acp.McpServer[],
-      })
-      .start();
+    const mcpList = mcpServers as acp.McpServer[];
+    const prior = sessionStore
+      ? await sessionStore.load(input.sessionKey)
+      : undefined;
 
-    log.info("session/new ok", {
-      sessionKey: input.sessionKey,
-      agentSessionId: session.sessionId,
-      mcp: mcpServers.map((s) => s.name),
-    });
+    const supportsLoad =
+      initResult.agentCapabilities?.loadSession === true;
+
+    let session: acp.ActiveSession;
+    let resumed = false;
+
+    // Resume path: re-spawned process + session/load when agent advertises it.
+    if (prior?.agentSessionId && supportsLoad) {
+      try {
+        log.info("session/load attempt", {
+          sessionKey: input.sessionKey,
+          agentSessionId: prior.agentSessionId,
+        });
+        const loadResp = await connection.agent.request(
+          acp.methods.agent.session.load,
+          {
+            sessionId: prior.agentSessionId,
+            cwd: input.cwd,
+            mcpServers: mcpList,
+          },
+        );
+        // attachSession is public at runtime; typed private on ClientContext.
+        const agentCtx = connection.agent as acp.ClientContext & {
+          attachSession(response: {
+            sessionId: string;
+            modes?: acp.SessionModeState | null;
+            configOptions?: unknown;
+            _meta?: Record<string, unknown> | null;
+          }): acp.ActiveSession;
+        };
+        session = agentCtx.attachSession({
+          sessionId: prior.agentSessionId,
+          modes: loadResp?.modes ?? null,
+          configOptions: loadResp?.configOptions ?? null,
+          _meta: loadResp?._meta ?? null,
+        });
+        resumed = true;
+        log.info("session/load ok", {
+          sessionKey: input.sessionKey,
+          agentSessionId: session.sessionId,
+        });
+      } catch (err) {
+        log.warn("session/load failed; falling back to session/new", {
+          sessionKey: input.sessionKey,
+          agentSessionId: prior.agentSessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (!resumed) {
+      session = await connection.agent
+        .buildSession({
+          cwd: input.cwd,
+          mcpServers: mcpList,
+        })
+        .start();
+      log.info("session/new ok", {
+        sessionKey: input.sessionKey,
+        agentSessionId: session.sessionId,
+        mcp: mcpServers.map((s) => s.name),
+        hadPrior: Boolean(prior),
+      });
+    }
 
     agentIdToKey.set(session.sessionId, input.sessionKey);
     agentIdToKey.set(input.sessionKey, input.sessionKey);
@@ -457,8 +552,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       (modes as { available?: Array<{ id: string }> } | null | undefined)
         ?.available?.map((m) => m.id) ??
       [];
+    let modeId: string | undefined = prior?.modeId;
     if (available.length > 0) {
-      const modeId = pickSessionModeId(available);
+      modeId = pickSessionModeId(available) ?? modeId;
       if (modeId) {
         try {
           await connection.agent.request(acp.methods.agent.session.setMode, {
@@ -475,6 +571,15 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         }
       }
     }
+
+    await persistRecord({
+      sessionKey: input.sessionKey,
+      agentSessionId: session.sessionId,
+      agent: input.agent,
+      cwd: input.cwd,
+      ...(modeId ? { modeId } : {}),
+      createdAt: prior?.createdAt,
+    });
 
     const entry: LiveSession = {
       sessionKey: input.sessionKey,
@@ -591,6 +696,13 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             if (message.kind === "stop") {
               const stopReason = String(message.stopReason ?? "end_turn");
               yield { type: "done", stopReason };
+              // Heartbeat durable record so last-used survives restarts.
+              void persistRecord({
+                sessionKey: entry.sessionKey,
+                agentSessionId: entry.session.sessionId,
+                agent: entry.agent,
+                cwd: entry.cwd,
+              });
               resolveResult({
                 status:
                   stopReason === "cancelled" ? "cancelled" : "completed",
