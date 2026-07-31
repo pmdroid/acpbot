@@ -82,6 +82,12 @@ the beginning of the implementation. Plan, don't do.
   tacp is a control over what the model *chooses*, not a sandbox. Also corrects
   two findings in the ACP semantics ticket. Findings: branch
   `research/fs-terminal-gate`.
+- [Decide how tacp obtains structured questions through acpx](tickets/009-elicitation-through-acpx.md)
+  — **Fork acpx** and add the elicitation seam in source (git fork built from a
+  ref, not a dist patch); **no upstream issue yet**, deferred until a working
+  proof exists. Patch elicitation *only* — `fs`/`terminal` are inert. The
+  substrate decision **stands**: the "three missing seams" argument was
+  overstated, two of the three being unreachable.
 
 ## Not yet specified
 

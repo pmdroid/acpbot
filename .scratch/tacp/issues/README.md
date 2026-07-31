@@ -12,6 +12,7 @@ tickets. The chain here is linear: 01 → 02 → 03.
 | 01 | [Authenticated daemon with a working lobby](01-authenticated-daemon-lobby.md) | None |
 | 02 | [Sessions become topics, and survive restart](02-sessions-become-topics.md) | 01 |
 | 03 | [Live agent turns with status projection](03-live-turns-status-projection.md) | 02 |
+| 04 | [Fork acpx and add the elicitation seam](04-fork-acpx-elicitation-seam.md) | None — independent |
 
 ## Why it stops at 03
 
