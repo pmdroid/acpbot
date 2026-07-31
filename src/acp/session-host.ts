@@ -61,6 +61,13 @@ export type HostSession = {
   agentSessionId: string;
   cwd: string;
   agent: string;
+  currentModeId?: string | undefined;
+  availableModeIds?: string[] | undefined;
+};
+
+export type HostModeState = {
+  currentModeId: string | undefined;
+  availableModeIds: string[];
 };
 
 type LiveSession = {
@@ -70,6 +77,9 @@ type LiveSession = {
   child: ChildProcessWithoutNullStreams;
   connection: acp.ClientConnection;
   session: acp.ActiveSession;
+  /** Last known ACP mode id (from new/load/setMode/updates) */
+  currentModeId: string | undefined;
+  availableModeIds: string[];
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
 };
@@ -111,8 +121,9 @@ export type SessionHost = {
     signal?: AbortSignal;
   }): HostTurn;
   cancel(sessionKey: string, reason?: string): Promise<void>;
-  setMode?(sessionKey: string, modeId: string): Promise<void>;
-  getAvailableModes?(sessionKey: string): string[];
+  setMode(sessionKey: string, modeId: string): Promise<HostModeState>;
+  getModeState(sessionKey: string): HostModeState | undefined;
+  getAvailableModes(sessionKey: string): string[];
   setHooks(hooks: SessionHostHooks): void;
   dispose(): Promise<void>;
 };
@@ -588,6 +599,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       child,
       connection,
       session,
+      currentModeId: modeId,
+      availableModeIds: available,
       turnAbort: undefined,
     };
     live.set(input.sessionKey, entry);
@@ -607,6 +620,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           agentSessionId: existing.session.sessionId,
           cwd: existing.cwd,
           agent: existing.agent,
+          currentModeId: existing.currentModeId,
+          availableModeIds: existing.availableModeIds,
         };
       }
       const entry = await spawnSession(input);
@@ -615,6 +630,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         agentSessionId: entry.session.sessionId,
         cwd: entry.cwd,
         agent: entry.agent,
+        currentModeId: entry.currentModeId,
+        availableModeIds: entry.availableModeIds,
       };
     },
 
@@ -721,6 +738,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               kind?: string;
               locations?: unknown;
               rawOutput?: unknown;
+              currentModeId?: string;
+              modeId?: string;
             };
 
             switch (update.sessionUpdate) {
@@ -751,6 +770,23 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
                   rawOutput: update.rawOutput,
                   tag: update.sessionUpdate,
                 };
+                break;
+              }
+              case "current_mode_update": {
+                const mid =
+                  (update as { currentModeId?: string; modeId?: string })
+                    .currentModeId ??
+                  (update as { modeId?: string }).modeId;
+                if (typeof mid === "string" && mid) {
+                  entry.currentModeId = mid;
+                  void persistRecord({
+                    sessionKey: entry.sessionKey,
+                    agentSessionId: entry.session.sessionId,
+                    agent: entry.agent,
+                    cwd: entry.cwd,
+                    modeId: mid,
+                  });
+                }
                 break;
               }
               default:
@@ -802,16 +838,41 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     async setMode(sessionKey, modeId) {
       const entry = live.get(sessionKey);
-      if (!entry) return;
+      if (!entry) {
+        throw new Error(`no live session for ${sessionKey}`);
+      }
       await entry.connection.agent.request(acp.methods.agent.session.setMode, {
         sessionId: entry.session.sessionId,
         modeId,
       });
+      entry.currentModeId = modeId;
+      await persistRecord({
+        sessionKey: entry.sessionKey,
+        agentSessionId: entry.session.sessionId,
+        agent: entry.agent,
+        cwd: entry.cwd,
+        modeId,
+      });
+      log.info("setMode ok", { sessionKey, modeId });
+      return {
+        currentModeId: entry.currentModeId,
+        availableModeIds: entry.availableModeIds,
+      };
+    },
+
+    getModeState(sessionKey) {
+      const entry = live.get(sessionKey);
+      if (!entry) return undefined;
+      return {
+        currentModeId: entry.currentModeId,
+        availableModeIds: entry.availableModeIds,
+      };
     },
 
     getAvailableModes(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return [];
+      if (entry.availableModeIds.length > 0) return [...entry.availableModeIds];
       const modes = entry.session.modes;
       return (
         modes?.availableModes?.map((m) => m.id) ??

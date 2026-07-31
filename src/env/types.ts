@@ -402,6 +402,19 @@ export interface AgentsPort {
       ctx: { signal: AbortSignal },
     ) => Promise<Record<string, unknown>>,
   ): void;
+
+  /**
+   * ACP session/set_mode. Used by /plan, /build, /mode slash commands.
+   */
+  setSessionMode?(
+    sessionKey: string,
+    modeId: string,
+  ): Promise<{ currentModeId?: string; availableModeIds: string[] }>;
+
+  /** Current + available modes for a live session (empty if unknown). */
+  getSessionMode?(
+    sessionKey: string,
+  ): Promise<{ currentModeId?: string; availableModeIds: string[] }>;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────
