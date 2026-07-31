@@ -51,14 +51,22 @@ describe("session-config", () => {
 });
 
 describe("listRegisteredAgents", () => {
-  test("includes builtins", () => {
-    const ids = listRegisteredAgents({});
+  test("full registry via availableOnly false", () => {
+    const ids = listRegisteredAgents({
+      env: {},
+      availableOnly: false,
+      which: () => null,
+    });
     expect(ids).toContain("grok-build");
     expect(ids).toContain("claude");
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   test("allowlist filters", () => {
-    const ids = listRegisteredAgents({ TACP_AGENTS: "grok-build" });
+    const ids = listRegisteredAgents({
+      env: { TACP_AGENTS: "grok-build" },
+      availableOnly: false,
+    });
     expect(ids).toEqual(["grok-build"]);
   });
 });

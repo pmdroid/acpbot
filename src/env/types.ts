@@ -145,6 +145,14 @@ export type SendDocumentParams = {
   caption?: string;
 };
 
+export type SendPhotoParams = {
+  chatId: number;
+  data: Uint8Array;
+  filename?: string;
+  messageThreadId?: number;
+  caption?: string;
+};
+
 export type TelegramFileInfo = {
   file_id: string;
   file_unique_id?: string;
@@ -242,6 +250,7 @@ export interface TelegramPort {
   downloadFile?(fileId: string): Promise<Uint8Array>;
   sendVoice?(params: SendVoiceParams): Promise<{ message_id: number }>;
   sendDocument?(params: SendDocumentParams): Promise<{ message_id: number }>;
+  sendPhoto?(params: SendPhotoParams): Promise<{ message_id: number }>;
   /** Register slash menu; optional on fakes that never hit Telegram. */
   setMyCommands?(params: SetMyCommandsParams): Promise<void>;
   deleteMyCommands?(params?: DeleteMyCommandsParams): Promise<void>;

@@ -17,10 +17,6 @@ import type {
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import { resolveAgentLaunch } from "./agent-launch";
-import {
-  applyModelToLaunch,
-  getCannedModelsForAgent,
-} from "./agent-models";
 import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
@@ -157,6 +153,42 @@ function contentText(block: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * ActiveSession only exposes modes/meta getters; configOptions + extension
+ * fields live on `newSessionResponse` (the validated session/new|load body).
+ */
+function sessionNewPayload(session: acp.ActiveSession): {
+  configOptions?: unknown;
+  models?: unknown;
+  meta?: Record<string, unknown> | null;
+} {
+  const resp = (
+    session as {
+      newSessionResponse?: {
+        configOptions?: unknown;
+        models?: unknown;
+        _meta?: Record<string, unknown> | null;
+      };
+    }
+  ).newSessionResponse;
+  const meta =
+    session.meta ??
+    resp?._meta ??
+    (session as { _meta?: Record<string, unknown> | null })._meta ??
+    null;
+  return {
+    configOptions:
+      resp?.configOptions ??
+      (session as { configOptions?: unknown }).configOptions,
+    models:
+      resp?.models ??
+      (session as { models?: unknown }).models ??
+      meta?.models ??
+      meta?.modelState,
+    meta,
+  };
+}
+
 export function createSessionHost(options: SessionHostOptions): SessionHost {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const live = new Map<string, LiveSession>();
@@ -174,10 +206,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     log,
   });
   /**
-   * Preferred spawn-time model id per session (canned / non-ACP agents).
-   * Survives process respawn within this host lifetime.
+   * Model catalog notifications can arrive before live.set during session/new.
+   * Buffer by tacp sessionKey until the LiveSession entry exists.
    */
-  const preferredModelBySession = new Map<string, string>();
+  const pendingModelConfig = new Map<string, SessionConfigOptionView[]>();
 
   async function persistRecord(
     partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
@@ -385,41 +417,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         const entry = live.get(sessionKey);
         if (entry) {
           entry.configOptions = opts;
-          const cur = opts[0]?.currentValue;
-          if (typeof cur === "string") {
-            preferredModelBySession.set(sessionKey, cur);
-          }
-          log.info("models updated via _x.ai/models/update", {
-            sessionKey,
-            count: opts[0]?.options.length ?? 0,
-            current: cur ?? null,
-          });
+        } else {
+          pendingModelConfig.set(sessionKey, opts);
         }
+        log.info("models updated via _x.ai/models/update", {
+          sessionKey,
+          count: opts[0]?.options.length ?? 0,
+          current: opts[0]?.currentValue ?? null,
+          buffered: !entry,
+        });
       });
-  }
-
-  function syntheticCannedConfig(
-    agent: string,
-    sessionKey: string,
-  ): SessionConfigOptionView[] {
-    const canned = getCannedModelsForAgent(agent);
-    if (canned.length === 0) return [];
-    const current =
-      preferredModelBySession.get(sessionKey) ?? canned[0]!.value;
-    return [
-      {
-        id: "model",
-        name: "Model",
-        type: "select",
-        category: "model",
-        currentValue: current,
-        options: canned.map((m) => ({
-          value: m.value,
-          name: m.name,
-          ...(m.description ? { description: m.description } : {}),
-        })),
-      },
-    ];
   }
 
   async function spawnSession(input: {
@@ -427,24 +434,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     agent: string;
     cwd: string;
   }): Promise<LiveSession> {
-    const baseLaunch = resolveAgentLaunch(input.agent);
-    const preferredModel = preferredModelBySession.get(input.sessionKey);
-    const launch = applyModelToLaunch(
-      input.agent,
-      baseLaunch,
-      preferredModel,
-    );
+    const launch = resolveAgentLaunch(input.agent);
     log.info("spawn agent", {
       sessionKey: input.sessionKey,
       command: launch.command,
       args: launch.args,
       cwd: input.cwd,
-      model: preferredModel ?? null,
     });
 
     const childEnv = {
       ...process.env,
-      ...(launch.env ?? {}),
     };
 
     const child = spawn(launch.command, launch.args, {
@@ -661,40 +660,38 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       }
     }
 
-    // Model sources (priority):
+    // Model sources (ACP only — no canned lists):
     // 1) Grok-style session.models / SessionModelState (session/set_model)
-    // 2) configOptions select with category/id model
-    // 3) canned spawn-time models for this agent
-    const sessionModels =
-      (session as { models?: unknown }).models ??
-      (session as { _meta?: { models?: unknown; modelState?: unknown } })._meta
-        ?.models ??
-      (session as { _meta?: { modelState?: unknown } })._meta?.modelState;
-    let configOptions = modelsStateToConfigOptions(sessionModels);
-    if (!findModelConfigOption(configOptions)) {
-      const configRaw =
-        (session as { configOptions?: unknown }).configOptions ??
-        (session as { _meta?: { configOptions?: unknown } })._meta
-          ?.configOptions;
-      configOptions = normalizeConfigOptions(configRaw);
-    }
-    if (!findModelConfigOption(configOptions)) {
-      configOptions = syntheticCannedConfig(input.agent, input.sessionKey);
+    // 2) configOptions select with category/id model (OpenCode, etc.)
+    // 3) buffered _x.ai/models/update that arrived during session/new
+    const boot = sessionNewPayload(session);
+    let configOptions = modelsStateToConfigOptions(boot.models);
+    let modelSource:
+      | "session.models"
+      | "configOptions"
+      | "models-update"
+      | "none" = "none";
+    if (findModelConfigOption(configOptions)) {
+      modelSource = "session.models";
     } else {
-      const cur = findModelConfigOption(configOptions)?.currentValue;
-      if (typeof cur === "string") {
-        preferredModelBySession.set(input.sessionKey, cur);
+      configOptions = normalizeConfigOptions(boot.configOptions);
+      if (findModelConfigOption(configOptions)) {
+        modelSource = "configOptions";
       }
+    }
+    const buffered = pendingModelConfig.get(input.sessionKey);
+    if (buffered && findModelConfigOption(buffered)) {
+      if (!findModelConfigOption(configOptions)) {
+        configOptions = buffered;
+        modelSource = "models-update";
+      }
+      pendingModelConfig.delete(input.sessionKey);
     }
     log.info("session models/config", {
       sessionKey: input.sessionKey,
       modelCount: findModelConfigOption(configOptions)?.options.length ?? 0,
       current: findModelConfigOption(configOptions)?.currentValue ?? null,
-      source: findModelConfigOption(configOptions)
-        ? modelsStateToConfigOptions(sessionModels).length
-          ? "session.models"
-          : "configOptions-or-canned"
-        : "none",
+      source: modelSource,
     });
 
     await persistRecord({
@@ -741,6 +738,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     agentIdToKey.delete(entry.session.sessionId);
     agentIdToKey.delete(sessionKey);
     live.delete(sessionKey);
+    pendingModelConfig.delete(sessionKey);
     log.info("disposed live session", { sessionKey, agent: entry.agent });
   }
 
@@ -762,10 +760,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             fromAgent: existing.agent,
             toAgent: input.agent,
           });
-          // Model preference is per agent family — clear on binary switch.
-          if (existing.agent !== input.agent) {
-            preferredModelBySession.delete(input.sessionKey);
-          }
           await killLiveSession(input.sessionKey);
         } else {
           return {
@@ -1040,29 +1034,19 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     getConfigOptions(sessionKey) {
       const entry = live.get(sessionKey);
-      if (!entry) {
-        // No live session — still return canned list if we know agent from store later.
-        return [];
-      }
-      // Prefer live ACP options if they include a model select.
-      const raw = (entry.session as { configOptions?: unknown }).configOptions;
-      const fromAgent = normalizeConfigOptions(raw);
+      if (!entry) return [];
+      // Prefer latest from session/new payload when it includes a model select.
+      const boot = sessionNewPayload(entry.session);
+      const fromAgent = normalizeConfigOptions(boot.configOptions);
       if (findModelConfigOption(fromAgent)) {
         entry.configOptions = fromAgent;
-        return [...entry.configOptions];
-      }
-      // Canned fallback (Grok etc.)
-      if (!findModelConfigOption(entry.configOptions)) {
-        entry.configOptions = syntheticCannedConfig(
-          entry.agent,
-          sessionKey,
-        );
       } else {
-        // Keep currentValue in sync with preferred spawn model
-        const m = findModelConfigOption(entry.configOptions);
-        const pref = preferredModelBySession.get(sessionKey);
-        if (m && pref) m.currentValue = pref;
+        const fromModels = modelsStateToConfigOptions(boot.models);
+        if (findModelConfigOption(fromModels)) {
+          entry.configOptions = fromModels;
+        }
       }
+      // Otherwise keep entry.configOptions (session.models / _x.ai/models/update).
       return [...entry.configOptions];
     },
 
@@ -1072,40 +1056,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         throw new Error(`no live session for ${sessionKey}`);
       }
 
-      // Detect whether this is a real ACP model option or our canned fallback.
-      const fromAgent = normalizeConfigOptions(
-        (entry.session as { configOptions?: unknown }).configOptions,
-      );
-      const acpModel = findModelConfigOption(fromAgent);
-      const useCanned =
-        configId === "model" &&
-        typeof value === "string" &&
-        !acpModel;
-
-      if (useCanned) {
-        const canned = getCannedModelsForAgent(entry.agent);
-        if (!canned.some((m) => m.value === value)) {
-          throw new Error(
-            `unknown model \`${value}\` for agent \`${entry.agent}\`. ` +
-              `Options: ${canned.map((m) => m.value).join(", ") || "(none)"}`,
-          );
-        }
-        preferredModelBySession.set(sessionKey, value);
-        log.info("setConfigOption canned model → respawn", {
-          sessionKey,
-          agent: entry.agent,
-          model: value,
-        });
-        const agent = entry.agent;
-        const cwd = entry.cwd;
-        await killLiveSession(sessionKey);
-        const next = await spawnSession({ sessionKey, agent, cwd });
-        return [...next.configOptions];
-      }
-
       // Grok Build uses dedicated session/set_model (not set_config_option).
       // https://github.com/xai-org/grok-build — SetSessionModelRequest
-      if (typeof value === "string" && (configId === "model" || /model/i.test(configId))) {
+      if (
+        typeof value === "string" &&
+        (configId === "model" || /model/i.test(configId))
+      ) {
         try {
           const resp = await entry.connection.agent.request(
             "session/set_model" as never,
@@ -1125,7 +1081,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             const hit = findModelConfigOption(entry.configOptions);
             if (hit) hit.currentValue = value;
           }
-          preferredModelBySession.set(sessionKey, value);
           log.info("set_model ok (Grok/ACP session model)", {
             sessionKey,
             modelId: value,
@@ -1156,46 +1111,22 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               configId,
               value,
             };
-      try {
-        const resp = await entry.connection.agent.request(
-          acp.methods.agent.session.setConfigOption,
-          params as never,
-        );
-        const nextRaw =
-          (resp as { configOptions?: unknown })?.configOptions ??
-          (entry.session as { configOptions?: unknown }).configOptions;
-        entry.configOptions = normalizeConfigOptions(nextRaw);
-        const hit = entry.configOptions.find((o) => o.id === configId);
-        if (hit) hit.currentValue = value;
-        if (configId === "model" && typeof value === "string") {
-          preferredModelBySession.set(sessionKey, value);
-        }
-        log.info("setConfigOption ok (ACP)", {
-          sessionKey,
-          configId,
-          value: String(value),
-        });
-        return [...entry.configOptions];
-      } catch (err) {
-        // Fall back to canned respawn if ACP rejects both paths
-        if (
-          typeof value === "string" &&
-          getCannedModelsForAgent(entry.agent).length
-        ) {
-          preferredModelBySession.set(sessionKey, value);
-          const agent = entry.agent;
-          const cwd = entry.cwd;
-          await killLiveSession(sessionKey);
-          const next = await spawnSession({ sessionKey, agent, cwd });
-          log.warn("set model ACP failed; used canned respawn", {
-            sessionKey,
-            error: err instanceof Error ? err.message : String(err),
-            model: value,
-          });
-          return [...next.configOptions];
-        }
-        throw err;
-      }
+      const resp = await entry.connection.agent.request(
+        acp.methods.agent.session.setConfigOption,
+        params as never,
+      );
+      const nextRaw =
+        (resp as { configOptions?: unknown })?.configOptions ??
+        sessionNewPayload(entry.session).configOptions;
+      entry.configOptions = normalizeConfigOptions(nextRaw);
+      const hit = entry.configOptions.find((o) => o.id === configId);
+      if (hit) hit.currentValue = value;
+      log.info("setConfigOption ok (ACP)", {
+        sessionKey,
+        configId,
+        value: String(value),
+      });
+      return [...entry.configOptions];
     },
 
     async disposeSession(sessionKey) {

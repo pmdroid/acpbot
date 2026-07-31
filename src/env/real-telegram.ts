@@ -12,6 +12,7 @@ import {
   type Logger,
   type SendDocumentParams,
   type SendMessageParams,
+  type SendPhotoParams,
   type SendVoiceParams,
   type SetMyCommandsParams,
   type TelegramBotCommand,
@@ -323,7 +324,42 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
         },
       );
     },
+
+    sendPhoto: async (params: SendPhotoParams) => {
+      log.info("outbound sendPhoto", {
+        chatId: params.chatId,
+        thread: params.messageThreadId,
+        filename: params.filename ?? "photo.jpg",
+        bytes: params.data.byteLength,
+      });
+      return uploadMultipart<{ message_id: number }>(
+        base,
+        fetchImpl,
+        "sendPhoto",
+        {
+          chat_id: String(params.chatId),
+          ...(params.messageThreadId !== undefined
+            ? { message_thread_id: String(params.messageThreadId) }
+            : {}),
+          ...(params.caption ? { caption: params.caption } : {}),
+        },
+        {
+          field: "photo",
+          filename: params.filename ?? "photo.jpg",
+          contentType: guessImageContentType(params.filename ?? "photo.jpg"),
+          data: params.data,
+        },
+      );
+    },
   };
+}
+
+function guessImageContentType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  return "image/jpeg";
 }
 
 async function uploadMultipart<T>(

@@ -157,6 +157,8 @@ export function formatSessionStatus(input: {
   sessionKey: string;
   status: string;
   agent: string;
+  /** Optional human label (e.g. grok for grok-build). */
+  agentLabel?: string | undefined;
   launch?: { command: string; args: string[] } | undefined;
   mode?: string | undefined;
   /** LLM model label from ACP configOptions */
@@ -175,10 +177,14 @@ export function formatSessionStatus(input: {
     input.launch != null
       ? `${input.launch.command}${input.launch.args.length ? " " + input.launch.args.join(" ") : ""}`
       : "(unknown)";
+  const agentLine =
+    input.agentLabel && input.agentLabel !== input.agent
+      ? `Agent: \`${input.agentLabel}\` (\`${input.agent}\`)`
+      : `Agent: \`${input.agent}\``;
   const lines = [
     `**Session** \`${input.sessionKey}\``,
     `Status: \`${input.status}\``,
-    `Agent: \`${input.agent}\``,
+    agentLine,
     `Launch: \`${launch}\``,
     `Mode: \`${input.mode ?? "unknown"}\``,
   ];

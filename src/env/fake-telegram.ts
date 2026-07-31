@@ -36,6 +36,10 @@ export type OutboundTelegramCall =
   | {
       method: "sendDocument";
       params: import("./types").SendDocumentParams;
+    }
+  | {
+      method: "sendPhoto";
+      params: import("./types").SendPhotoParams;
     };
 
 export type FakeTelegramOptions = {
@@ -275,6 +279,11 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
 
     async sendDocument(params) {
       record({ method: "sendDocument", params: { ...params } });
+      return { message_id: nextMessageId++ };
+    },
+
+    async sendPhoto(params) {
+      record({ method: "sendPhoto", params: { ...params } });
       return { message_id: nextMessageId++ };
     },
   };

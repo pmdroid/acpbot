@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type {
   Environment,
   PermissionDecision,
@@ -74,7 +75,6 @@ import {
 import {
   extractSpeakFromReply,
   isSpeakToolName,
-  speakTextFromToolInput,
   type SpeakRequest,
 } from "./speak";
 import {
@@ -87,7 +87,7 @@ import {
   listPendingTelegramJobs,
   telegramQueueDir,
 } from "../mcp/telegram-queue";
-import { isTelegramTextToolName } from "./telegram-tools";
+import { createWorkerApiServer } from "./worker-api-server";
 import {
   buildSkillsKeyboard,
   clampSkillPage,
@@ -112,6 +112,7 @@ import {
   togglePlanBuildModeId,
 } from "../acp/session-mode";
 import {
+  agentDisplayName,
   listRegisteredAgents,
   resolveAgentLaunch,
 } from "../acp/agent-launch";
@@ -1186,35 +1187,15 @@ export function createDaemon(
           textParts.push(event.text);
         }
         if (event.type === "tool_call") {
-          // Any MCP telegram text tool: drain so the tool can ack mid-turn.
-          if (isTelegramTextToolName(event.title)) {
-            log.info("agent requested telegram text (tool/mcp)", {
-              sessionKey: session.sessionKey,
-              title: event.title,
-            });
-            await drainTelegramQueue();
-          }
+          // Outbound Telegram MCP tools (update/photo/file/speak) call the
+          // worker Unix API directly — no mid-turn queue drain needed.
           if (isSpeakToolName(event.title)) {
-            const text = speakTextFromToolInput(event.rawInput);
-            speakFromTool = {
-              source: "tool",
-              text,
-            };
-            log.info("agent requested speak (tool/mcp)", {
+            // MCP speak delivers via worker API; skip end-of-turn marker TTS.
+            speakFromTool = { source: "tool", text: "" };
+            log.info("agent requested speak (worker API)", {
               sessionKey: session.sessionKey,
               title: event.title,
-              hasText: Boolean(text),
             });
-            // MCP speak enqueues a job and waits for ack — drain now so the
-            // MCP tool can complete (do not rely on <<<speak>>> markers).
-            const ttsMode = env.config.ttsMode ?? "agent";
-            if (ttsMode !== "off") {
-              await drainSpeakQueue();
-              // If queue already delivered this tool's text, skip end-of-turn TTS.
-              if (text?.trim()) {
-                speakFromTool = { source: "tool", text: "" };
-              }
-            }
           }
         }
         if (event.type === "process_died") {
@@ -1308,8 +1289,16 @@ export function createDaemon(
   }
 
 
+  function requireSession(sessionKey: string): PersistedSession {
+    const session = sessionIndex.byKey[sessionKey];
+    if (!session) {
+      throw new Error(`unknown sessionKey: ${sessionKey}`);
+    }
+    return session;
+  }
+
   /**
-   * MCP update / telegram_send tools enqueue text; deliver to the topic.
+   * Legacy disk-queue drain (pre worker API). Kept for any leftover jobs.
    */
   async function drainTelegramQueue(): Promise<void> {
     const stateDir =
@@ -1337,14 +1326,19 @@ export function createDaemon(
         continue;
       }
       try {
-        const prefix = job.kind === "update" ? "↻ " : "";
-        await sendInTopic(session, `${prefix}${job.text}`);
+        if (job.kind === "photo" || job.kind === "document") {
+          await deliverTelegramMedia(session, job);
+        } else {
+          const prefix = job.kind === "update" ? "↻ " : "";
+          await sendInTopic(session, `${prefix}${job.text}`);
+        }
         await completeTelegramJob(job, { ok: true }, qDir);
         log.info("telegram queue: delivered", {
           sessionKey: job.sessionKey,
           id: job.id,
           kind: job.kind,
           textLen: job.text.length,
+          path: job.path ?? null,
         });
       } catch (err) {
         await completeTelegramJob(
@@ -1359,8 +1353,50 @@ export function createDaemon(
     }
   }
 
+  async function deliverTelegramMedia(
+    session: PersistedSession,
+    job: {
+      kind: string;
+      path?: string;
+      filename?: string;
+      text: string;
+    },
+  ): Promise<void> {
+    if (!job.path) {
+      throw new Error("media job missing path");
+    }
+    const data = new Uint8Array(await readFile(job.path));
+    if (data.byteLength === 0) {
+      throw new Error(`media file is empty: ${job.path}`);
+    }
+    const caption = job.text.trim() || undefined;
+    if (job.kind === "photo") {
+      if (!env.telegram.sendPhoto) {
+        throw new Error("Telegram sendPhoto is not available on this host");
+      }
+      await env.telegram.sendPhoto({
+        chatId: session.chatId,
+        messageThreadId: session.messageThreadId,
+        data,
+        filename: job.filename ?? "photo.jpg",
+        ...(caption ? { caption } : {}),
+      });
+      return;
+    }
+    if (!env.telegram.sendDocument) {
+      throw new Error("Telegram sendDocument is not available on this host");
+    }
+    await env.telegram.sendDocument({
+      chatId: session.chatId,
+      messageThreadId: session.messageThreadId,
+      data,
+      filename: job.filename ?? "file",
+      ...(caption ? { caption } : {}),
+    });
+  }
+
   /**
-   * MCP speak tool enqueues jobs; deliver TTS to the matching Telegram topic.
+   * Legacy speak disk-queue drain (pre worker API).
    */
   async function drainSpeakQueue(): Promise<void> {
     const stateDir =
@@ -1420,7 +1456,7 @@ export function createDaemon(
     }
   }
 
-    /** @returns true when a voice note was sent */
+  /** @returns true when a voice note was sent */
   async function maybeSendTts(
     session: PersistedSession,
     replyText: string,
@@ -1459,6 +1495,97 @@ export function createDaemon(
     }
   }
 
+  /** MCP → worker Unix API (token + topics stay on the daemon). */
+  const workerApi = createWorkerApiServer({
+    stateDir: acpxStateDir,
+    log,
+    handlers: {
+      async sendMessage({ sessionKey, text, kind }) {
+        const session = requireSession(sessionKey);
+        const prefix = kind === "update" ? "↻ " : "";
+        await sendInTopic(session, `${prefix}${text}`);
+        log.info("worker-api message", {
+          sessionKey,
+          kind,
+          textLen: text.length,
+        });
+        return {
+          message:
+            kind === "update"
+              ? `Sent Telegram update (${text.length} chars).`
+              : `Sent Telegram message (${text.length} chars).`,
+        };
+      },
+      async sendPhoto({ sessionKey, path, caption, filename }) {
+        const session = requireSession(sessionKey);
+        const data = new Uint8Array(await readFile(path));
+        if (data.byteLength === 0) {
+          throw new Error(`media file is empty: ${path}`);
+        }
+        if (!env.telegram.sendPhoto) {
+          throw new Error("Telegram sendPhoto is not available on this host");
+        }
+        await env.telegram.sendPhoto({
+          chatId: session.chatId,
+          messageThreadId: session.messageThreadId,
+          data,
+          filename: filename ?? "photo.jpg",
+          ...(caption?.trim() ? { caption: caption.trim() } : {}),
+        });
+        log.info("worker-api photo", {
+          sessionKey,
+          path,
+          bytes: data.byteLength,
+        });
+        return {
+          message: `Sent Telegram photo (${data.byteLength} bytes).`,
+          bytes: data.byteLength,
+        };
+      },
+      async sendDocument({ sessionKey, path, caption, filename }) {
+        const session = requireSession(sessionKey);
+        const data = new Uint8Array(await readFile(path));
+        if (data.byteLength === 0) {
+          throw new Error(`media file is empty: ${path}`);
+        }
+        if (!env.telegram.sendDocument) {
+          throw new Error(
+            "Telegram sendDocument is not available on this host",
+          );
+        }
+        await env.telegram.sendDocument({
+          chatId: session.chatId,
+          messageThreadId: session.messageThreadId,
+          data,
+          filename: filename ?? "file",
+          ...(caption?.trim() ? { caption: caption.trim() } : {}),
+        });
+        log.info("worker-api document", {
+          sessionKey,
+          path,
+          bytes: data.byteLength,
+        });
+        return {
+          message: `Sent Telegram file (${data.byteLength} bytes).`,
+          bytes: data.byteLength,
+        };
+      },
+      async speak({ sessionKey, text }) {
+        const session = requireSession(sessionKey);
+        const ttsMode = env.config.ttsMode ?? "agent";
+        if (ttsMode === "off") {
+          throw new Error("TTS is disabled (ttsMode=off)");
+        }
+        const ok = await maybeSendTts(session, text, "worker-api-speak");
+        if (!ok) {
+          throw new Error("TTS unavailable or empty text");
+        }
+        return {
+          message: `Sent Telegram voice note (${text.length} chars).`,
+        };
+      },
+    },
+  });
 
   /**
    * /mcp [status|add|remove|auth|code] — repo `.tacp/mcp.json` registry + host OAuth.
@@ -1911,6 +2038,7 @@ export function createDaemon(
         sessionKey: session.sessionKey,
         status: session.status,
         agent,
+        agentLabel: agentDisplayName(agent),
         launch,
         mode,
         model,
@@ -1967,8 +2095,8 @@ export function createDaemon(
       await sendInTopic(
         session,
         formatModelStatus({ configOptions: options }) +
-          "\n\n_Tip: canned models appear for Grok/Codex/Claude when the agent " +
-          "does not advertise ACP model options. Switching model respawns Grok with `-m`._",
+          "\n\n_Tip: models come from the agent via ACP (`session.models` / " +
+          "configOptions). If empty, the agent does not advertise a model list._",
         undefined,
         { html: true },
       );
@@ -2065,7 +2193,12 @@ export function createDaemon(
   ): Promise<void> {
     const agents = listRegisteredAgents();
     if (agents.length === 0) {
-      await sendInTopic(session, "No agents registered.");
+      await sendInTopic(
+        session,
+        "No agent CLIs found on PATH.\n\n" +
+          "Install `grok`, `claude`, `codex`, and/or `opencode`, then retry `/agent`.\n" +
+          "Or set `TACP_AGENTS_ALL=1` to list the full registry regardless of PATH.",
+      );
       return;
     }
 
@@ -2100,7 +2233,7 @@ export function createDaemon(
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
-        `Agent → **\`${agentId}\`**\n` +
+        `Agent → **\`${agentDisplayName(agentId)}\`** (\`${agentId}\`)\n` +
           `Launch: \`${launch.command}${launch.args.length ? " " + launch.args.join(" ") : ""}\`\n\n` +
           `_Process restarted for this topic. In-flight turn was cancelled._`,
         undefined,
@@ -2112,11 +2245,20 @@ export function createDaemon(
       const raw = args[0]!.trim();
       const id =
         agents.find((a) => a.toLowerCase() === raw.toLowerCase()) ??
-        agents.find((a) => a.toLowerCase().includes(raw.toLowerCase()));
+        agents.find(
+          (a) => agentDisplayName(a).toLowerCase() === raw.toLowerCase(),
+        ) ??
+        agents.find((a) => a.toLowerCase().includes(raw.toLowerCase())) ??
+        agents.find((a) =>
+          agentDisplayName(a).toLowerCase().includes(raw.toLowerCase()),
+        );
       if (!id) {
         await sendInTopic(
           session,
-          `Unknown agent \`${raw}\`.\n\nRegistered: ${agents.map((a) => `\`${a}\``).join(", ")}`,
+          `Unknown agent \`${raw}\`.\n\nInstalled: ${
+            agents.map((a) => `\`${agentDisplayName(a)}\``).join(", ") ||
+            "_(none on PATH)_"
+          }`,
           undefined,
           { html: true },
         );
@@ -2138,7 +2280,9 @@ export function createDaemon(
     const token = newToken();
     agentPicks.set(token, { sessionKey: session.sessionKey, agents });
     const buttons = agents.map((id, i) => ({
-      text: (id === cur ? "✓ " : "") + id.slice(0, 28),
+      text:
+        (id === cur || agentDisplayName(id) === cur ? "✓ " : "") +
+        agentDisplayName(id).slice(0, 28),
       callback_data: encodeAgentCallback(token, i),
     }));
     buttons.push({
@@ -2148,7 +2292,8 @@ export function createDaemon(
     await sendInTopic(
       session,
       `**Agent process** for \`${session.sessionKey}\`\n` +
-        `Current: \`${cur}\`\n\n` +
+        `Current: \`${agentDisplayName(cur)}\`\n` +
+        `Installed: ${agents.map((a) => `\`${agentDisplayName(a)}\``).join(", ")}\n\n` +
         `_Switching restarts the agent for this topic only._\n\n_Pick an agent:_`,
       keyboardFromButtons(buttons),
       { html: true },
@@ -3001,16 +3146,38 @@ export function createDaemon(
         error: err instanceof Error ? err.message : String(err),
       });
     }
+
+    try {
+      await workerApi.listen();
+      log.info("startup: worker API listening", {
+        sockPath: workerApi.sockPath,
+      });
+      console.error(`tacp worker API: unix://${workerApi.sockPath}`);
+    } catch (err) {
+      log.error("startup: worker API failed to listen", {
+        sockPath: workerApi.sockPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    const onAbort = () => {
+      void workerApi.close();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
     started = true;
     log.info("startup: poll loop begin", {
       operatorUserId: env.config.operatorUserId,
       operatorChatId,
       sessions: Object.keys(sessionIndex.byKey).length,
+      workerApiSock: workerApi.sockPath,
     });
 
     let offset = await loadUpdateOffset(env.store);
 
-    while (!signal?.aborted) {
+    try {
+      while (!signal?.aborted) {
       let updates: TelegramUpdate[];
       try {
         updates = await env.telegram.getUpdates({
@@ -3018,7 +3185,7 @@ export function createDaemon(
           timeout: pollTimeoutSec,
         });
       } catch (err) {
-        if (signal?.aborted) return;
+        if (signal?.aborted) break;
         if (err instanceof TelegramApiError && err.statusCode === 409) {
           log.warn("getUpdates 409 conflict; backing off", {
             backoffMs: conflictBackoffMs,
@@ -3026,7 +3193,7 @@ export function createDaemon(
           try {
             await env.clock.sleep(conflictBackoffMs, signal);
           } catch {
-            return;
+            break;
           }
           continue;
         }
@@ -3037,22 +3204,25 @@ export function createDaemon(
         try {
           await env.clock.sleep(conflictBackoffMs, signal);
         } catch {
-          return;
+          break;
         }
         continue;
       }
 
       if (updates.length === 0) {
+        // Best-effort legacy disk queues (pre worker API).
+        await drainTelegramQueue();
+        await drainSpeakQueue();
         try {
           await env.clock.sleep(conflictBackoffMs, signal);
         } catch {
-          return;
+          break;
         }
         continue;
       }
 
       for (const update of updates) {
-        if (signal?.aborted) return;
+        if (signal?.aborted) break;
         try {
           await handleUpdate(update);
         } catch (err) {
@@ -3065,9 +3235,12 @@ export function createDaemon(
         await saveUpdateOffset(env.store, offset);
         log.debug("acked update offset", { offset });
       }
-        // Deliver MCP telegram/speak jobs even when Telegram is idle.
-        await drainTelegramQueue();
-        await drainSpeakQueue();
+      await drainTelegramQueue();
+      await drainSpeakQueue();
+      }
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      await workerApi.close();
     }
   }
 
