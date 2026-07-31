@@ -1,14 +1,16 @@
 /**
  * tacp MCP server (stdio) — tools the agent can call during a Telegram session.
  *
- * Spawned by the ACP agent via mcpServers (see buildTacpMcpServers).
- * Currently: speak (TTS request). STT and more tools can land here later.
- *
- * Delivery path: tool call is observed by tacp's ACP event stream; the daemon
- * synthesizes voice and sendVoice. This process only validates + acknowledges.
+ * speak: enqueue TTS for the tacp daemon, which sendVoice to Telegram.
+ * The MCP process cannot call Telegram itself (it is a child of the agent).
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
+import {
+  enqueueSpeakJob,
+  speakQueueDir,
+  waitForSpeakAck,
+} from "./speak-queue";
 
 const server = new FastMCP({
   name: "tacp",
@@ -19,10 +21,10 @@ server.tool(
   {
     name: "speak",
     description:
-      "Send a Telegram voice note to the user (tacp TTS). " +
-      "Use only when the user asked for voice/spoken reply, or a short " +
-      "audible confirmation is clearly better than text alone. " +
-      "Do not call on every message. Prefer a concise spoken line.",
+      "Speak to the user on Telegram: synthesizes TTS and sends a voice note now. " +
+      "Use when the user asked for voice/spoken/TTS, or a short audible confirmation " +
+      "is clearly better than text alone. Do not call on every message. " +
+      "Do not use <<<speak>>> markers — this tool delivers audio directly.",
     input: z.object({
       text: z
         .string()
@@ -30,16 +32,39 @@ server.tool(
         .describe("Text to speak. Keep it short and natural for TTS."),
     }),
   },
-  ({ text }) => {
+  async ({ text }) => {
     const cleaned = text.trim();
     if (!cleaned) {
       return "Nothing to speak (empty text).";
     }
-    // Daemon detects this MCP tool call via ACP session updates and runs TTS.
-    return `Voice note queued for the user (${cleaned.length} chars).`;
+    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "speak failed: TACP_SESSION_KEY not set on MCP server " +
+        "(tacp must inject session key via mcpServers env)."
+      );
+    }
+    const queueDir = speakQueueDir();
+    try {
+      const job = await enqueueSpeakJob({
+        sessionKey,
+        text: cleaned,
+        queueDir,
+      });
+      const ack = await waitForSpeakAck(job.id, {
+        queueDir,
+        timeoutMs: 90_000,
+      });
+      if (!ack.ok) {
+        return `speak failed: ${ack.error}`;
+      }
+      return `Sent Telegram voice note (${cleaned.length} chars${
+        ack.bytes != null ? `, ${ack.bytes} bytes` : ""
+      }).`;
+    } catch (err) {
+      return `speak failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 );
-
-// STT / other host tools will register here later.
 
 await server.run();

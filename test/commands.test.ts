@@ -52,10 +52,13 @@ describe("command registry", () => {
   test("canonical set is small and documented", () => {
     const names = COMMANDS.map((c) => c.name).sort();
     expect(names).toEqual([
+      "/build",
       "/cancel",
       "/help",
+      "/mode",
       "/new",
       "/ping",
+      "/plan",
       "/sessions",
       "/skills",
     ]);
@@ -77,6 +80,9 @@ describe("command registry", () => {
     expect(commandAllowedIn("/ping", "topic")).toBe(false);
     expect(commandAllowedIn("/cancel", "topic")).toBe(true);
     expect(commandAllowedIn("/cancel", "lobby")).toBe(false);
+    expect(commandAllowedIn("/plan", "topic")).toBe(true);
+    expect(commandAllowedIn("/build", "topic")).toBe(true);
+    expect(commandAllowedIn("/mode", "lobby")).toBe(false);
     expect(commandAllowedIn("/help", "lobby")).toBe(true);
     expect(commandAllowedIn("/help", "topic")).toBe(true);
   });
@@ -95,6 +101,9 @@ describe("command registry", () => {
     expect(topic).toContain("/cancel");
     expect(topic).toContain("/help");
     expect(topic).toContain("/skills");
+    expect(topic).toContain("/plan");
+    expect(topic).toContain("/build");
+    expect(topic).toContain("/mode");
     expect(topic).not.toContain("/new —");
   });
 

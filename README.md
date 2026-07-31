@@ -3,8 +3,10 @@
 Telegram control surface for ACP coding agents. Each agent session is a **topic**
 in your private chat with the bot.
 
-Local daemon, long-polling, single operator. **Bun + TypeScript** (no `.js`
-import suffixes).
+Local daemon, long-polling, single operator. **Bun + TypeScript**. Agent
+sessions use a thin ACP host on the official
+[`@agentclientprotocol/sdk`](https://github.com/agentclientprotocol/typescript-sdk)
+(stdio spawn + `session/new` / `prompt` / permissions / MCP).
 
 ## What “working” means right now
 
@@ -13,7 +15,7 @@ With a provisioned bot you can:
 1. Start the daemon (syncs the Telegram **/** menu from the command registry)
 2. **Lobby:** `/ping`, `/new`, `/sessions`, `/help`
 3. `/new` → pick a repo (or `/new <repo> <name>`) → topic appears
-4. **Topic:** type to prompt; send photos/files/voice; `/skills`, `/cancel`, `/help`
+4. **Topic:** type to prompt; send photos/files/voice; `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
 5. **Media:** images/docs → `.tacp-inbox/` (or ACP attach when enabled); voice → STT; agent-controlled **TTS** via host MCP tool `speak` (or `<<<speak>>>` marker) when a speech provider is configured
 
 On startup tacp **wipes** stale `setMyCommands` scopes (default + private, en)
@@ -53,14 +55,13 @@ cp .env.example .env
 | `TACP_BOT_TOKEN` | Bot token |
 | `TACP_OPERATOR_USER_ID` | Your user id (allowlist) |
 | `TACP_STORE_PATH` | Durable tacp JSON store file |
-| `TACP_ACPX_STATE_DIR` | Directory for acpx session records |
+| `TACP_ACPX_STATE_DIR` | Directory reserved for host state (compat name) |
 | `TACP_REPOS_JSON` | `{"repoKey":"/absolute/cwd",...}` |
-| `TACP_AGENT_BACKEND` | `echo` (no agent process) or `real` (acpx) |
-| `TACP_DEFAULT_AGENT` | acpx agent id — use **`grok-build`** for Grok (`grok agent stdio`) |
+| `TACP_AGENT_BACKEND` | `echo` (no agent) or `real` (ACP SDK host) |
+| `TACP_DEFAULT_AGENT` | `grok-build` (Grok), `codex`, `claude`, … |
+| `TACP_AGENT_COMMAND_JSON` | Optional spawn overrides |
 
 ### Connect to Grok
-
-acpx already ships a built-in agent:
 
 | tacp setting | value |
 |---|---|
@@ -68,29 +69,45 @@ acpx already ships a built-in agent:
 | `TACP_DEFAULT_AGENT` | `grok-build` (or alias `grok`) |
 
 Requires the **Grok Build CLI** on `PATH` (`grok agent stdio`) and a normal Grok login
-(or `XAI_API_KEY`). Then restart the daemon and create a session — prompts in the
-topic run through Grok.
+(or `XAI_API_KEY`). Restart the daemon and create a session — prompts in the topic
+run through Grok over ACP.
 
-#### Grok vendor hooks (ported / related to Kyoto)
+#### Host capabilities
 
-| Feature | Status in tacp |
+| Feature | Status |
 |---|---|
-| `_x.ai/ask_user_question` → Telegram multi-choice buttons | **Yes** (acpx fork + daemon) |
-| `elicitation/create` form options → buttons | **Yes** |
+| Official `@agentclientprotocol/sdk` client | **Yes** (thin host in `src/acp/`) |
+| `_x.ai/ask_user_question` → Telegram multi-choice | **Yes** |
+| `elicitation/create` → buttons | **Yes** |
 | `session/request_permission` → buttons | **Yes** |
-| Client `terminal/*` allowed (not deny-all) | **Yes** (`approve-all` client surface) |
-| Ignore bot’s own messages on the poll | **Yes** |
-| Telegram slash menu sync (`setMyCommands`) | **Yes** (startup wipe + register) |
-| Host MCP `speak` (FastMCP → agent tools via `mcpServers`) | **Yes** (TTS); STT tools later |
-| `_x.ai/compact_conversation` (Kyoto `/compact`) | Not yet (agent→client only; optional later) |
-| Kyoto agent-intent ask queue | N/A — tacp is direct ACP, not the worker bus |
+| Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
+| Host MCP `speak` via `mcpServers` | **Yes** |
+| Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
+| Telegram slash menu sync | **Yes** |
+
+
+## ACP host (keep agents alive across worker restarts)
+
+Like Ursula’s `acp-host`: a long-lived process owns agent stdio for **any** ACP agent
+(not Grok-leader-specific). The Telegram worker can restart and reattach.
+
+```bash
+# Terminal 1 — agent owner
+bun run acp-host
+
+# Terminal 2 — Telegram worker
+TACP_ACP_HOST=1 set -a && source .env && set +a && bun run start
+```
+
+Socket default: `$TACP_ACPX_STATE_DIR/acp-host.sock`.  
+If the socket already exists, the worker auto-uses the host unless `TACP_ACP_HOST=0`.
+
+On worker disconnect, slots stay warm. Host SIGTERM disposes all agent processes.
+See `docs/ideas/agent-host-keepalive.md`.
 
 ## 3. Run
 
 ```bash
-# first time: build the local acpx fork
-cd forks/acpx && bun install && bun run build && cd ../..
-
 bun install
 bun test ./test
 

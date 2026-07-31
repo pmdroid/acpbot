@@ -15,6 +15,8 @@ import type {
 export function echoAgents(config: TacpConfig): AgentsPort {
   const sessions = new Map<string, AgentSessionHandle>();
   const abortBySession = new Map<string, AbortController>();
+  const sessionModes = new Map<string, string>();
+  const ECHO_MODES = ["plan", "build"];
   const sessionKeyOf = (id: SessionIdentity) => `${id.repo}/${id.name}`;
 
   return {
@@ -45,6 +47,18 @@ export function echoAgents(config: TacpConfig): AgentsPort {
       abortBySession.delete(sessionKey);
     },
 
+    async setSessionMode(sessionKey, modeId) {
+      sessionModes.set(sessionKey, modeId);
+      return { currentModeId: modeId, availableModeIds: [...ECHO_MODES] };
+    },
+
+    async getSessionMode(sessionKey) {
+      return {
+        currentModeId: sessionModes.get(sessionKey) ?? "build",
+        availableModeIds: [...ECHO_MODES],
+      };
+    },
+
     async runPromptTurn(
       handle: AgentSessionHandle,
       input: PromptTurnInput,
@@ -62,7 +76,7 @@ export function echoAgents(config: TacpConfig): AgentsPort {
 
       const reply =
         `[echo/${handle.identity.repo}] ${input.text}\n` +
-        `(cwd=${handle.cwd}; agent backend=echo — set TACP_AGENT_BACKEND=real for acpx)`;
+        `(cwd=${handle.cwd}; agent backend=echo — set TACP_AGENT_BACKEND=real for ACP)`;
 
       const events = (async function* () {
         if (ac.signal.aborted) {
