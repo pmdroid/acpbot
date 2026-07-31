@@ -2,16 +2,22 @@
  * acp-host schedule ticker: scan catalog repos' `.tacp/schedules/`, fire due jobs.
  *
  * Due = enabled && nextRunAt <= now.
- * once → disable after fire; cron → recompute nextRunAt (catch-up once, not every miss).
- * Busy slot → lastStatus=busy, leave nextRunAt (retry next tick).
+ *
+ * **Claim-before-fire** (crash-safe bookkeeping):
+ * - once → disable on disk *before* calling fire (no double once on crash mid-turn)
+ * - cron → advance nextRunAt from `now` *before* fire (catch-up once; no multi-miss storm)
+ * - busy → claim is rolled back (restore enabled/nextRunAt), lastStatus=busy, retry next tick
+ * - after fire → patch lastStatus (and lastRunAt if not set on claim)
+ *
+ * **Error tradeoff:** after a claim, ensure/spawn/`error` leaves the schedule advanced
+ * (once stays disabled; cron waits for next occurrence). Prevents hot-loops on permanent
+ * failures; recover once jobs via `schedule_run_now` / recreate. Transient blips are not
+ * auto-retried until the next natural due (cron) or manual re-due (once).
  */
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import { computeNextRunAt } from "../schedules/next-run";
-import {
-  listJobs,
-  updateJob,
-} from "../schedules/store";
+import { listJobs, readJob, updateJob } from "../schedules/store";
 import type { ScheduleJob, ScheduleJobStatus } from "../schedules/types";
 
 export const DEFAULT_SCHEDULE_TICK_MS = 20_000;
@@ -40,11 +46,6 @@ export type HostSchedulerOptions = {
   /** Injectable clock (tests). */
   now?: () => Date;
   log?: Logger;
-  /**
-   * When true (default), jobs whose nextRunAt is far in the past still fire
-   * only once this tick; cron next is computed from `now` (no multi-miss storm).
-   */
-  catchUpOnce?: boolean;
 };
 
 export type DueJob = {
@@ -147,6 +148,7 @@ export function isJobDue(job: ScheduleJob, now: Date): boolean {
 export async function collectDueJobs(
   repos: Record<string, string>,
   now: Date,
+  log?: Logger,
 ): Promise<DueJob[]> {
   const due: DueJob[] = [];
   for (const [repoKey, repoRoot] of Object.entries(repos)) {
@@ -159,23 +161,30 @@ export async function collectDueJobs(
     }
     for (const job of jobs) {
       if (!isJobDue(job, now)) continue;
-      // Job's session should belong to this catalog repo when sessionKey is well-formed.
       const skRepo = repoKeyFromSessionKey(job.sessionKey);
       if (skRepo != null && skRepo !== repoKey) {
-        // Still fire using the catalog path we scanned — log-level concern for caller.
+        log?.warn("schedule sessionKey repo mismatch; skipping", {
+          id: job.id,
+          sessionKey: job.sessionKey,
+          catalogRepoKey: repoKey,
+          sessionRepoKey: skRepo,
+        });
+        continue;
       }
       due.push({ repoKey, repoRoot, job });
     }
   }
-  // Stable order: earliest nextRunAt first
   due.sort((a, b) => a.job.nextRunAt.localeCompare(b.job.nextRunAt));
   return due;
 }
 
-async function advanceAfterFire(
+/**
+ * Advance schedule on disk before fire so a crash mid-turn cannot re-due the same run.
+ * once → enabled false; cron → nextRunAt from now (catch-up once).
+ */
+export async function claimJobForFire(
   repoRoot: string,
   job: ScheduleJob,
-  status: ScheduleJobStatus,
   now: Date,
 ): Promise<ScheduleJob> {
   const nowIso = now.toISOString();
@@ -186,13 +195,11 @@ async function advanceAfterFire(
       {
         enabled: false,
         lastRunAt: nowIso,
-        lastStatus: status,
       },
       { now },
     );
   }
 
-  // cron: catch-up once — next from `now`, not from the old nextRunAt chain
   const cronExpr = job.cronExpr?.trim();
   if (!cronExpr) {
     return updateJob(
@@ -206,6 +213,7 @@ async function advanceAfterFire(
       { now },
     );
   }
+
   let nextRunAt: string;
   try {
     nextRunAt = computeNextRunAt({
@@ -214,7 +222,6 @@ async function advanceAfterFire(
       from: now,
     });
   } catch {
-    // Impossible cron — disable to avoid hot loop
     return updateJob(
       repoRoot,
       job.id,
@@ -233,16 +240,50 @@ async function advanceAfterFire(
     {
       nextRunAt,
       lastRunAt: nowIso,
+    },
+    { now },
+  );
+}
+
+/** Undo claim when fire returns busy (slot mid-turn). */
+async function rollbackClaim(
+  repoRoot: string,
+  preClaim: ScheduleJob,
+  now: Date,
+): Promise<ScheduleJob> {
+  return updateJob(
+    repoRoot,
+    preClaim.id,
+    {
+      enabled: preClaim.enabled,
+      nextRunAt: preClaim.nextRunAt,
+      lastRunAt: preClaim.lastRunAt ?? null,
+      lastStatus: "busy",
+    },
+    { now },
+  );
+}
+
+async function patchFireStatus(
+  repoRoot: string,
+  jobId: string,
+  status: ScheduleJobStatus,
+  now: Date,
+): Promise<ScheduleJob> {
+  return updateJob(
+    repoRoot,
+    jobId,
+    {
       lastStatus: status,
+      lastRunAt: now.toISOString(),
     },
     { now },
   );
 }
 
 /**
- * One scheduler tick: discover due jobs, fire, persist status.
- * Safe to call concurrently only if the same fire callback serializes per slot;
- * this function itself processes jobs sequentially.
+ * One scheduler tick: discover due jobs, claim, fire, persist status.
+ * Processes jobs sequentially.
  */
 export async function runScheduleTick(
   options: HostSchedulerOptions,
@@ -259,26 +300,71 @@ export async function runScheduleTick(
     skipped: 0,
   };
 
-  const due = await collectDueJobs(options.repos, now);
+  const due = await collectDueJobs(options.repos, now, log);
   result.due = due.length;
   if (due.length === 0) return result;
 
-  // Avoid double-firing the same job id within one tick (duplicate paths)
   const seen = new Set<string>();
 
   for (const item of due) {
-    const { repoRoot, repoKey, job } = item;
-    const key = `${repoRoot}::${job.id}`;
+    const { repoRoot, repoKey } = item;
+    const key = `${repoRoot}::${item.job.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
-    // Re-read could race; use snapshot for fire, then write advance.
+    // Re-read immediately before claim (cancel / concurrent update may have raced).
+    let job: ScheduleJob;
+    try {
+      const fresh = await readJob(repoRoot, item.job.id);
+      if (!fresh || !isJobDue(fresh, nowFn())) {
+        result.skipped += 1;
+        log.info("skip job no longer due", {
+          id: item.job.id,
+          reason: !fresh ? "missing" : "not-due",
+        });
+        continue;
+      }
+      job = fresh;
+    } catch (err) {
+      result.errors += 1;
+      log.warn("re-read failed", {
+        id: item.job.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+
+    const claimNow = nowFn();
+    let claimed: ScheduleJob;
+    try {
+      claimed = await claimJobForFire(repoRoot, job, claimNow);
+    } catch (err) {
+      result.errors += 1;
+      log.warn("claim failed; not firing", {
+        id: job.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
+
+    // Broken cron claim disables the job with lastStatus error — do not fire.
+    if (
+      job.kind === "cron" &&
+      claimed.enabled === false &&
+      claimed.lastStatus === "error"
+    ) {
+      result.errors += 1;
+      continue;
+    }
+
     const text = buildFireEnvelope(job, repoRoot);
-    log.info("fire due job", {
+    log.info("fire due job (claimed)", {
       id: job.id,
       sessionKey: job.sessionKey,
       kind: job.kind,
-      nextRunAt: job.nextRunAt,
+      preClaimNextRunAt: job.nextRunAt,
+      claimedNextRunAt: claimed.nextRunAt,
+      claimedEnabled: claimed.enabled,
       repoKey,
     });
 
@@ -298,17 +384,14 @@ export async function runScheduleTick(
       };
     }
 
+    const statusNow = nowFn();
+
     if (fireResult.status === "busy") {
       result.busy += 1;
       try {
-        await updateJob(
-          repoRoot,
-          job.id,
-          { lastStatus: "busy" },
-          { now: nowFn() },
-        );
+        await rollbackClaim(repoRoot, job, statusNow);
       } catch (err) {
-        log.warn("failed to mark busy", {
+        log.warn("failed to rollback claim after busy", {
           id: job.id,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -319,9 +402,9 @@ export async function runScheduleTick(
     if (fireResult.status === "skipped") {
       result.skipped += 1;
       try {
-        await advanceAfterFire(repoRoot, job, "skipped", nowFn());
+        await patchFireStatus(repoRoot, job.id, "skipped", statusNow);
       } catch (err) {
-        log.warn("failed to advance skipped job", {
+        log.warn("failed to patch skipped status", {
           id: job.id,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -331,16 +414,14 @@ export async function runScheduleTick(
 
     if (fireResult.status === "error") {
       result.errors += 1;
-      log.warn("fire error", {
+      log.warn("fire error (schedule already claimed)", {
         id: job.id,
         error: fireResult.error,
       });
       try {
-        // Advance schedule so we don't hot-loop on permanent ensure failures for once;
-        // cron will retry next occurrence; once is disabled after attempt.
-        await advanceAfterFire(repoRoot, job, "error", nowFn());
+        await patchFireStatus(repoRoot, job.id, "error", statusNow);
       } catch (err) {
-        log.warn("failed to persist error status", {
+        log.warn("failed to patch error status", {
           id: job.id,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -348,12 +429,13 @@ export async function runScheduleTick(
       continue;
     }
 
-    // ok
+    // ok — schedule already advanced on claim
     result.fired += 1;
     try {
-      await advanceAfterFire(repoRoot, job, "ok", nowFn());
+      await patchFireStatus(repoRoot, job.id, "ok", statusNow);
     } catch (err) {
-      log.warn("failed to advance after ok fire", {
+      // Claim already durable; status patch failure must not leave job re-due.
+      log.warn("failed to patch ok status after claim (schedule already advanced)", {
         id: job.id,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -427,7 +509,10 @@ export function startSchedulerLoop(
     void tickNow();
   }, tickMs);
   // Don't keep process alive solely for scheduler in tests if unref'd — host wants it alive.
-  if (typeof timer.unref === "function" && process.env.TACP_SCHEDULE_UNREF === "1") {
+  if (
+    typeof timer.unref === "function" &&
+    process.env.TACP_SCHEDULE_UNREF === "1"
+  ) {
     timer.unref();
   }
 

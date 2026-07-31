@@ -12,9 +12,11 @@ import {
   createJob,
   jobPath,
   listJobs,
+  markJobDue,
   normalizeScriptPath,
   readJob,
   schedulesDir,
+  updateJob,
 } from "../src/schedules/store";
 import { scheduleJobSchema } from "../src/schedules/types";
 
@@ -329,6 +331,71 @@ describe("schedules store CRUD", () => {
       await expect(
         cancelJob(repo, "deadbeefcafe", { sessionKey: "life/main" }),
       ).rejects.toThrow(/not found/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("markJobDue is session-scoped; all bypasses; unscoped throws", async () => {
+    const repo = await tempRepo();
+    try {
+      const other = await createJob(repo, {
+        sessionKey: "life/other",
+        prompt: "other",
+        kind: "once",
+        runAt: "2026-12-01T00:00:00.000Z",
+      });
+      await expect(
+        markJobDue(repo, other.id, { sessionKey: "life/main" }),
+      ).rejects.toThrow(/belongs to session|not life\/main/);
+      await expect(markJobDue(repo, other.id)).rejects.toThrow(/sessionKey/);
+
+      const now = new Date("2026-07-31T12:00:00.000Z");
+      const forced = await markJobDue(repo, other.id, { all: true, now });
+      expect(forced.enabled).toBe(true);
+      expect(forced.nextRunAt).toBe(now.toISOString());
+
+      const mine = await createJob(repo, {
+        sessionKey: "life/main",
+        prompt: "mine",
+        kind: "once",
+        runAt: "2026-12-02T00:00:00.000Z",
+      });
+      await updateJob(repo, mine.id, { enabled: false }, { now });
+      const due = await markJobDue(repo, mine.id, {
+        sessionKey: "life/main",
+        now,
+      });
+      expect(due.enabled).toBe(true);
+      expect(due.nextRunAt).toBe(now.toISOString());
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("updateJob patches lastStatus and nextRunAt", async () => {
+    const repo = await tempRepo();
+    try {
+      const job = await createJob(repo, {
+        sessionKey: "life/main",
+        prompt: "x",
+        kind: "once",
+        runAt: "2026-12-03T00:00:00.000Z",
+      });
+      const now = new Date("2026-07-31T15:00:00.000Z");
+      const updated = await updateJob(
+        repo,
+        job.id,
+        {
+          lastStatus: "busy",
+          lastRunAt: now.toISOString(),
+          nextRunAt: "2026-07-31T14:00:00.000Z",
+        },
+        { now },
+      );
+      expect(updated.lastStatus).toBe("busy");
+      expect(updated.nextRunAt).toBe("2026-07-31T14:00:00.000Z");
+      expect((await readJob(repo, job.id))?.lastStatus).toBe("busy");
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
