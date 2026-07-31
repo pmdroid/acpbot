@@ -3,7 +3,6 @@ import {
   buildTacpMcpServers,
   defaultTacpMcpServerEntry,
 } from "../src/mcp/servers";
-import { buildAcpRuntimeOptions } from "../src/env/real-agents";
 import { existsSync } from "node:fs";
 
 describe("buildTacpMcpServers", () => {
@@ -19,48 +18,5 @@ describe("buildTacpMcpServers", () => {
 
   test("disabled returns empty", () => {
     expect(buildTacpMcpServers({ enabled: false })).toEqual([]);
-  });
-});
-
-describe("buildAcpRuntimeOptions mcpServers", () => {
-  test("includes tacp MCP by default", () => {
-    const opts = buildAcpRuntimeOptions({
-      config: { operatorUserId: 1, repos: { t: "/r" } },
-      acpxStateDir: "/state",
-      sessionStore: {},
-      agentRegistry: {},
-      onPermissionRequest: async () => ({ outcome: "reject_once" }),
-      onElicitationRequest: async () => ({ action: "decline" }),
-    });
-    const mcp = opts.mcpServers as Array<{ name: string; command: string }>;
-    expect(Array.isArray(mcp)).toBe(true);
-    expect(mcp.some((s) => s.name === "tacp")).toBe(true);
-  });
-
-  test("respects config.mcpEnabled false", () => {
-    const opts = buildAcpRuntimeOptions({
-      config: { operatorUserId: 1, mcpEnabled: false },
-      acpxStateDir: "/state",
-      sessionStore: {},
-      agentRegistry: {},
-      onPermissionRequest: async () => ({ outcome: "reject_once" }),
-      onElicitationRequest: async () => ({ action: "decline" }),
-    });
-    expect(opts.mcpServers).toEqual([]);
-  });
-
-  test("explicit mcpServers override wins", () => {
-    const opts = buildAcpRuntimeOptions({
-      config: { operatorUserId: 1 },
-      acpxStateDir: "/state",
-      sessionStore: {},
-      agentRegistry: {},
-      onPermissionRequest: async () => ({ outcome: "reject_once" }),
-      onElicitationRequest: async () => ({ action: "decline" }),
-      mcpServers: [{ name: "custom", command: "echo", args: [], env: [] }],
-    });
-    expect(opts.mcpServers).toEqual([
-      { name: "custom", command: "echo", args: [], env: [] },
-    ]);
   });
 });

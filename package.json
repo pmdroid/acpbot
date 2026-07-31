@@ -11,14 +11,12 @@
     "start": "bun run src/main.ts",
     "test": "bun test ./test",
     "test:contract": "bun test test/contract",
-    "typecheck": "bunx tsc -p tsconfig.json --noEmit",
-    "postinstall": "bun run --cwd forks/acpx build || true",
-    "build:fork": "bun run --cwd forks/acpx build"
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
   },
   "license": "MIT",
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.3.0",
     "@prefecthq/fastmcp-ts": "^1.2.1",
-    "acpx": "file:./forks/acpx",
     "zod": "^4.4.3"
   },
   "devDependencies": {
