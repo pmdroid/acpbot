@@ -11,6 +11,7 @@ import {
   cancelJob,
   createJob,
   listJobs,
+  markJobDue,
 } from "../schedules/store";
 import {
   enqueueSpeakJob,
@@ -224,6 +225,41 @@ server.tool(
       return `Cancelled schedule ${job.id} (enabled=false)\n${JSON.stringify(job, null, 2)}`;
     } catch (err) {
       return `schedule_cancel failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "schedule_run_now",
+    description:
+      "Mark a schedule job due immediately (nextRunAt=now, enabled=true) so the acp-host " +
+      "scheduler fires it on the next tick. Does not spawn the agent itself — host must be running. " +
+      "Session-scoped unless all=true.",
+    input: z.object({
+      id: z.string().min(1).describe("Schedule job id"),
+      all: z
+        .boolean()
+        .optional()
+        .describe("If true, allow marking a job owned by another session in this repo"),
+    }),
+  },
+  async ({ id, all }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `schedule_run_now failed: ${env.error}`;
+    try {
+      const job = await markJobDue(env.repoRoot, id, {
+        sessionKey: env.sessionKey,
+        all: all === true,
+      });
+      return (
+        `Marked schedule ${job.id} due (nextRunAt=${job.nextRunAt}). ` +
+        `Host will fire on next tick.\n${JSON.stringify(job, null, 2)}`
+      );
+    } catch (err) {
+      return `schedule_run_now failed: ${
         err instanceof Error ? err.message : String(err)
       }`;
     }

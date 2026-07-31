@@ -1,5 +1,6 @@
 /**
  * ACP host server: owns agent stdio processes across worker reconnects.
+ * Also ticks in-repo schedules (see scheduler.ts) into session slots.
  */
 import { createServer, type Socket } from "node:net";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
@@ -18,6 +19,13 @@ import {
   type WorkerToHost,
   defaultAcpHostSock,
 } from "./protocol";
+import {
+  parseReposFromEnv,
+  scheduleTickMs,
+  startSchedulerLoop,
+  type FireJobResult,
+  type SchedulerLoopHandle,
+} from "./scheduler";
 
 type Slot = {
   slotKey: string;
@@ -44,6 +52,17 @@ export type AcpHostServerOptions = {
   config?: TacpConfig;
   sessionStore?: HostSessionStore;
   log?: Logger;
+  /**
+   * Catalog of repos to scan for schedules. Default: config.repos or TACP_REPOS_JSON.
+   * Pass `{}` to disable the scheduler.
+   */
+  repos?: Record<string, string>;
+  /** Default agent when ensuring a cold slot for a schedule fire. */
+  defaultAgent?: string;
+  /** Schedule tick interval ms. Default: TACP_SCHEDULE_TICK_MS or 20s. */
+  scheduleTickMs?: number;
+  /** Disable schedule loop (tests that only need the socket). */
+  enableScheduler?: boolean;
 };
 
 function send(sock: Socket, msg: HostToWorker): void {
@@ -53,7 +72,12 @@ function send(sock: Socket, msg: HostToWorker): void {
 
 export async function startAcpHostServer(
   options: AcpHostServerOptions = {},
-): Promise<{ sockPath: string; close: () => Promise<void> }> {
+): Promise<{
+  sockPath: string;
+  close: () => Promise<void>;
+  /** Exposed for tests — run one schedule tick. */
+  scheduleTickNow?: () => Promise<import("./scheduler").TickResult>;
+}> {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
     options.stateDir ??
@@ -64,8 +88,18 @@ export async function startAcpHostServer(
     operatorUserId: 0,
     mcpEnabled: true,
   };
+  const defaultAgent =
+    options.defaultAgent?.trim() ||
+    baseConfig.defaultAgent?.trim() ||
+    process.env.TACP_DEFAULT_AGENT?.trim() ||
+    "grok-build";
+  const repos: Record<string, string> =
+    options.repos ??
+    baseConfig.repos ??
+    parseReposFromEnv(process.env);
 
   const slots = new Map<string, Slot>();
+  let scheduler: SchedulerLoopHandle | null = null;
 
   function makeHooks(slotKey: string): SessionHostHooks {
     return {
@@ -307,6 +341,15 @@ export async function startAcpHostServer(
       });
       return;
     }
+    if (slot.busy) {
+      send(sock, {
+        type: "prompt_err",
+        reqId: msg.reqId,
+        slotKey: msg.slotKey,
+        error: `slot ${msg.slotKey} is busy`,
+      });
+      return;
+    }
     slot.owner = sock;
     slot.busy = true;
     try {
@@ -316,28 +359,231 @@ export async function startAcpHostServer(
         ...(msg.attachments ? { attachments: msg.attachments } : {}),
       });
       for await (const event of turn.events) {
-        send(sock, {
-          type: "turn_event",
-          reqId: msg.reqId,
-          slotKey: msg.slotKey,
-          event,
-        });
+        if (slot.owner && !slot.owner.destroyed) {
+          send(slot.owner, {
+            type: "turn_event",
+            reqId: msg.reqId,
+            slotKey: msg.slotKey,
+            event,
+          });
+        }
       }
       const result = await turn.result;
-      send(sock, {
-        type: "prompt_ok",
-        reqId: msg.reqId,
-        slotKey: msg.slotKey,
-        status: result.status,
-        ...(result.stopReason ? { stopReason: result.stopReason } : {}),
-      });
+      if (slot.owner && !slot.owner.destroyed) {
+        send(slot.owner, {
+          type: "prompt_ok",
+          reqId: msg.reqId,
+          slotKey: msg.slotKey,
+          status: result.status,
+          ...(result.stopReason ? { stopReason: result.stopReason } : {}),
+        });
+      }
     } catch (err) {
-      send(sock, {
-        type: "prompt_err",
-        reqId: msg.reqId,
-        slotKey: msg.slotKey,
-        error: err instanceof Error ? err.message : String(err),
+      if (slot.owner && !slot.owner.destroyed) {
+        send(slot.owner, {
+          type: "prompt_err",
+          reqId: msg.reqId,
+          slotKey: msg.slotKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } finally {
+      slot.busy = false;
+    }
+  }
+
+  /**
+   * Ensure a slot without a worker socket (scheduled fires).
+   * Reuses existing slot when agent+cwd match; otherwise recreates.
+   */
+  async function ensureSlotForSchedule(args: {
+    slotKey: string;
+    agent: string;
+    cwd: string;
+  }): Promise<Slot> {
+    const { slotKey, agent, cwd } = args;
+    let slot = slots.get(slotKey);
+
+    if (slot) {
+      const same = slot.agent === agent && slot.cwd === cwd;
+      if (same) {
+        try {
+          const hs = await slot.host.ensureSession({
+            sessionKey: slotKey,
+            agent,
+            cwd,
+          });
+          slot.agentSessionId = hs.agentSessionId;
+          return slot;
+        } catch (err) {
+          log.warn("schedule ensure reattach failed; recreating", {
+            slotKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          try {
+            await slot.host.dispose();
+          } catch {
+            /* */
+          }
+          slots.delete(slotKey);
+          slot = undefined;
+        }
+      } else {
+        try {
+          await slot.host.dispose();
+        } catch {
+          /* */
+        }
+        slots.delete(slotKey);
+        slot = undefined;
+      }
+    }
+
+    const host = createSessionHost({
+      config: {
+        ...baseConfig,
+      },
+      stateDir,
+      ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),
+      log,
+      hooks: makeHooks(slotKey),
+    });
+
+    try {
+      const hs = await host.ensureSession({
+        sessionKey: slotKey,
+        agent,
+        cwd,
       });
+      const created: Slot = {
+        slotKey,
+        agent,
+        cwd,
+        host,
+        agentSessionId: hs.agentSessionId,
+        owner: null,
+        busy: false,
+        permissionResolvers: new Map(),
+        elicitationResolvers: new Map(),
+        askResolvers: new Map(),
+      };
+      slots.set(slotKey, created);
+      log.info("schedule ensure new/load", {
+        slotKey,
+        agent,
+        agentSessionId: hs.agentSessionId,
+      });
+      return created;
+    } catch (err) {
+      try {
+        await host.dispose();
+      } catch {
+        /* */
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Fire a scheduled prompt into a session slot (worker optional).
+   * Does not require a connected worker — turn events are forwarded if owner is live.
+   */
+  async function fireScheduledPrompt(args: {
+    sessionKey: string;
+    repoRoot: string;
+    text: string;
+  }): Promise<FireJobResult> {
+    const slotKey = args.sessionKey;
+    let slot = slots.get(slotKey);
+
+    if (slot?.busy) {
+      return { status: "busy" };
+    }
+
+    // Resolve agent: existing slot → durable store → default
+    let agent = slot?.agent ?? defaultAgent;
+    let cwd = slot?.cwd ?? args.repoRoot;
+    if (!slot && options.sessionStore) {
+      try {
+        const rec = await options.sessionStore.load(slotKey);
+        if (rec) {
+          agent = rec.agent || agent;
+          cwd = rec.cwd || cwd;
+        }
+      } catch {
+        /* use defaults */
+      }
+    }
+    // Prefer catalog repo path for cwd when ensuring from schedule scan
+    if (!slot) {
+      cwd = args.repoRoot;
+    }
+
+    try {
+      slot = await ensureSlotForSchedule({ slotKey, agent, cwd });
+    } catch (err) {
+      return {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    if (slot.busy) {
+      return { status: "busy" };
+    }
+
+    slot.busy = true;
+    const reqId = `sched-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      const turn = slot.host.startTurn({
+        sessionKey: slotKey,
+        text: args.text,
+      });
+      for await (const event of turn.events) {
+        if (slot.owner && !slot.owner.destroyed) {
+          send(slot.owner, {
+            type: "turn_event",
+            reqId,
+            slotKey,
+            event,
+          });
+        }
+      }
+      const result = await turn.result;
+      if (slot.owner && !slot.owner.destroyed) {
+        send(slot.owner, {
+          type: "prompt_ok",
+          reqId,
+          slotKey,
+          status: result.status,
+          ...(result.stopReason ? { stopReason: result.stopReason } : {}),
+        });
+      }
+      // Treat agent cancel / error stop as error for lastStatus
+      if (
+        result.status === "error" ||
+        result.status === "cancelled" ||
+        result.status === "canceled"
+      ) {
+        return {
+          status: "error",
+          error: result.stopReason ?? result.status,
+        };
+      }
+      return { status: "ok" };
+    } catch (err) {
+      if (slot.owner && !slot.owner.destroyed) {
+        send(slot.owner, {
+          type: "prompt_err",
+          reqId,
+          slotKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
     } finally {
       slot.busy = false;
     }
@@ -544,7 +790,32 @@ export async function startAcpHostServer(
   });
   log.info("listening", { sockPath });
 
+  const enableScheduler = options.enableScheduler !== false;
+  const repoCount = Object.keys(repos).length;
+  if (enableScheduler && repoCount > 0) {
+    const tickMs = options.scheduleTickMs ?? scheduleTickMs(process.env);
+    scheduler = startSchedulerLoop({
+      repos,
+      fire: async ({ sessionKey, repoRoot, text }) =>
+        fireScheduledPrompt({ sessionKey, repoRoot, text }),
+      log,
+      tickMs,
+      fireImmediately: true,
+    });
+    log.info("scheduler started", {
+      repos: repoCount,
+      tickMs,
+      repoKeys: Object.keys(repos),
+    });
+  } else if (enableScheduler) {
+    log.info("scheduler idle (no TACP_REPOS_JSON / repos catalog)");
+  }
+
   const close = async () => {
+    if (scheduler) {
+      scheduler.stop();
+      scheduler = null;
+    }
     log.info("shutting down — disposing all agent slots");
     for (const [key, slot] of slots) {
       try {
@@ -562,5 +833,11 @@ export async function startAcpHostServer(
     }
   };
 
-  return { sockPath, close };
+  return {
+    sockPath,
+    close,
+    ...(scheduler
+      ? { scheduleTickNow: () => scheduler!.tickNow() }
+      : {}),
+  };
 }

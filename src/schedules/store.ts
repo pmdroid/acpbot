@@ -23,6 +23,7 @@ import {
   scheduleJobSchema,
   type CreateScheduleInput,
   type ScheduleJob,
+  type ScheduleJobStatus,
 } from "./types";
 
 /** Lexical containment (no realpath). */
@@ -342,4 +343,120 @@ export async function cancelJob(
   const validated = scheduleJobSchema.parse(updated);
   await writeJobAtomic(root, validated);
   return validated;
+}
+
+export type UpdateJobPatch = {
+  enabled?: boolean;
+  nextRunAt?: string;
+  lastRunAt?: string | null;
+  lastStatus?: ScheduleJobStatus | null;
+  name?: string;
+  prompt?: string;
+  script?: string;
+  cronExpr?: string;
+  runAt?: string;
+  timezone?: string;
+};
+
+/**
+ * Partial update of a job file (host fire status, mark due, etc.).
+ * Validates the merged result with the job schema.
+ */
+export async function updateJob(
+  repoRoot: string,
+  id: string,
+  patch: UpdateJobPatch,
+  opts?: { now?: Date },
+): Promise<ScheduleJob> {
+  const root = resolve(repoRoot);
+  const existing = await readJob(root, id);
+  if (!existing) {
+    throw new Error(`schedule not found: ${id}`);
+  }
+
+  const nowIso = (opts?.now ?? new Date()).toISOString();
+  const merged: ScheduleJob = {
+    ...existing,
+    updatedAt: nowIso,
+  };
+
+  if (patch.enabled !== undefined) merged.enabled = patch.enabled;
+  if (patch.nextRunAt !== undefined) merged.nextRunAt = patch.nextRunAt;
+  if (patch.lastRunAt !== undefined) merged.lastRunAt = patch.lastRunAt;
+  if (patch.lastStatus !== undefined) merged.lastStatus = patch.lastStatus;
+  if (patch.name !== undefined) {
+    if (patch.name.trim() === "") delete merged.name;
+    else merged.name = patch.name.trim();
+  }
+  if (patch.prompt !== undefined) {
+    const p = patch.prompt.trim();
+    if (!p) throw new Error("prompt cannot be empty");
+    merged.prompt = p;
+  }
+  if (patch.script !== undefined) {
+    if (patch.script.trim() === "") {
+      delete merged.script;
+    } else {
+      merged.script = await normalizeScriptPath(root, patch.script);
+    }
+  }
+  if (patch.cronExpr !== undefined) {
+    const c = patch.cronExpr.trim();
+    if (c) merged.cronExpr = c;
+    else delete merged.cronExpr;
+  }
+  if (patch.runAt !== undefined) {
+    const r = patch.runAt.trim();
+    if (r) merged.runAt = new Date(r).toISOString();
+    else delete merged.runAt;
+  }
+  if (patch.timezone !== undefined) {
+    const tz = patch.timezone.trim();
+    merged.timezone = tz || "UTC";
+  }
+
+  const validated = scheduleJobSchema.parse(merged);
+  await writeJobAtomic(root, validated);
+  return validated;
+}
+
+/**
+ * Mark a job due on the next host tick (`nextRunAt = now`).
+ * Session-scoped by default (same as cancel).
+ */
+export async function markJobDue(
+  repoRoot: string,
+  id: string,
+  opts: CancelJobOptions & { now?: Date } = {},
+): Promise<ScheduleJob> {
+  const root = resolve(repoRoot);
+  const existing = await readJob(root, id);
+  if (!existing) {
+    throw new Error(`schedule not found: ${id}`);
+  }
+
+  if (!opts.all) {
+    const sk = opts.sessionKey?.trim();
+    if (!sk) {
+      throw new Error(
+        "markJobDue requires sessionKey unless all=true (refuse unscoped)",
+      );
+    }
+    if (existing.sessionKey !== sk) {
+      throw new Error(
+        `schedule ${id} belongs to session ${existing.sessionKey}, not ${sk}`,
+      );
+    }
+  }
+
+  const now = opts.now ?? new Date();
+  return updateJob(
+    root,
+    id,
+    {
+      enabled: true,
+      nextRunAt: now.toISOString(),
+    },
+    { now },
+  );
 }
