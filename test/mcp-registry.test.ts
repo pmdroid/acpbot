@@ -197,6 +197,70 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
     );
   });
 
+  test("rejects URL userinfo so secrets cannot land in mcp.json", async () => {
+    await withRepo(
+      async () => {},
+      async (repo) => {
+        const secretUrl = "https://user:SECRET_TOKEN@mcp.example/path";
+        await expect(
+          writeRemoteMcpServer(repo, { name: "leaky", url: secretUrl }),
+        ).rejects.toThrow(/credentials|user:pass@|tokens/i);
+
+        // No file written (or empty registry if file existed)
+        let raw: string | undefined;
+        try {
+          raw = await readFile(join(repo, ".tacp", "mcp.json"), "utf8");
+        } catch {
+          raw = undefined;
+        }
+        if (raw !== undefined) {
+          expect(raw).not.toContain("SECRET_TOKEN");
+          expect(raw).not.toContain("user:");
+        }
+        const config = await readMcpConfig(repo);
+        expect(config.mcpServers.find((s) => s.name === "leaky")).toBeUndefined();
+      },
+    );
+  });
+
+  test("refuses to replace stdio entry with remote without remove first", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.json"),
+          JSON.stringify({
+            mcpServers: [
+              {
+                name: "local",
+                command: "bun",
+                args: ["run", ".tacp/tools/x.ts"],
+                env: { FOO: "bar" },
+              },
+            ],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        await expect(
+          writeRemoteMcpServer(repo, {
+            name: "local",
+            url: "https://mcp.example/remote",
+          }),
+        ).rejects.toThrow(/stdio.*\/mcp remove local/i);
+
+        const config = await readMcpConfig(repo);
+        expect(config.mcpServers).toHaveLength(1);
+        expect(config.mcpServers[0]).toMatchObject({
+          name: "local",
+          command: "bun",
+          env: { FOO: "bar" },
+        });
+      },
+    );
+  });
+
   test("format status and usage helpers", () => {
     expect(formatMcpRegistryStatus({ mcpServers: [] })).toContain(
       "/mcp add",
@@ -274,17 +338,44 @@ describe("/mcp slash command wiring", () => {
         const daemon = createDaemon(env);
         await daemon.handleUpdate(root("/new demo mcp-reg", 1));
         const session = (await daemon.listSessions())[0]!;
+        // B1.4: registry acts on topic-bound session.cwd (configured repo path).
+        expect(session.cwd).toBe(repo);
         const thread = session.messageThreadId;
 
         await daemon.handleUpdate(topic(thread, "/mcp", 2));
         await daemon.handleUpdate(
           topic(thread, "/mcp add linear https://mcp.example/linear", 3),
         );
+
+        // After add: re-read on-disk file under session.cwd — keys name/type/url only.
+        const onDiskPath = join(session.cwd, ".tacp", "mcp.json");
+        const rawAfterAdd = await readFile(onDiskPath, "utf8");
+        expect(rawAfterAdd).not.toContain("SECRET");
+        expect(rawAfterAdd).not.toContain("token");
+        const parsedAfterAdd = JSON.parse(rawAfterAdd) as {
+          mcpServers: Array<Record<string, unknown>>;
+        };
+        expect(parsedAfterAdd.mcpServers).toHaveLength(1);
+        const diskEntry = parsedAfterAdd.mcpServers[0]!;
+        expect(Object.keys(diskEntry).sort()).toEqual(["name", "type", "url"]);
+        expect(diskEntry).toEqual({
+          name: "linear",
+          type: "http",
+          url: "https://mcp.example/linear",
+        });
+
         await daemon.handleUpdate(topic(thread, "/mcp status", 4));
         await daemon.handleUpdate(topic(thread, "/mcp add", 5));
-        await daemon.handleUpdate(topic(thread, "/mcp remove linear", 6));
-        await daemon.handleUpdate(topic(thread, "/mcp remove missing", 7));
-        await daemon.handleUpdate(topic(thread, "/mcp nope", 8));
+        await daemon.handleUpdate(
+          topic(
+            thread,
+            "/mcp add leaky https://user:SECRET_TOKEN@mcp.example/x",
+            6,
+          ),
+        );
+        await daemon.handleUpdate(topic(thread, "/mcp remove linear", 7));
+        await daemon.handleUpdate(topic(thread, "/mcp remove missing", 8));
+        await daemon.handleUpdate(topic(thread, "/mcp nope", 9));
 
         const texts = env.telegram
           .sentMessages()
@@ -301,14 +392,21 @@ describe("/mcp slash command wiring", () => {
         ).toBe(true);
         // formatForTelegram may wrap usage in HTML <code>; match command text.
         expect(texts.some((t) => /Usage:.*\/mcp add/s.test(t))).toBe(true);
+        expect(
+          texts.some((t) => /credentials|user:pass@|tokens are never/i.test(t)),
+        ).toBe(true);
+        // Userinfo secret must never appear in Telegram replies either.
+        expect(texts.every((t) => !t.includes("SECRET_TOKEN"))).toBe(true);
         expect(texts.some((t) => /Removed MCP.*linear/.test(t))).toBe(true);
         expect(texts.some((t) => /No MCP entry named.*missing/.test(t))).toBe(
           true,
         );
         expect(texts.some((t) => /Usage:.*\/mcp remove/s.test(t))).toBe(true);
 
-        // File never had secrets; after remove, empty or only other entries
-        const final = await readMcpConfig(repo);
+        // After remove: linear gone; no secret residue on disk.
+        const finalRaw = await readFile(onDiskPath, "utf8");
+        expect(finalRaw).not.toContain("SECRET_TOKEN");
+        const final = await readMcpConfig(session.cwd);
         expect(final.mcpServers.find((s) => s.name === "linear")).toBeUndefined();
       },
     );
