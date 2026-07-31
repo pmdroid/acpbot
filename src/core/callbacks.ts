@@ -14,6 +14,8 @@ export const CALLBACK = {
   newRepoPrefix: "n:",
   /** Skill pick: k:<token>:<skillIndex> (-1 = cancel) */
   skillPrefix: "k:",
+  /** Session mode pick: m:<token>:<modeIndex> (-1 = cancel) */
+  modePrefix: "m:",
 } as const;
 
 export function encodePermissionCallback(
@@ -129,6 +131,27 @@ export function parseSkillCallback(
   const skillIndex = Number(rest.slice(colon + 1));
   if (!token || !Number.isInteger(skillIndex)) return undefined;
   return { token, skillIndex };
+}
+
+export function encodeModeCallback(token: string, modeIndex: number): string {
+  const data = `${CALLBACK.modePrefix}${token}:${modeIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseModeCallback(
+  data: string,
+): { token: string; modeIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.modePrefix)) return undefined;
+  const rest = data.slice(CALLBACK.modePrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const modeIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(modeIndex)) return undefined;
+  return { token, modeIndex };
 }
 
 export function newToken(bytes = 6): string {

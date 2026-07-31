@@ -55,7 +55,7 @@ describe("topic mode slash commands", () => {
     await d.handleUpdate(topic(tid, "/build", 3));
     expect(env.agents.modes.get(key)).toBe("build");
 
-    await d.handleUpdate(topic(tid, "/mode", 4));
+    await d.handleUpdate(topic(tid, "/mode toggle", 4));
     expect(env.agents.modes.get(key)).toBe("plan");
 
     await d.handleUpdate(topic(tid, "/mode default", 5));
