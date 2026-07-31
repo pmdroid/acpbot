@@ -3,6 +3,7 @@ import {
   currentModelLabel,
   findModelConfigOption,
   formatModelStatus,
+  modelsStateToConfigOptions,
   normalizeConfigOptions,
 } from "../src/acp/session-config";
 import { listRegisteredAgents } from "../src/acp/agent-launch";
@@ -25,6 +26,22 @@ describe("session-config", () => {
     expect(findModelConfigOption(opts)?.id).toBe("model");
     expect(currentModelLabel(opts)).toBe("Fast");
     expect(formatModelStatus({ configOptions: opts })).toContain("fast");
+  });
+
+  test("Grok SessionModelState (session/set_model) maps to model options", () => {
+    // Shape from xai-org/grok-build SessionModelState / _x.ai/models/update
+    const opts = modelsStateToConfigOptions({
+      currentModelId: "grok-4.5",
+      availableModels: [
+        { modelId: "grok-4.5", name: "Grok 4.5" },
+        { modelId: "grok-3", name: "Grok 3" },
+      ],
+    });
+    expect(findModelConfigOption(opts)?.options.map((o) => o.value)).toEqual([
+      "grok-4.5",
+      "grok-3",
+    ]);
+    expect(currentModelLabel(opts)).toBe("Grok 4.5");
   });
 
   test("empty when no model options", () => {

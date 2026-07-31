@@ -27,6 +27,7 @@ import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
 import {
   findModelConfigOption,
+  modelsStateToConfigOptions,
   normalizeConfigOptions,
   type SessionConfigOptionView,
 } from "./session-config";
@@ -335,8 +336,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return terminals.releaseTerminal(params);
   }
 
-  function buildClientApp(): acp.ClientApp {
+  function buildClientApp(sessionKey: string): acp.ClientApp {
     const askParser = (p: unknown) =>
+      (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
+    const modelsParser = (p: unknown) =>
       (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
 
     return acp
@@ -373,7 +376,26 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       )
       .onRequest("x.ai/ask_user_question", askParser, (ctx) =>
         handleAskUserQuestion(ctx.params),
-      );
+      )
+      // Grok Build pushes model catalog here (not only on session/new).
+      // https://github.com/xai-org/grok-build — SessionModelState
+      .onNotification("_x.ai/models/update", modelsParser, (ctx) => {
+        const opts = modelsStateToConfigOptions(ctx.params);
+        if (opts.length === 0) return;
+        const entry = live.get(sessionKey);
+        if (entry) {
+          entry.configOptions = opts;
+          const cur = opts[0]?.currentValue;
+          if (typeof cur === "string") {
+            preferredModelBySession.set(sessionKey, cur);
+          }
+          log.info("models updated via _x.ai/models/update", {
+            sessionKey,
+            count: opts[0]?.options.length ?? 0,
+            current: cur ?? null,
+          });
+        }
+      });
   }
 
   function syntheticCannedConfig(
@@ -496,7 +518,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const inputStream = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
     const stream = acp.ndJsonStream(output, inputStream);
 
-    const app = buildClientApp();
+    const app = buildClientApp(input.sessionKey);
     const connection = app.connect(stream);
 
     // Initialize
@@ -639,15 +661,41 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       }
     }
 
-    // Capture ACP configOptions (model selector, etc.) from the session object.
-    const configRaw =
-      (session as { configOptions?: unknown }).configOptions ??
-      (session as { _meta?: { configOptions?: unknown } })._meta?.configOptions;
-    let configOptions = normalizeConfigOptions(configRaw);
-    // If agent doesn't advertise models, expose canned list for this agent.
+    // Model sources (priority):
+    // 1) Grok-style session.models / SessionModelState (session/set_model)
+    // 2) configOptions select with category/id model
+    // 3) canned spawn-time models for this agent
+    const sessionModels =
+      (session as { models?: unknown }).models ??
+      (session as { _meta?: { models?: unknown; modelState?: unknown } })._meta
+        ?.models ??
+      (session as { _meta?: { modelState?: unknown } })._meta?.modelState;
+    let configOptions = modelsStateToConfigOptions(sessionModels);
+    if (!findModelConfigOption(configOptions)) {
+      const configRaw =
+        (session as { configOptions?: unknown }).configOptions ??
+        (session as { _meta?: { configOptions?: unknown } })._meta
+          ?.configOptions;
+      configOptions = normalizeConfigOptions(configRaw);
+    }
     if (!findModelConfigOption(configOptions)) {
       configOptions = syntheticCannedConfig(input.agent, input.sessionKey);
+    } else {
+      const cur = findModelConfigOption(configOptions)?.currentValue;
+      if (typeof cur === "string") {
+        preferredModelBySession.set(input.sessionKey, cur);
+      }
     }
+    log.info("session models/config", {
+      sessionKey: input.sessionKey,
+      modelCount: findModelConfigOption(configOptions)?.options.length ?? 0,
+      current: findModelConfigOption(configOptions)?.currentValue ?? null,
+      source: findModelConfigOption(configOptions)
+        ? modelsStateToConfigOptions(sessionModels).length
+          ? "session.models"
+          : "configOptions-or-canned"
+        : "none",
+    });
 
     await persistRecord({
       sessionKey: input.sessionKey,
@@ -1055,7 +1103,46 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         return [...next.configOptions];
       }
 
-      // Native ACP path
+      // Grok Build uses dedicated session/set_model (not set_config_option).
+      // https://github.com/xai-org/grok-build — SetSessionModelRequest
+      if (typeof value === "string" && (configId === "model" || /model/i.test(configId))) {
+        try {
+          const resp = await entry.connection.agent.request(
+            "session/set_model" as never,
+            {
+              sessionId: entry.session.sessionId,
+              modelId: value,
+            } as never,
+          );
+          // Response may include updated model state
+          const respModels =
+            (resp as { models?: unknown })?.models ??
+            (resp as { _meta?: { modelState?: unknown } })?._meta?.modelState;
+          const fromResp = modelsStateToConfigOptions(respModels);
+          if (fromResp.length > 0) {
+            entry.configOptions = fromResp;
+          } else {
+            const hit = findModelConfigOption(entry.configOptions);
+            if (hit) hit.currentValue = value;
+          }
+          preferredModelBySession.set(sessionKey, value);
+          log.info("set_model ok (Grok/ACP session model)", {
+            sessionKey,
+            modelId: value,
+          });
+          return [...entry.configOptions];
+        } catch (setModelErr) {
+          log.debug("session/set_model failed; trying set_config_option", {
+            sessionKey,
+            error:
+              setModelErr instanceof Error
+                ? setModelErr.message
+                : String(setModelErr),
+          });
+        }
+      }
+
+      // Native ACP configOptions path
       const params =
         typeof value === "boolean"
           ? {
@@ -1090,14 +1177,17 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         });
         return [...entry.configOptions];
       } catch (err) {
-        // Fall back to canned respawn if ACP rejects set_config_option
-        if (typeof value === "string" && getCannedModelsForAgent(entry.agent).length) {
+        // Fall back to canned respawn if ACP rejects both paths
+        if (
+          typeof value === "string" &&
+          getCannedModelsForAgent(entry.agent).length
+        ) {
           preferredModelBySession.set(sessionKey, value);
           const agent = entry.agent;
           const cwd = entry.cwd;
           await killLiveSession(sessionKey);
           const next = await spawnSession({ sessionKey, agent, cwd });
-          log.warn("setConfigOption ACP failed; used canned respawn", {
+          log.warn("set model ACP failed; used canned respawn", {
             sessionKey,
             error: err instanceof Error ? err.message : String(err),
             model: value,
