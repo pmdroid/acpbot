@@ -10,11 +10,14 @@ import {
 import {
   buildSessionMcpServers,
   expandHomeToken,
+  filterRepoMcpByProfile,
   injectSessionEnv,
   isPathLikeToken,
   isStdioServer,
   isWithinRepo,
+  loadRepoMcpProfiles,
   loadRepoMcpServers,
+  loadRepoTacpConfig,
   resolveRepoPathToken,
   TACP_BUILTIN_MCP_NAME,
 } from "../src/mcp/repo-mcp";
@@ -534,5 +537,319 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
       enabled: false,
     });
     expect(servers).toEqual([]);
+  });
+});
+
+describe("repo tacp config + mcp profiles", () => {
+  async function withRepo(
+    setup: (repo: string) => Promise<void>,
+    run: (repo: string) => Promise<void>,
+  ) {
+    const repo = await mkdtemp(join(tmpdir(), "tacp-mcp-profile-"));
+    try {
+      await setup(repo);
+      await run(repo);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  }
+
+  async function writeMcpServers(
+    repo: string,
+    names: string[],
+  ): Promise<void> {
+    await mkdir(join(repo, ".tacp"), { recursive: true });
+    await writeFile(
+      join(repo, ".tacp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: names.map((name) => ({
+          name,
+          command: "bun",
+          args: ["run", `.tacp/${name}.ts`],
+        })),
+      }),
+      "utf8",
+    );
+  }
+
+  test("loadRepoTacpConfig missing file → empty", async () => {
+    await withRepo(
+      async () => {},
+      async (repo) => {
+        expect(await loadRepoTacpConfig(repo)).toEqual({});
+      },
+    );
+  });
+
+  test("loadRepoTacpConfig parses defaultAgent and mcpProfile", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({
+            defaultAgent: "grok-build",
+            mcpProfile: "automation",
+            extra: "ignored",
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        expect(await loadRepoTacpConfig(repo)).toEqual({
+          defaultAgent: "grok-build",
+          mcpProfile: "automation",
+        });
+      },
+    );
+  });
+
+  test("loadRepoMcpProfiles missing file → undefined", async () => {
+    await withRepo(
+      async () => {},
+      async (repo) => {
+        expect(await loadRepoMcpProfiles(repo)).toBeUndefined();
+      },
+    );
+  });
+
+  test("loadRepoMcpProfiles parses allowlists", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({
+            automation: ["schedule", "homeassistant"],
+            coding: [],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        expect(await loadRepoMcpProfiles(repo)).toEqual({
+          automation: ["schedule", "homeassistant"],
+          coding: [],
+        });
+      },
+    );
+  });
+
+  test("filterRepoMcpByProfile: no profile / missing map → all servers", () => {
+    const servers = [
+      { name: "a", command: "bun", args: [], env: [] },
+      { name: "b", command: "bun", args: [], env: [] },
+    ];
+    expect(filterRepoMcpByProfile(servers, undefined, { a: ["a"] })).toEqual(
+      servers,
+    );
+    expect(filterRepoMcpByProfile(servers, "x", undefined)).toEqual(servers);
+  });
+
+  test("filterRepoMcpByProfile: unknown profile name → no filter", () => {
+    const servers = [
+      { name: "schedule", command: "bun", args: [], env: [] },
+      { name: "homeassistant", command: "bun", args: [], env: [] },
+    ];
+    expect(
+      filterRepoMcpByProfile(servers, "missing", {
+        automation: ["schedule"],
+      }),
+    ).toEqual(servers);
+  });
+
+  test("filterRepoMcpByProfile: empty list → no repo MCP", () => {
+    const servers = [
+      { name: "schedule", command: "bun", args: [], env: [] },
+    ];
+    expect(
+      filterRepoMcpByProfile(servers, "coding", { coding: [] }),
+    ).toEqual([]);
+  });
+
+  test("filterRepoMcpByProfile: allowlist keeps matching names only", () => {
+    const servers = [
+      { name: "schedule", command: "bun", args: [], env: [] },
+      { name: "homeassistant", command: "bun", args: [], env: [] },
+      { name: "other", command: "bun", args: [], env: [] },
+    ];
+    expect(
+      filterRepoMcpByProfile(servers, "automation", {
+        automation: ["schedule", "homeassistant", "not-in-mcp"],
+      }).map((s) => s.name),
+    ).toEqual(["schedule", "homeassistant"]);
+  });
+
+  test("buildSessionMcpServers applies profile from config.json", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, [
+          "schedule",
+          "homeassistant",
+          "devtools",
+        ]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "automation" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({
+            automation: ["schedule", "homeassistant"],
+            coding: [],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "homeassistant",
+          "tacp",
+        ]);
+      },
+    );
+  });
+
+  test("empty profile → built-in tacp only", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "coding" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({ coding: [] }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "code/feat",
+        });
+        expect(servers.map((s) => s.name)).toEqual(["tacp"]);
+      },
+    );
+  });
+
+  test("missing profiles file → no filter (all repo MCP)", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "automation" }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "devtools",
+          "tacp",
+        ]);
+      },
+    );
+  });
+
+  test("unknown profile name → no filter (all repo MCP)", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "does-not-exist" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({ automation: ["schedule"] }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "devtools",
+          "tacp",
+        ]);
+      },
+    );
+  });
+
+  test("mcpProfile option overrides config.json", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "automation" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({
+            automation: ["schedule"],
+            coding: ["devtools"],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "code/feat",
+          mcpProfile: "coding",
+        });
+        expect(servers.map((s) => s.name)).toEqual(["devtools", "tacp"]);
+      },
+    );
+  });
+
+  test("missing config.json → no filter", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({ automation: ["schedule"] }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "devtools",
+          "tacp",
+        ]);
+      },
+    );
   });
 });
