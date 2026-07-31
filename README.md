@@ -85,6 +85,26 @@ run through Grok over ACP.
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
 
+
+## ACP host (keep agents alive across worker restarts)
+
+Like Ursula’s `acp-host`: a long-lived process owns agent stdio for **any** ACP agent
+(not Grok-leader-specific). The Telegram worker can restart and reattach.
+
+```bash
+# Terminal 1 — agent owner
+bun run acp-host
+
+# Terminal 2 — Telegram worker
+TACP_ACP_HOST=1 set -a && source .env && set +a && bun run start
+```
+
+Socket default: `$TACP_ACPX_STATE_DIR/acp-host.sock`.  
+If the socket already exists, the worker auto-uses the host unless `TACP_ACP_HOST=0`.
+
+On worker disconnect, slots stay warm. Host SIGTERM disposes all agent processes.
+See `docs/ideas/agent-host-keepalive.md`.
+
 ## 3. Run
 
 ```bash

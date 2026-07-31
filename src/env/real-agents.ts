@@ -22,6 +22,10 @@ import {
   type HostTurnEvent,
 } from "../acp/session-host";
 import {
+  createAcpHostClient,
+  shouldUseAcpHost,
+} from "../acp-host/client";
+import {
   pickSessionModeId,
   pickReadOnlyModeId,
 } from "../acp/session-mode";
@@ -153,35 +157,54 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       ) => Promise<Record<string, unknown>>)
     | undefined;
 
+  const hooks = {
+    onPermissionRequest: async (
+      req: PermissionRequest,
+      ctx: { signal: AbortSignal },
+    ) => {
+      if (permissionHandler) return permissionHandler(req, ctx);
+      log.warn("no permission handler; reject_once", {
+        sessionKey: req.sessionId,
+      });
+      return { outcome: "reject_once" as const };
+    },
+    onElicitationRequest: async (
+      req: ElicitationRequest,
+      ctx: { signal: AbortSignal },
+    ) => {
+      if (elicitationHandler) return elicitationHandler(req, ctx);
+      return { action: "decline" as const };
+    },
+    onAskUserQuestion: async (
+      req: { sessionId: string; raw: unknown },
+      ctx: { signal: AbortSignal },
+    ) => {
+      if (!askUserQuestionHandler) {
+        return { outcome: "skip_interview" };
+      }
+      return askUserQuestionHandler(req, ctx);
+    },
+  };
+
+  // Ursula-style: long-lived acp-host owns agent processes when enabled/socket up.
+  const useHost = !options.host && shouldUseAcpHost();
+  if (useHost) {
+    log.info("using acp-host client (agent processes outlive worker)");
+  }
+
   const host: SessionHost =
     options.host ??
-    createSessionHost({
-      config: options.config,
-      stateDir: options.acpxStateDir,
-      ...(options.config.mcpEnabled !== undefined
-        ? { mcpEnabled: options.config.mcpEnabled }
-        : {}),
-      log,
-      hooks: {
-        onPermissionRequest: async (req, ctx) => {
-          if (permissionHandler) return permissionHandler(req, ctx);
-          log.warn("no permission handler; reject_once", {
-            sessionKey: req.sessionId,
-          });
-          return { outcome: "reject_once" };
-        },
-        onElicitationRequest: async (req, ctx) => {
-          if (elicitationHandler) return elicitationHandler(req, ctx);
-          return { action: "decline" };
-        },
-        onAskUserQuestion: async (req, ctx) => {
-          if (!askUserQuestionHandler) {
-            return { outcome: "skip_interview" };
-          }
-          return askUserQuestionHandler(req, ctx);
-        },
-      },
-    });
+    (useHost
+      ? createAcpHostClient({ log, hooks })
+      : createSessionHost({
+          config: options.config,
+          stateDir: options.acpxStateDir,
+          ...(options.config.mcpEnabled !== undefined
+            ? { mcpEnabled: options.config.mcpEnabled }
+            : {}),
+          log,
+          hooks,
+        }));
 
   // Keep hooks live when handlers are set after construction.
   const refreshHooks = () => {
