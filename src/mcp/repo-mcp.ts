@@ -414,10 +414,11 @@ export async function loadRepoMcpProfiles(
   for (const [name, value] of Object.entries(
     parsed as Record<string, unknown>,
   )) {
-    if (!name.trim()) continue;
+    const key = name.trim();
+    if (!key) continue;
     if (!Array.isArray(value)) {
       log.warn("repo mcp: profile value must be an array of server names", {
-        profile: name,
+        profile: key,
       });
       continue;
     }
@@ -427,7 +428,12 @@ export async function loadRepoMcpProfiles(
         names.push(entry.trim());
       }
     }
-    out[name] = names;
+    if (Object.prototype.hasOwnProperty.call(out, key)) {
+      log.warn("repo mcp: duplicate profile key after trim; later wins", {
+        profile: key,
+      });
+    }
+    out[key] = names;
   }
   return out;
 }
@@ -439,14 +445,29 @@ export async function loadRepoMcpProfiles(
  * - Known profile with `[]` → empty list (no repo MCP).
  * - Known profile with names → only servers whose name is in the allowlist.
  *   Names listed but absent from mcp.json are ignored.
+ *
+ * When `log` is provided and `profileName` is set, fail-open paths emit a warn
+ * (missing profiles map or unknown key) so typos are not silent.
  */
 export function filterRepoMcpByProfile(
   servers: SessionMcpServer[],
   profileName: string | undefined,
   profiles: RepoMcpProfiles | undefined,
+  log?: Logger,
 ): SessionMcpServer[] {
-  if (!profileName || !profiles) return servers;
+  if (!profileName) return servers;
+  if (!profiles) {
+    log?.warn(
+      "repo mcp: mcpProfile set but profiles unavailable; no filter (all repo MCP)",
+      { profileName },
+    );
+    return servers;
+  }
   if (!Object.prototype.hasOwnProperty.call(profiles, profileName)) {
+    log?.warn("repo mcp: unknown mcpProfile; no filter (all repo MCP)", {
+      profileName,
+      available: Object.keys(profiles),
+    });
     return servers;
   }
   const allow = profiles[profileName]!;
@@ -596,7 +617,7 @@ export async function buildSessionMcpServers(
   ]);
 
   const profileName = options.mcpProfile ?? repoConfig.mcpProfile;
-  const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles);
+  const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles, log);
 
   const tacp = buildTacpMcpServers({
     enabled: true,

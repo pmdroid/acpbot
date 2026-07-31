@@ -852,4 +852,181 @@ describe("repo tacp config + mcp profiles", () => {
       },
     );
   });
+
+  test("invalid JSON config.json → empty config (no filter)", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(join(repo, ".tacp", "config.json"), "{not json", "utf8");
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({ automation: ["schedule"] }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        expect(await loadRepoTacpConfig(repo)).toEqual({});
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "devtools",
+          "tacp",
+        ]);
+      },
+    );
+  });
+
+  test("invalid JSON mcp.profiles.json → undefined → no filter", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "automation" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          "{not json",
+          "utf8",
+        );
+      },
+      async (repo) => {
+        expect(await loadRepoMcpProfiles(repo)).toBeUndefined();
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual([
+          "schedule",
+          "devtools",
+          "tacp",
+        ]);
+      },
+    );
+  });
+
+  test("allowlist with no matching servers → empty repo MCP + tacp", async () => {
+    await withRepo(
+      async (repo) => {
+        await writeMcpServers(repo, ["schedule", "devtools"]);
+        await writeFile(
+          join(repo, ".tacp", "config.json"),
+          JSON.stringify({ mcpProfile: "automation" }),
+          "utf8",
+        );
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({ automation: ["not-present", "also-missing"] }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const servers = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "life/main",
+        });
+        expect(servers.map((s) => s.name)).toEqual(["tacp"]);
+      },
+    );
+  });
+
+  test("loadRepoMcpProfiles trims profile keys", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        // raw JSON so the key retains surrounding whitespace
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          '{ " automation ": ["schedule"] }',
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const profiles = await loadRepoMcpProfiles(repo);
+        expect(profiles).toEqual({ automation: ["schedule"] });
+      },
+    );
+  });
+
+  test("non-array profile value skipped; remaining keys still load", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.profiles.json"),
+          JSON.stringify({
+            broken: "not-an-array",
+            automation: ["schedule"],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        expect(await loadRepoMcpProfiles(repo)).toEqual({
+          automation: ["schedule"],
+        });
+      },
+    );
+  });
+
+  test("unknown mcpProfile warns with available keys (fail-open)", () => {
+    const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+    const log = {
+      level: "warn" as const,
+      debug() {},
+      info() {},
+      warn(msg: string, meta?: Record<string, unknown>) {
+        warns.push({ msg, meta });
+      },
+      error() {},
+      child() {
+        return log;
+      },
+    };
+    const servers = [
+      { name: "schedule", command: "bun", args: [], env: [] },
+    ];
+    const out = filterRepoMcpByProfile(
+      servers,
+      "typo-profile",
+      { automation: ["schedule"] },
+      log,
+    );
+    expect(out).toEqual(servers);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.msg).toMatch(/unknown mcpProfile/);
+    expect(warns[0]!.meta?.profileName).toBe("typo-profile");
+    expect(warns[0]!.meta?.available).toEqual(["automation"]);
+  });
+
+  test("mcpProfile set but profiles missing warns (fail-open)", () => {
+    const warns: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+    const log = {
+      level: "warn" as const,
+      debug() {},
+      info() {},
+      warn(msg: string, meta?: Record<string, unknown>) {
+        warns.push({ msg, meta });
+      },
+      error() {},
+      child() {
+        return log;
+      },
+    };
+    const servers = [
+      { name: "schedule", command: "bun", args: [], env: [] },
+    ];
+    const out = filterRepoMcpByProfile(servers, "automation", undefined, log);
+    expect(out).toEqual(servers);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.msg).toMatch(/profiles unavailable/);
+    expect(warns[0]!.meta?.profileName).toBe("automation");
+  });
 });
