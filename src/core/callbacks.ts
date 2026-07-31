@@ -16,6 +16,10 @@ export const CALLBACK = {
   skillPrefix: "k:",
   /** Session mode pick: m:<token>:<modeIndex> (-1 = cancel) */
   modePrefix: "m:",
+  /** LLM model pick: M:<token>:<valueIndex> (-1 = cancel) */
+  modelPrefix: "M:",
+  /** Agent binary pick: A:<token>:<agentIndex> (-1 = cancel) */
+  agentPrefix: "A:",
 } as const;
 
 export function encodePermissionCallback(
@@ -152,6 +156,48 @@ export function parseModeCallback(
   const modeIndex = Number(rest.slice(colon + 1));
   if (!token || !Number.isInteger(modeIndex)) return undefined;
   return { token, modeIndex };
+}
+
+export function encodeModelCallback(token: string, valueIndex: number): string {
+  const data = `${CALLBACK.modelPrefix}${token}:${valueIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseModelCallback(
+  data: string,
+): { token: string; valueIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.modelPrefix)) return undefined;
+  const rest = data.slice(CALLBACK.modelPrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const valueIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(valueIndex)) return undefined;
+  return { token, valueIndex };
+}
+
+export function encodeAgentCallback(token: string, agentIndex: number): string {
+  const data = `${CALLBACK.agentPrefix}${token}:${agentIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseAgentCallback(
+  data: string,
+): { token: string; agentIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.agentPrefix)) return undefined;
+  const rest = data.slice(CALLBACK.agentPrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const agentIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(agentIndex)) return undefined;
+  return { token, agentIndex };
 }
 
 export function newToken(bytes = 6): string {

@@ -70,6 +70,7 @@ export function createAcpHostClient(
     }
   >();
   const modeCache = new Map<string, HostModeState>();
+  const configCache = new Map<string, HostSession["configOptions"]>();
   const sessionMeta = new Map<
     string,
     { agent: string; cwd: string; agentSessionId: string }
@@ -313,6 +314,22 @@ export function createAcpHostClient(
         currentModeId: msg.currentModeId,
         availableModeIds: msg.availableModeIds,
       });
+      // Refresh config options (model select, etc.)
+      try {
+        const cfg = await request({
+          type: "get_config",
+          reqId: randomUUID(),
+          slotKey: input.sessionKey,
+        });
+        if (cfg.type === "get_config_ok") {
+          configCache.set(
+            input.sessionKey,
+            cfg.configOptions as HostSession["configOptions"],
+          );
+        }
+      } catch {
+        configCache.set(input.sessionKey, []);
+      }
       return {
         sessionKey: input.sessionKey,
         agentSessionId: msg.agentSessionId,
@@ -320,6 +337,7 @@ export function createAcpHostClient(
         agent: input.agent,
         currentModeId: msg.currentModeId,
         availableModeIds: msg.availableModeIds,
+        configOptions: configCache.get(input.sessionKey) ?? [],
       } satisfies HostSession;
     },
 
@@ -476,6 +494,45 @@ export function createAcpHostClient(
 
     getAvailableModes(sessionKey) {
       return modeCache.get(sessionKey)?.availableModeIds ?? [];
+    },
+
+    getConfigOptions(sessionKey) {
+      return (configCache.get(sessionKey) ?? []) as ReturnType<
+        SessionHost["getConfigOptions"]
+      >;
+    },
+
+    async setConfigOption(sessionKey, configId, value) {
+      await connect();
+      const msg = await request({
+        type: "set_config",
+        reqId: randomUUID(),
+        slotKey: sessionKey,
+        configId,
+        value,
+      });
+      if (msg.type !== "set_config_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      const opts = (msg.configOptions ?? []) as ReturnType<
+        SessionHost["getConfigOptions"]
+      >;
+      configCache.set(sessionKey, opts);
+      return opts;
+    },
+
+    async disposeSession(sessionKey) {
+      await connect();
+      await request({
+        type: "kill",
+        reqId: randomUUID(),
+        slotKey: sessionKey,
+      });
+      sessionMeta.delete(sessionKey);
+      modeCache.delete(sessionKey);
+      configCache.delete(sessionKey);
     },
 
     async dispose() {

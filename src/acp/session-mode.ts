@@ -159,6 +159,8 @@ export function formatSessionStatus(input: {
   agent: string;
   launch?: { command: string; args: string[] } | undefined;
   mode?: string | undefined;
+  /** LLM model label from ACP configOptions */
+  model?: string | undefined;
   availableModes?: string[] | undefined;
   cwd: string;
   threadId: number;
@@ -177,9 +179,14 @@ export function formatSessionStatus(input: {
     `**Session** \`${input.sessionKey}\``,
     `Status: \`${input.status}\``,
     `Agent: \`${input.agent}\``,
-    `Launch / model entry: \`${launch}\``,
+    `Launch: \`${launch}\``,
     `Mode: \`${input.mode ?? "unknown"}\``,
   ];
+  if (input.model) {
+    lines.push(`Model: \`${input.model}\``);
+  } else {
+    lines.push(`Model: _(not advertised — try /model or agent CLI)_`);
+  }
   if (input.availableModes && input.availableModes.length > 0) {
     lines.push(
       `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
@@ -208,7 +215,7 @@ export function formatSessionStatus(input: {
   }
   lines.push(
     "",
-    "Change mode: `/mode` (button list) · `/plan` · `/build`",
+    "Change: `/mode` · `/model` · `/agent` · `/plan` · `/build`",
   );
   return lines.join("\n");
 }

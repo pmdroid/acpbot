@@ -21,6 +21,10 @@ import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
+import {
+  normalizeConfigOptions,
+  type SessionConfigOptionView,
+} from "./session-config";
 import { TerminalManager } from "./terminal-manager";
 import {
   createFileHostSessionStore,
@@ -64,6 +68,7 @@ export type HostSession = {
   agent: string;
   currentModeId?: string | undefined;
   availableModeIds?: string[] | undefined;
+  configOptions?: SessionConfigOptionView[] | undefined;
 };
 
 export type HostModeState = {
@@ -81,6 +86,8 @@ type LiveSession = {
   /** Last known ACP mode id (from new/load/setMode/updates) */
   currentModeId: string | undefined;
   availableModeIds: string[];
+  /** ACP configOptions (model select, etc.) */
+  configOptions: SessionConfigOptionView[];
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
 };
@@ -125,6 +132,14 @@ export type SessionHost = {
   setMode(sessionKey: string, modeId: string): Promise<HostModeState>;
   getModeState(sessionKey: string): HostModeState | undefined;
   getAvailableModes(sessionKey: string): string[];
+  getConfigOptions(sessionKey: string): SessionConfigOptionView[];
+  setConfigOption(
+    sessionKey: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOptionView[]>;
+  /** Kill live process for sessionKey (used before agent binary switch). */
+  disposeSession(sessionKey: string): Promise<void>;
   setHooks(hooks: SessionHostHooks): void;
   dispose(): Promise<void>;
 };
@@ -539,6 +554,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       }
     }
 
+    // Capture ACP configOptions (model selector, etc.) from the session object.
+    const configRaw =
+      (session as { configOptions?: unknown }).configOptions ??
+      (session as { _meta?: { configOptions?: unknown } })._meta?.configOptions;
+    const configOptions = normalizeConfigOptions(configRaw);
+
     await persistRecord({
       sessionKey: input.sessionKey,
       agentSessionId: session.sessionId,
@@ -557,10 +578,33 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       session,
       currentModeId: modeId,
       availableModeIds: available,
+      configOptions,
       turnAbort: undefined,
     };
     live.set(input.sessionKey, entry);
     return entry;
+  }
+
+  async function killLiveSession(sessionKey: string): Promise<void> {
+    const entry = live.get(sessionKey);
+    if (!entry) return;
+    entry.turnAbort?.abort();
+    try {
+      await entry.connection.agent.notify(acp.methods.agent.session.cancel, {
+        sessionId: entry.session.sessionId,
+      });
+    } catch {
+      /* */
+    }
+    try {
+      entry.child.kill("SIGTERM");
+    } catch {
+      /* */
+    }
+    agentIdToKey.delete(entry.session.sessionId);
+    agentIdToKey.delete(sessionKey);
+    live.delete(sessionKey);
+    log.info("disposed live session", { sessionKey, agent: entry.agent });
   }
 
   return {
@@ -571,14 +615,28 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     async ensureSession(input) {
       const existing = live.get(input.sessionKey);
       if (existing) {
-        return {
-          sessionKey: input.sessionKey,
-          agentSessionId: existing.session.sessionId,
-          cwd: existing.cwd,
-          agent: existing.agent,
-          currentModeId: existing.currentModeId,
-          availableModeIds: existing.availableModeIds,
-        };
+        // Agent or cwd change → kill and respawn (e.g. /agent switch).
+        if (
+          existing.agent !== input.agent ||
+          existing.cwd !== input.cwd
+        ) {
+          log.info("ensureSession: agent/cwd changed; respawning", {
+            sessionKey: input.sessionKey,
+            fromAgent: existing.agent,
+            toAgent: input.agent,
+          });
+          await killLiveSession(input.sessionKey);
+        } else {
+          return {
+            sessionKey: input.sessionKey,
+            agentSessionId: existing.session.sessionId,
+            cwd: existing.cwd,
+            agent: existing.agent,
+            currentModeId: existing.currentModeId,
+            availableModeIds: existing.availableModeIds,
+            configOptions: existing.configOptions,
+          };
+        }
       }
       const entry = await spawnSession(input);
       return {
@@ -588,6 +646,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         agent: entry.agent,
         currentModeId: entry.currentModeId,
         availableModeIds: entry.availableModeIds,
+        configOptions: entry.configOptions,
       };
     },
 
@@ -836,6 +895,72 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           ?.available?.map((m) => m.id) ??
         []
       );
+    },
+
+    getConfigOptions(sessionKey) {
+      const entry = live.get(sessionKey);
+      if (!entry) return [];
+      if (entry.configOptions.length > 0) return [...entry.configOptions];
+      // Refresh from live session object if we captured none at spawn.
+      const raw = (entry.session as { configOptions?: unknown }).configOptions;
+      entry.configOptions = normalizeConfigOptions(raw);
+      return [...entry.configOptions];
+    },
+
+    async setConfigOption(sessionKey, configId, value) {
+      const entry = live.get(sessionKey);
+      if (!entry) {
+        throw new Error(`no live session for ${sessionKey}`);
+      }
+      const params =
+        typeof value === "boolean"
+          ? {
+              sessionId: entry.session.sessionId,
+              configId,
+              type: "boolean" as const,
+              value,
+            }
+          : {
+              sessionId: entry.session.sessionId,
+              configId,
+              value,
+            };
+      const resp = await entry.connection.agent.request(
+        acp.methods.agent.session.setConfigOption,
+        params as never,
+      );
+      const nextRaw =
+        (resp as { configOptions?: unknown })?.configOptions ??
+        (entry.session as { configOptions?: unknown }).configOptions;
+      entry.configOptions = normalizeConfigOptions(nextRaw);
+      // If agent only returns partial options, patch current value locally.
+      if (entry.configOptions.length === 0) {
+        entry.configOptions = normalizeConfigOptions([
+          {
+            id: configId,
+            name: configId,
+            type: typeof value === "boolean" ? "boolean" : "select",
+            currentValue: value,
+            options:
+              typeof value === "string"
+                ? [{ value, name: value }]
+                : [],
+          },
+        ]);
+      } else {
+        const hit = entry.configOptions.find((o) => o.id === configId);
+        if (hit) hit.currentValue = value;
+      }
+      log.info("setConfigOption ok", {
+        sessionKey,
+        configId,
+        value: String(value),
+      });
+      return [...entry.configOptions];
+    },
+
+    async disposeSession(sessionKey) {
+      await killLiveSession(sessionKey);
     },
 
     async dispose() {

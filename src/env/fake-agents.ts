@@ -57,6 +57,8 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   /** Mode last set for a session (for safety assertions). */
   modes: Map<string, string>;
   setMode(sessionKey: string, modeId: string): void;
+  /** Model config value per session (for /model tests). */
+  models: Map<string, string>;
   /** Record of ensureSession calls. */
   ensureCalls: SessionIdentity[];
 } {
@@ -65,6 +67,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     [];
   const scripts = options.scripts ?? new Map<string, ScriptedTurn[]>();
   const modes = new Map<string, string>();
+  const models = new Map<string, string>();
   const ensureCalls: SessionIdentity[] = [];
   const abortBySession = new Map<string, AbortController>();
   let sawTimeoutMs = false;
@@ -105,6 +108,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       raw: unknown;
     }): Promise<Record<string, unknown>>;
     modes: Map<string, string>;
+    models: Map<string, string>;
     setMode(sessionKey: string, modeId: string): void;
     ensureCalls: SessionIdentity[];
   } = {
@@ -114,6 +118,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       return sawTimeoutMs;
     },
     modes,
+    models,
     ensureCalls,
 
     queueTurn(sessionKey, script) {
@@ -177,11 +182,57 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       };
     },
 
+    async getSessionConfigOptions(sessionKey) {
+      const cur = models.get(sessionKey) ?? "fast";
+      return [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: cur,
+          options: [
+            { value: "fast", name: "Fast" },
+            { value: "smart", name: "Smart" },
+          ],
+        },
+      ];
+    },
+
+    async setSessionConfigOption(sessionKey, configId, value) {
+      if (configId === "model" && typeof value === "string") {
+        models.set(sessionKey, value);
+      }
+      return port.getSessionConfigOptions!(sessionKey);
+    },
+
+    async switchSessionAgent(identity, agentId) {
+      const key = sessionKeyOf(identity);
+      const repos = options.repos ?? {};
+      const cwd = repos[identity.repo];
+      if (!cwd) {
+        throw new Error(`unknown repo "${identity.repo}"`);
+      }
+      const resolved = { ...identity, agent: agentId };
+      ensureCalls.push({ ...resolved });
+      const handle: AgentSessionHandle = {
+        sessionKey: key,
+        identity: resolved,
+        cwd,
+      };
+      sessions.set(key, handle);
+      modes.set(key, "read-only");
+      models.set(key, "fast");
+      return handle;
+    },
+
     async ensureSession(identity) {
       ensureCalls.push({ ...identity });
       const key = sessionKeyOf(identity);
       const existing = sessions.get(key);
-      if (existing) return existing;
+      if (existing && existing.identity.agent === identity.agent) {
+        return existing;
+      }
 
       const repos = options.repos ?? {};
       const cwd = repos[identity.repo];
@@ -199,6 +250,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       sessions.set(key, handle);
       // Simulate read-only mode being applied immediately after create.
       modes.set(key, "read-only");
+      if (!models.has(key)) models.set(key, "fast");
       return handle;
     },
 

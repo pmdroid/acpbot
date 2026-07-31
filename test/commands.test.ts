@@ -52,11 +52,13 @@ describe("command registry", () => {
   test("canonical set is small and documented", () => {
     const names = COMMANDS.map((c) => c.name).sort();
     expect(names).toEqual([
+      "/agent",
       "/build",
       "/cancel",
       "/help",
       "/mcp",
       "/mode",
+      "/model",
       "/new",
       "/ping",
       "/plan",

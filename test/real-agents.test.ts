@@ -89,6 +89,22 @@ describe("realAgents with injected host", () => {
         return turn;
       },
       async cancel() {},
+      async setMode() {
+        return { currentModeId: "build", availableModeIds: ["build"] };
+      },
+      getModeState() {
+        return { currentModeId: "build", availableModeIds: ["build"] };
+      },
+      getAvailableModes() {
+        return ["build"];
+      },
+      getConfigOptions() {
+        return [];
+      },
+      async setConfigOption() {
+        return [];
+      },
+      async disposeSession() {},
       async dispose() {},
     };
 
