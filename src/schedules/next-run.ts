@@ -4,7 +4,12 @@
  * - once: nextRunAt = runAt
  * - cron: 5-field `m h dom mon dow` (minute hour day-of-month month day-of-week)
  *
- * Timezone is stored on the job but computation uses UTC until a full TZ lib lands.
+ * Timezone is stored on the job but next-run always uses **UTC** date parts until a
+ * full TZ implementation lands. Prefer timezone "UTC" (or omit).
+ *
+ * Day-of-month + day-of-week: classic Vixie/crontab semantics — when **both** are
+ * restricted (neither is `*`), a day matches if **either** field matches (OR).
+ * When either is `*`, the other alone applies (effectively AND with the wildcard).
  */
 
 export type NextRunInput = {
@@ -21,6 +26,12 @@ function parseIso(iso: string, label: string): Date {
     throw new Error(`invalid ${label}: ${iso}`);
   }
   return d;
+}
+
+/** True when the field is unrestricted (literal star only; star-slash-n is not a full wildcard). */
+export function isCronFieldWildcard(field: string): boolean {
+  const f = field.trim();
+  return f === "*";
 }
 
 /** Parse a single cron field into a predicate over integer values. */
@@ -88,6 +99,9 @@ export type ParsedCron = {
   month: (n: number) => boolean;
   /** 0–6 (Sun–Sat); 7 accepted as Sunday when parsing. */
   dow: (n: number) => boolean;
+  /** When both true (both restricted), day matches if dom OR dow. */
+  domRestricted: boolean;
+  dowRestricted: boolean;
 };
 
 /**
@@ -115,7 +129,21 @@ export function parseCronExpr(expr: string): ParsedCron {
       if (n === 0 && baseDow(7)) return true;
       return false;
     },
+    domRestricted: !isCronFieldWildcard(dom),
+    dowRestricted: !isCronFieldWildcard(dow),
   };
+}
+
+/** Day-of-month / day-of-week match with Vixie OR when both restricted. */
+export function cronDayMatches(
+  parsed: ParsedCron,
+  dom: number,
+  dow: number,
+): boolean {
+  if (parsed.domRestricted && parsed.dowRestricted) {
+    return parsed.dom(dom) || parsed.dow(dow);
+  }
+  return parsed.dom(dom) && parsed.dow(dow);
 }
 
 /**
@@ -141,8 +169,7 @@ export function nextCronOccurrence(cronExpr: string, from: Date): Date {
 
     if (
       parsed.month(month) &&
-      parsed.dom(dom) &&
-      parsed.dow(dow) &&
+      cronDayMatches(parsed, dom, dow) &&
       parsed.hour(hour) &&
       parsed.minute(minute)
     ) {
