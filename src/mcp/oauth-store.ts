@@ -35,8 +35,14 @@ export type McpOAuthTokenRecord = {
   refreshToken?: string;
   expiresAt?: number;
   scope?: string;
-  /** Resource / MCP URL this token was obtained for. */
+  /** OAuth resource indicator (RFC 8707) used at authorize/token. */
   resourceUrl?: string;
+  /** Original MCP gateway URL from mcp.json. */
+  mcpUrl?: string;
+  /** Public client_id from dynamic registration. */
+  clientId?: string;
+  /** Authorization server issuer. */
+  authorizationServer?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -49,12 +55,17 @@ export type McpOAuthPendingRecord = {
   /** Absolute repo cwd used when auth started (for display / fallback). */
   repoRoot: string;
   redirectUri: string;
+  /** Public client_id from dynamic registration (not env). */
   clientId: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   clientSecret?: string;
   scope?: string;
+  /** OAuth resource indicator for authorize + token exchange. */
   resourceUrl?: string;
+  /** Original MCP gateway URL. */
+  mcpUrl?: string;
+  authorizationServer?: string;
   createdAt: number;
 };
 
