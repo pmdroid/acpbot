@@ -37,7 +37,7 @@ describe("buildTacpMcpServers", () => {
     expect(buildTacpMcpServers({ enabled: false })).toEqual([]);
   });
 
-  test("injects sessionKey and queue dir env for speak", () => {
+  test("injects sessionKey and worker API sock for outbound tools", () => {
     const servers = buildTacpMcpServers({
       enabled: true,
       sessionKey: "demo/topic",
@@ -47,7 +47,8 @@ describe("buildTacpMcpServers", () => {
       (servers[0]?.env ?? []).map((e) => [e.name, e.value]),
     );
     expect(env.TACP_SESSION_KEY).toBe("demo/topic");
-    expect(env.TACP_SPEAK_QUEUE_DIR).toBe("/tmp/tacp-state");
+    expect(env.TACP_WORKER_API_SOCK).toBe("/tmp/tacp-state/worker-api.sock");
+    expect(env.TACP_ACPX_STATE_DIR).toBe("/tmp/tacp-state");
   });
 });
 
@@ -461,7 +462,10 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         const tacpEnv = Object.fromEntries(
           tacp.env.map((e) => [e.name, e.value]),
         );
-        expect(tacpEnv.TACP_SPEAK_QUEUE_DIR).toBe("/tmp/host-state");
+        expect(tacpEnv.TACP_WORKER_API_SOCK).toBe(
+          "/tmp/host-state/worker-api.sock",
+        );
+        expect(tacpEnv.TACP_ACPX_STATE_DIR).toBe("/tmp/host-state");
       },
     );
   });

@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  agentDisplayName,
+  isAgentAvailable,
+  listKnownAgentIds,
   listRegisteredAgents,
   normalizeAgentName,
+  requiredBinsForAgent,
   resolveAgentLaunch,
+  type WhichFn,
 } from "../src/acp/agent-launch";
-import {
-  applyModelToLaunch,
-  getCannedModelsForAgent,
-} from "../src/acp/agent-models";
 
 describe("agent-launch", () => {
   test("claude-code normalizes to claude adapter", () => {
@@ -34,28 +35,116 @@ describe("agent-launch", () => {
     const launch = resolveAgentLaunch("opencode");
     expect(launch).toEqual({ command: "opencode", args: ["acp"] });
   });
-});
 
-describe("agent-models canned", () => {
-  test("grok has canned models", () => {
-    const m = getCannedModelsForAgent("grok-build");
-    expect(m.length).toBeGreaterThan(0);
-    expect(m.some((x) => x.value.includes("grok"))).toBe(true);
-  });
-
-  test("applyModelToLaunch adds -m for grok", () => {
-    const base = { command: "grok", args: ["agent", "stdio"] };
-    const next = applyModelToLaunch("grok-build", base, "grok-3-mini");
-    expect(next.args).toEqual(["agent", "stdio", "-m", "grok-3-mini"]);
+  test("display names are human-friendly", () => {
+    expect(agentDisplayName("grok-build")).toBe("grok");
+    expect(agentDisplayName("grok")).toBe("grok");
+    expect(agentDisplayName("opencode-ai")).toBe("opencode");
+    expect(agentDisplayName("claude-code")).toBe("claude");
   });
 });
 
-describe("listRegisteredAgents", () => {
-  test("includes grok-build claude codex opencode", () => {
-    const ids = listRegisteredAgents({});
+describe("listRegisteredAgents availability", () => {
+  const present = new Set(["grok", "opencode", "npx", "claude"]);
+  const which: WhichFn = (cmd) => (present.has(cmd) ? `/bin/${cmd}` : null);
+
+  test("known registry has unique canonical ids", () => {
+    const ids = listKnownAgentIds({});
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+    expect(ids.filter((id) => id.includes("opencode"))).toEqual(["opencode"]);
+  });
+
+  test("only lists agents whose required bins exist", () => {
+    const ids = listRegisteredAgents({ env: {}, which });
+    // codex missing from present set
+    expect(ids).toEqual(["grok-build", "claude", "opencode"]);
+    expect(ids).not.toContain("codex");
+  });
+
+  test("empty PATH yields empty picker list", () => {
+    const ids = listRegisteredAgents({
+      env: {},
+      which: () => null,
+    });
+    expect(ids).toEqual([]);
+  });
+
+  test("TACP_AGENTS_ALL lists full registry ignoring PATH", () => {
+    const ids = listRegisteredAgents({
+      env: { TACP_AGENTS_ALL: "1" },
+      which: () => null,
+    });
+    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+  });
+
+  test("availableOnly false lists full registry", () => {
+    const ids = listRegisteredAgents({
+      env: {},
+      which: () => null,
+      availableOnly: false,
+    });
+    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+  });
+
+  test("allowlist intersects installed agents", () => {
+    const ids = listRegisteredAgents({
+      env: { TACP_AGENTS: "grok, opencode, codex" },
+      which,
+    });
+    // codex not installed; grok normalizes to grok-build
+    expect(ids).toEqual(["grok-build", "opencode"]);
+  });
+
+  test("allowlist with TACP_AGENTS_ALL still respects allowlist", () => {
+    const ids = listRegisteredAgents({
+      env: { TACP_AGENTS: "claude", TACP_AGENTS_ALL: "1" },
+      which: () => null,
+    });
+    expect(ids).toEqual(["claude"]);
+  });
+
+  test("overrides with missing command are filtered", () => {
+    const ids = listRegisteredAgents({
+      env: {
+        TACP_AGENT_COMMAND_JSON: JSON.stringify({
+          custom: { command: "my-custom-acp", args: [] },
+        }),
+      },
+      which: (cmd) => (cmd === "grok" ? "/bin/grok" : null),
+    });
     expect(ids).toContain("grok-build");
-    expect(ids).toContain("claude");
-    expect(ids).toContain("codex");
-    expect(ids).toContain("opencode");
+    expect(ids).not.toContain("custom");
+  });
+
+  test("overrides with present command appear once", () => {
+    const ids = listRegisteredAgents({
+      env: {
+        TACP_AGENT_COMMAND_JSON: JSON.stringify({
+          "My-Custom": { command: "my-custom-acp", args: ["stdio"] },
+          "my-custom": { command: "my-custom-acp", args: ["stdio"] },
+        }),
+      },
+      which: (cmd) =>
+        cmd === "my-custom-acp" || cmd === "grok" ? `/bin/${cmd}` : null,
+    });
+    expect(ids.filter((id) => id === "my-custom")).toEqual(["my-custom"]);
+    expect(ids).toContain("grok-build");
+  });
+
+  test("isAgentAvailable + requiredBins", () => {
+    expect(requiredBinsForAgent("grok-build")).toEqual(["grok"]);
+    expect(requiredBinsForAgent("claude")).toEqual(["npx", "claude"]);
+    expect(isAgentAvailable("opencode", { which })).toBe(true);
+    expect(isAgentAvailable("codex", { which })).toBe(false);
+  });
+
+  test("no duplicates under real PATH", () => {
+    const ids = listRegisteredAgents();
+    expect(new Set(ids).size).toBe(ids.length);
+    // On this machine we expect at least grok + opencode when installed
+    for (const id of ids) {
+      expect(isAgentAvailable(id)).toBe(true);
+    }
   });
 });
