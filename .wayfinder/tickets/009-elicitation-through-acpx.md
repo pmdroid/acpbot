@@ -2,7 +2,7 @@
 id: "009"
 title: Decide how tacp obtains structured questions through acpx
 type: grilling
-status: open
+status: closed
 assignee: pascal (this session)
 blocked_by: []
 ---
@@ -59,3 +59,63 @@ is designing, so it blocks it.
 Use `/grilling`. Where the decision turns on a fact about acpx's or the adapters'
 behaviour, look it up rather than reasoning about it — the last two corrections on
 this map both came from reading shipped artifacts instead of repositories.
+
+## Resolution
+
+**Fork acpx and add the elicitation seam in source. Do not open an upstream issue
+or PR yet.**
+
+**Why not upstream first.** Deferred, not dropped. Arguing for a seam you have
+proven in use beats arguing for one you have only designed — and the shape of the
+right hook is exactly what building against it will teach. Revisit once tacp has
+something working; the fork is a strictly better starting position for that
+conversation than a design sketch.
+
+**Fork mechanics: a git fork of source, built, depended on by ref.** Patch the
+TypeScript source rather than the published `dist`, so tracking upstream is a real
+merge with real conflict markers instead of a patch that anchors to compiled
+output and rejects on the next release. acpx ships roughly weekly, so this will be
+re-applied often and the failure mode matters more than the setup cost.
+`patch-package` was rejected for exactly that reason; vendoring was rejected
+because it discards the upstream link that motivated embedding acpx at all.
+
+**What the patch adds**, mirroring the existing `onPermissionRequest` precisely —
+that hook is already proven to be awaited unbounded, which is the same property an
+elicitation round-trip needs:
+
+1. Declare `clientCapabilities.elicitation.form` during `initialize`.
+2. Register an `elicitation/create` handler.
+3. Expose a host hook on `AcpRuntimeOptions` that the handler delegates to.
+
+**Scope discipline: patch elicitation only.** The instinct to fix `fs`/`terminal`
+and `confirmWrite` in the same seam should be resisted —
+[ticket 007](007-fs-terminal-permission-path.md) established both are unreachable
+for the agents acpx actually launches, so patching them adds fork surface to carry
+for no behavioural gain. They become worth revisiting only when a third agent is
+added.
+
+**The prose path is still mandatory and is not contingent on this.** Any agent
+without elicitation falls back to unmarked prose, and that is the spec's
+prescribed behaviour, so the round-trip must handle it regardless. This decision
+determines whether tacp *also* gets structured questions — it does not remove any
+prose work.
+
+### Correcting the framing that produced this ticket
+
+The ticket was written arguing that three missing seams in the same shape made
+reopening the substrate decision live. **On the facts, that was overstated.** Two
+of the three are inert: the `fs`/`terminal` path is never exercised by either
+agent, and `confirmWrite` is consequently a non-issue. Only elicitation actually
+bites. One real gap in an actively-maintained MIT library — 37 releases since
+February 2026, the latest three days before this decision — is not a pattern of
+decay, and **the substrate decision stands unreopened.**
+
+**Also unresolvable from source, and left open honestly:** whether disabling
+`AskUserQuestion` makes Claude *ask less* or merely *ask in prose*. The tool is a
+presentation channel and prose is its designed fallback, but whether its absence
+nudges the model toward guessing at decision points is behavioural and cannot be
+read out of the adapter. The fork makes this moot for Claude by restoring the
+tool; it remains a live question for any agent tacp does not patch around.
+
+**Confirmed unclaimed upstream:** no open acpx issue and no commits mention
+elicitation, so the fork collides with nothing in flight.

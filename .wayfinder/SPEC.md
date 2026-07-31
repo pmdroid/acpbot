@@ -4,9 +4,9 @@
 <!-- status: PARTIAL — see "Open decisions" before implementing -->
 
 > **Read this first.** This spec is written from a wayfinder map that is not yet
-> complete. Four areas are decided and buildable; three are open tickets, and the
-> largest of them — the permission round-trip — is the feature that most
-> distinguishes tacp from the CLI it replaces. Sections that rest on an open
+> complete. Six areas are decided and buildable; **two decisions remain open** —
+> the permission round-trip, which is the feature that most distinguishes tacp
+> from the CLI it replaces, and session lifecycle. Sections that rest on an open
 > decision are marked **OPEN** and name the ticket. Do not invent answers for
 > them; resolve the ticket first.
 >
@@ -140,7 +140,9 @@ needs no public URL, no TLS, and no tunnel.
 30. As the operator, I want the bot to ignore everyone but me, so that knowing the
     bot's name grants no access to my machine.
 31. As the operator, I want to know exactly what an agent can do *without* asking
-    me, so that I can judge how much to trust a running session. **OPEN, ticket 007.**
+    me, so that I can judge how much to trust a running session. *Answered by
+    ticket 007 — the boundary is documented under Further Notes, and it is wider
+    than a sandbox.*
 32. As the operator, I want the daemon to refuse to start if it is misconfigured
     rather than degrade silently, so that I never discover a missing capability
     halfway through a task.
@@ -211,8 +213,14 @@ separate.
   registers a handler, nor exposes a seam to add one.** So through acpx as it
   ships, structured questions do not work at all: Claude's `AskUserQuestion` is
   disabled and the Codex adapter's elicitation support is unreachable. Both agents
-  fall back to unmarked prose. What to do about this is **OPEN, ticket 009**, and
-  it blocks the round-trip.
+  fall back to unmarked prose. **Resolved (ticket 009): fork acpx** and add the
+  seam in source — declare the capability, register an `elicitation/create`
+  handler, and expose a host hook mirroring `onPermissionRequest`. Depend on the
+  fork by git ref, patching TypeScript source rather than published `dist` so
+  upstream tracking is a real merge. Patch elicitation only; `fs`/`terminal` are
+  inert. No upstream PR until a working proof exists. **The prose path remains
+  mandatory regardless** — this adds the structured path, it does not replace
+  prose handling.
 - **The prose path is unmarked.** A clarifying question asked in turn text arrives
   as `agent_message_chunk` then `stopReason: "end_turn"` — byte-identical to a
   finished answer. This is the spec's *prescribed* fallback, not an edge case.
@@ -335,7 +343,6 @@ Do not implement these from inference. Each is a live ticket.
 | Repo selection from a phone, agent selection, session creation, listing, cancel-vs-end-vs-delete, restart survival, concurrency cap | [006](tickets/006-repo-selection-session-lifecycle.md) |
 | What an agent can do with no prompt: whether `fs`/`terminal` client methods are exercised per agent, the safe `permissionMode`, whether withholding client capabilities is a viable lever | [007](tickets/007-fs-terminal-permission-path.md) |
 | Bot provisioning, and the measured `answerCallbackQuery` window | [008](tickets/008-provision-bot-topic-mode.md) |
-| How tacp obtains structured questions at all, given acpx neither advertises `elicitation` nor exposes a seam — accept prose-only, upstream a patch, fork, or reopen the substrate decision | [009](tickets/009-elicitation-through-acpx.md) |
 
 ## Testing Decisions
 
