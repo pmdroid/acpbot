@@ -59,6 +59,10 @@ const CANNED: Record<string, CannedModel[]> = {
     { value: "claude-opus-4-5", name: "Claude Opus 4.5" },
     { value: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
   ],
+  // OpenCode often lists providers via `opencode models`; keep light canned set.
+  opencode: [
+    { value: "opencode/default", name: "OpenCode default" },
+  ],
 };
 
 /** Override via env TACP_AGENT_MODELS_JSON={"grok-build":[{"value":"…","name":"…"}]} */
