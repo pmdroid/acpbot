@@ -83,3 +83,29 @@ decision, since it switches Claude's questions between structured and prose),
 **G4** (timeout policy), **G5** (no channel for "no, do it this way instead"),
 **G7** (permission metadata may be absent), and **G8** (`optionId` is opaque and
 the option set is unbounded — never hardcode allow/deny).
+
+---
+
+## Correction (superseded in part)
+
+Issued by [Verify the client-side fs and terminal permission path per agent](007-fs-terminal-permission-path.md),
+which examined the artifacts acpx actually launches rather than the upstream
+repositories. Two findings above are stale. The rest of this ticket stands.
+
+**1. The Codex adapter analysed here is not the one acpx runs.** This ticket read
+the Rust `zed-industries/codex-acp`. acpx launches
+`@agentclientprotocol/codex-acp@1.1.7`, a **TypeScript rewrite over `codex
+app-server`**. It **does** send `elicitation/create`, contradicting the "Codex
+never elicits at all" finding, and its `optionId` vocabulary is entirely
+different. The *rule* derived here survives — treat `optionId` as opaque and never
+hardcode allow/deny — but the per-agent tables do not.
+
+**2. `acpx` never advertises `clientCapabilities.elicitation`** and registers no
+`elicitation/create` handler. So the capability this ticket called the single most
+important interop fact is, through acpx, **currently switched off**: Claude's
+`AskUserQuestion` is disabled and Codex's new elicitation support is unreachable.
+This is the same missing-seam shape as the `fs`/`terminal` passthrough.
+
+Consequence: structured questions are not available through acpx as it ships. What
+to do about that is now its own decision —
+[Decide how tacp obtains structured questions through acpx](009-elicitation-through-acpx.md).

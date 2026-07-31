@@ -2,8 +2,8 @@
 id: "007"
 title: Verify the client-side fs and terminal permission path per agent
 type: research
-status: open
-assignee: null
+status: closed
+assignee: research-agent (fs-terminal-gate)
 blocked_by: ["003"]
 ---
 
@@ -47,3 +47,85 @@ the permission round-trip design depends on knowing where the real boundary is.
 
 Blocked on the ACP semantics ticket, which establishes where Codex and Claude
 diverge in what they implement.
+
+## Resolution
+
+**Asset:** `research/fs-terminal-gate.md` on branch `research/fs-terminal-gate`
+(810 lines, seven incremental commits). Zoom there for citations.
+
+**The probe's reasoning was right, and its conclusion was still dangerously
+incomplete.** Two findings that point opposite ways.
+
+**1. The acpx gap is real but unreachable.** Neither `codex` nor `claude` calls
+`fs/write_text_file`, `fs/read_text_file`, or any `terminal/*` method. Verified
+against the artifacts acpx actually launches, not just repos: the shipped
+`@agentclientprotocol/claude-agent-acp@0.60.0` makes exactly six agent→client
+requests (`session/update`, `session/request_permission`, `fs/read_text_file`,
+`fs/write_text_file`, `elicitation/create`, `elicitation/complete`) and the two
+`fs` ones have **no internal caller** — they are pass-throughs with zero call
+sites. Zero `terminal/*` references at all. `@agentclientprotocol/codex-acp@1.1.7`
+issues exactly one client request, `session/request_permission`. Both spawn their
+own CLI (`pathToClaudeCodeExecutable`; `spawn(codexPath, ["app-server"])`) and do
+all IO in-process. So `permissionMode: "approve-all"` opens **no hole through
+acpx** for these two agents, and `confirmWrite` is a non-issue today.
+
+**2. But an agent can absolutely write files with no Telegram prompt — and by
+default it will.** The gate that matters is not acpx's `permissionMode`; it is
+**the agent's own session mode**, which each adapter picks for itself and which
+acpx never sets. `@agentclientprotocol/codex-acp@1.1.7` ships
+`DEFAULT_AGENT_MODE = AgentMode.Agent` — `approvalPolicy: "on-request"`,
+`sandboxPolicy: {type: "workspaceWrite"}` — and passes it on every `runTurn`,
+overriding `config.toml`. Under it Codex creates, edits and deletes files
+anywhere under cwd and runs arbitrary sandboxed shell commands (`rm -rf`,
+`git reset --hard`, `npm run …`) **with no `session/request_permission` at all**.
+Claude has the same shape whenever `~/.claude/settings.json` sets
+`permissions.defaultMode` to `acceptEdits`/`auto`/`bypassPermissions` or carries
+`permissions.allow` rules. Reads are ungated in **every** configuration of both
+agents, with full-disk read access.
+
+**The fix is `setMode`, not `permissionMode`.** Recommended wiring:
+
+```ts
+permissionMode: "approve-all",
+nonInteractivePermissions: "deny",           // never "fail"
+onPermissionRequest: <Telegram round-trip>,  // NEVER resolve undefined
+// then, immediately after ensureSession:
+await runtime.setMode({ handle, mode: "read-only" /* codex */ | "default" /* claude */ });
+```
+
+Plus `INITIAL_AGENT_MODE=read-only` in the codex adapter's environment to close
+the window before the first `setMode`. Mode ids differ between the Rust and TS
+Codex adapters (`auto` vs `agent`) — read them from `getStatus`, never hardcode.
+
+**What stays ungated even then:** all file reads and searches; agent-internal
+context IO (CLAUDE.md/AGENTS.md, skills, git probing) which emits no tool call;
+and **operator-configured hooks**, which run arbitrary shell commands and are
+invisible to ACP entirely — a Claude `PreToolUse` hook returning
+`permissionDecision: "allow"` resolves the check before `canUseTool` is reached.
+tacp's permission round-trip is a control over what the model *chooses* to do,
+not a sandbox; a hard guarantee needs a dedicated user/container.
+
+**`confirmWrite` injection is impossible** — `AcpRuntimeOptions` has no
+`fs`/`terminal`/`confirmWrite`; `AcpRuntimeManager` and `AcpClient` are not
+exported from `acpx/runtime`; and `confirmWrite` has no plumbing even on
+`AcpClientOptions`. Upstream change or fork, but **not urgent**, since the path
+is unreachable.
+
+**Withholding `clientCapabilities` is not the clean answer it looked like.**
+Spec-blessed (agents `MUST NOT` call unadvertised methods) but a no-op here —
+neither agent reads `clientCapabilities.fs`/`.terminal` — and `AcpRuntimeOptions`
+cannot express it anyway (only the CLI's `--no-fs`/`--no-terminal` can). Worth an
+upstream issue as a cheap invariant; becomes **required** the day a third agent
+is added, since `TerminalManager` has no cwd restriction and `approve-all` would
+auto-approve its `terminal/create` calls outright.
+
+**Two corrections for tickets 003 and 005.** The Codex adapter acpx launches is
+`@agentclientprotocol/codex-acp@1.1.7`, a **TypeScript rewrite over `codex
+app-server`**, not the Rust `zed-industries/codex-acp` that 003 analysed — it
+**does** send `elicitation/create` and its `optionId` vocabulary is entirely
+different (003's "treat `optionId` as opaque" rule survives; its tables do not).
+And **acpx never advertises `clientCapabilities.elicitation`** nor registers an
+`elicitation/create` handler, so the capability 003 called *"the single most
+important interop fact for tacp"* is currently switched off through acpx —
+disabling Claude's `AskUserQuestion` and making the new Codex elicitation support
+unreachable. Same missing seam as the `fs`/`terminal` passthrough.
