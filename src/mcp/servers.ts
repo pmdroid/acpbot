@@ -1,8 +1,9 @@
 /**
- * Build the mcpServers list passed into acpx createAcpRuntime.
+ * Build the mcpServers list for ACP session/new.
  * Kept pure / config-only so tests can assert shape without spawning.
  */
 import { join } from "node:path";
+import { speakQueueDir } from "./speak-queue";
 
 /** ACP stdio MCP server descriptor (matches @agentclientprotocol/sdk McpServer). */
 export type TacpMcpServer = {
@@ -24,6 +25,10 @@ export type BuildTacpMcpServersOptions = {
   command?: string;
   /** Extra env vars for the MCP child process. */
   env?: Array<{ name: string; value: string }>;
+  /** tacp sessionKey so speak can target the right Telegram topic. */
+  sessionKey?: string;
+  /** State dir for speak-queue (defaults to TACP_ACPX_STATE_DIR). */
+  stateDir?: string;
 };
 
 /** Absolute path to the FastMCP stdio entry. */
@@ -31,9 +36,29 @@ export function defaultTacpMcpServerEntry(): string {
   return join(import.meta.dir, "server.ts");
 }
 
+/** Forward speech-related env so MCP-side tooling can use the same keys if needed. */
+function speechEnvFromProcess(
+  env: NodeJS.ProcessEnv = process.env,
+): Array<{ name: string; value: string }> {
+  const keys = [
+    "ELEVENLABS_API_KEY",
+    "ELEVENLABS_VOICE_ID",
+    "ELEVENLABS_TTS_MODEL",
+    "ELEVENLABS_BASE_URL",
+    "OPENAI_API_KEY",
+    "TACP_OPENAI_BASE_URL",
+  ];
+  const out: Array<{ name: string; value: string }> = [];
+  for (const k of keys) {
+    const v = env[k]?.trim();
+    if (v) out.push({ name: k, value: v });
+  }
+  return out;
+}
+
 /**
- * Host MCP servers exposed to every ACP session created by tacp.
- * speak (TTS) now; STT later.
+ * Host MCP servers exposed to an ACP session.
+ * speak enqueues TTS for the daemon (sessionKey required in env).
  */
 export function buildTacpMcpServers(
   options: BuildTacpMcpServersOptions = {},
@@ -45,13 +70,28 @@ export function buildTacpMcpServers(
 
   const entry = options.serverEntry ?? defaultTacpMcpServerEntry();
   const command = options.command ?? process.execPath;
+  const stateDir =
+    options.stateDir?.trim() ||
+    process.env.TACP_ACPX_STATE_DIR?.trim() ||
+    "./data/acpx-state";
+  const queueDir = speakQueueDir(stateDir);
+
+  const env: Array<{ name: string; value: string }> = [
+    { name: "TACP_SPEAK_QUEUE_DIR", value: stateDir },
+    { name: "TACP_ACPX_STATE_DIR", value: stateDir },
+    ...speechEnvFromProcess(),
+    ...(options.sessionKey
+      ? [{ name: "TACP_SESSION_KEY", value: options.sessionKey }]
+      : []),
+    ...(options.env ?? []),
+  ];
 
   return [
     {
       name: "tacp",
       command,
       args: [entry],
-      env: options.env ?? [],
+      env,
     },
   ];
 }
