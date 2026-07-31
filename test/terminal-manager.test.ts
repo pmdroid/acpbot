@@ -19,10 +19,8 @@ describe("trimToUtf8Boundary", () => {
   });
 
   test("does not split multi-byte UTF-8", () => {
-    // emoji is 4 bytes
     const b = Buffer.from("ab👍cd");
     const out = trimToUtf8Boundary(b, 5);
-    // should be valid utf8
     expect(() => out.toString("utf8")).not.toThrow();
     expect(out.toString("utf8")).not.toContain("\uFFFD");
   });
@@ -71,6 +69,21 @@ describe("TerminalManager", () => {
     expect(cmd.killProcessGroup).toBe(true);
   });
 
+  test("full shell line in command (no args) runs via shell — Grok style", async () => {
+    const tm = new TerminalManager({ cwd: process.cwd() });
+    // Grok sometimes packs: command="/opt/homebrew/bin/bash -lc '…'", args=[]
+    const line = `/bin/bash -lc 'echo shell-line-ok'`;
+    const { terminalId } = await tm.createTerminal({
+      command: line,
+      args: [],
+      outputByteLimit: 1024,
+    });
+    await tm.waitForTerminalExit({ terminalId });
+    const out = await tm.terminalOutput({ terminalId });
+    expect(out.output).toContain("shell-line-ok");
+    await tm.releaseTerminal({ terminalId });
+  });
+
   test("kill long-running process", async () => {
     const tm = new TerminalManager({ cwd: process.cwd(), killGraceMs: 200 });
     const { terminalId } = await tm.createTerminal({
@@ -79,7 +92,6 @@ describe("TerminalManager", () => {
     });
     await tm.killTerminal({ terminalId });
     const exit = await tm.waitForTerminalExit({ terminalId });
-    // killed → non-zero or signal
     expect(
       exit.exitCode !== 0 || exit.signal != null || exit.exitCode === null,
     ).toBe(true);

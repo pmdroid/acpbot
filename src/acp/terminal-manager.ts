@@ -390,6 +390,25 @@ export class TerminalManager {
   }
 }
 
+function argsEmpty(args: string[] | undefined): boolean {
+  return args == null || args.length === 0;
+}
+
+/**
+ * Grok (and others) sometimes put a full shell line in `command` with no args:
+ *   command: `/opt/homebrew/bin/bash -lc '…'`
+ * That is not a valid executable path for spawn() — must go through a shell.
+ */
+function looksLikeShellCommandLine(
+  command: string,
+  args: string[] | undefined,
+): boolean {
+  if (!argsEmpty(args)) return false;
+  if (/\s/.test(command)) return true;
+  if (hasShellSyntax(command)) return true;
+  return false;
+}
+
 async function spawnTerminalProcess(
   params: CreateTerminalRequest,
   defaultCwd: string,
@@ -397,6 +416,15 @@ async function spawnTerminalProcess(
   proc: ChildProcessByStdio<null, Readable, Readable>;
   spawnCommand: TerminalSpawnCommand;
 }> {
+  // Prefer shell when the whole command line is stuffed into `command`.
+  if (looksLikeShellCommandLine(params.command, params.args)) {
+    const shellCommand = buildTerminalShellSpawnCommand(params.command);
+    return {
+      proc: await spawnAndWait(shellCommand, params, defaultCwd),
+      spawnCommand: shellCommand,
+    };
+  }
+
   const directCommand = buildTerminalSpawnCommand(params.command, params.args);
   try {
     return {
@@ -404,8 +432,9 @@ async function spawnTerminalProcess(
       spawnCommand: directCommand,
     };
   } catch (error) {
+    // Also fall back on empty args (not only undefined) after ENOENT.
     const fallbackCommand =
-      params.args === undefined && isNotFoundSpawnError(error)
+      argsEmpty(params.args) && isNotFoundSpawnError(error)
         ? buildTerminalFallbackSpawnCommand(
             params.command,
             params.cwd ?? defaultCwd,
