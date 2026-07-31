@@ -12,15 +12,13 @@ goals/
 data/
 .scratch/
 .scratch-*/
-.scratch-acpx-contract/
 .claude/
+.wayfinder/
 .tacp-inbox/
 **/.tacp-inbox/
 
-# Demo app deps & nested git (tracked as plain source under demo/)
+# Demo app deps & local runtime under demo/
 demo/node_modules/
 demo/dist/
-
-# acpx fork deps (source is vendored under forks/acpx; build via postinstall)
-forks/acpx/node_modules/
-forks/acpx/dist/
+demo/.tacp/schedules/
+demo/.tacp-inbox/
