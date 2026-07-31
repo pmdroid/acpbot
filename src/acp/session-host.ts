@@ -18,7 +18,7 @@ import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import { resolveAgentLaunch } from "./agent-launch";
 import { decisionToPermissionResponse } from "./permission-map";
-import { buildTacpMcpServers } from "../mcp/servers";
+import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
 import { TerminalManager } from "./terminal-manager";
@@ -422,16 +422,18 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       protocolVersion: initResult.protocolVersion,
     });
 
-    const mcpServers =
+    const mcpList: acp.McpServer[] =
       options.mcpEnabled === false
         ? []
-        : buildTacpMcpServers({
+        : await buildSessionMcpServers({
+            cwd: input.cwd,
             enabled: options.config.mcpEnabled !== false,
             sessionKey: input.sessionKey,
-            stateDir: options.stateDir,
+            ...(options.stateDir !== undefined
+              ? { stateDir: options.stateDir }
+              : {}),
+            log,
           });
-
-    const mcpList = mcpServers as acp.McpServer[];
     const prior = sessionStore
       ? await sessionStore.load(input.sessionKey)
       : undefined;
@@ -496,7 +498,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       log.info("session/new ok", {
         sessionKey: input.sessionKey,
         agentSessionId: session.sessionId,
-        mcp: mcpServers.map((s) => s.name),
+        mcp: mcpList.map((s) => s.name),
         hadPrior: Boolean(prior),
       });
     }
