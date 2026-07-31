@@ -223,6 +223,29 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       await host.cancel(sessionKey, reason);
     },
 
+    async setSessionMode(sessionKey, modeId) {
+      const st = await host.setMode(sessionKey, modeId);
+      return {
+        ...(st.currentModeId !== undefined
+          ? { currentModeId: st.currentModeId }
+          : {}),
+        availableModeIds: st.availableModeIds,
+      };
+    },
+
+    async getSessionMode(sessionKey) {
+      const st = host.getModeState(sessionKey);
+      if (!st) {
+        return { availableModeIds: [] };
+      }
+      return {
+        ...(st.currentModeId !== undefined
+          ? { currentModeId: st.currentModeId }
+          : {}),
+        availableModeIds: st.availableModeIds,
+      };
+    },
+
     async ensureSession(identity) {
       const key = sessionKeyOf(identity);
       const existing = handles.get(key);
@@ -252,8 +275,8 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           agent,
           cwd,
         });
-        if (options.forceReadOnly && host.setMode) {
-          const modes = host.getAvailableModes?.(key) ?? [];
+        if (options.forceReadOnly) {
+          const modes = host.getAvailableModes(key);
           const modeId = pickSessionModeId(modes, { forceReadOnly: true });
           if (modeId) await host.setMode(key, modeId);
         }

@@ -15,7 +15,7 @@ With a provisioned bot you can:
 1. Start the daemon (syncs the Telegram **/** menu from the command registry)
 2. **Lobby:** `/ping`, `/new`, `/sessions`, `/help`
 3. `/new` → pick a repo (or `/new <repo> <name>`) → topic appears
-4. **Topic:** type to prompt; send photos/files/voice; `/skills`, `/cancel`, `/help`
+4. **Topic:** type to prompt; send photos/files/voice; `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
 5. **Media:** images/docs → `.tacp-inbox/` (or ACP attach when enabled); voice → STT; agent-controlled **TTS** via host MCP tool `speak` (or `<<<speak>>>` marker) when a speech provider is configured
 
 On startup tacp **wipes** stale `setMyCommands` scopes (default + private, en)

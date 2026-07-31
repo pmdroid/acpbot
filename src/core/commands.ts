@@ -43,6 +43,21 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Pick a skill, then send a prompt to the agent",
   },
   {
+    name: "/mode",
+    scope: "topic",
+    summary: "Show/toggle session mode (plan ↔ build), or /mode <id>",
+  },
+  {
+    name: "/plan",
+    scope: "topic",
+    summary: "Switch agent to plan mode (read-only-ish)",
+  },
+  {
+    name: "/build",
+    scope: "topic",
+    summary: "Switch agent to build/code mode (tools on)",
+  },
+  {
     name: "/help",
     scope: "both",
     summary: "Show commands for this surface",
@@ -117,7 +132,7 @@ export function lobbyHelpText(): string {
       (c) => `${c.name} — ${c.summary}`,
     ),
     "",
-    "In a session topic: type to prompt the agent; use /cancel or /help there.",
+    "In a session topic: type to prompt the agent; use topic /help for session commands.",
   ];
   return lines.join("\n");
 }
