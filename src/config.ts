@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { LogLevel, TacpConfig } from "./env/types";
 import { parseLogLevel } from "./env/logger";
 
@@ -71,12 +71,14 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     );
   }
 
-  const acpxStateDir = file.acpxStateDir ?? env.TACP_ACPX_STATE_DIR;
-  if (!acpxStateDir) {
+  const acpxStateDirRaw = file.acpxStateDir ?? env.TACP_ACPX_STATE_DIR;
+  if (!acpxStateDirRaw) {
     throw new Error(
       "Missing acpx state dir. Set TACP_ACPX_STATE_DIR to a writable directory.",
     );
   }
+  // Always absolute so worker + acp-host share OAuth pending/tokens regardless of CWD.
+  const acpxStateDir = resolve(acpxStateDirRaw.trim());
 
   let repos = file.repos;
   if (!repos && env.TACP_REPOS_JSON) {

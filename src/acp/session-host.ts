@@ -422,6 +422,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       protocolVersion: initResult.protocolVersion,
     });
 
+    // sessionKey is `repo/name` — use repo segment for OAuth token path.
+    const repoKeyFromSession = input.sessionKey.includes("/")
+      ? input.sessionKey.slice(0, input.sessionKey.indexOf("/"))
+      : input.sessionKey;
+
     const mcpList: acp.McpServer[] =
       options.mcpEnabled === false
         ? []
@@ -429,8 +434,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             cwd: input.cwd,
             enabled: options.config.mcpEnabled !== false,
             sessionKey: input.sessionKey,
+            repoKey: repoKeyFromSession,
             ...(options.stateDir !== undefined
-              ? { stateDir: options.stateDir }
+              ? { stateDir: options.stateDir, oauthStateDir: options.stateDir }
               : {}),
             log,
           });
