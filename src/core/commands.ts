@@ -180,18 +180,20 @@ export type TelegramMenuCommand = {
 };
 
 /**
- * Flat menu for Telegram “/” UI. Topic-only commands (/skills, /cancel) are
- * omitted — private DMs cannot scope menus per forum topic; type them in-topic.
+ * Flat menu for Telegram “/” UI.
+ *
+ * Telegram cannot scope BotCommands per forum topic, so we register **all**
+ * commands (lobby + topic). Operators see `/mcp`, `/mode`, `/skills`, etc. in
+ * the autocomplete. Wrong-scope use still gets a clear error from the daemon
+ * (e.g. `/mcp` only works inside a session topic).
  */
 export function telegramMenuCommands(
   defs: readonly CommandDef[] = COMMANDS,
 ): TelegramMenuCommand[] {
-  return defs
-    .filter((c) => c.scope === "lobby" || c.scope === "both")
-    .map((c) => ({
-      command: c.name.replace(/^\//, "").toLowerCase(),
-      description: c.summary.slice(0, 256),
-    }));
+  return defs.map((c) => ({
+    command: c.name.replace(/^\//, "").toLowerCase(),
+    description: c.summary.slice(0, 256),
+  }));
 }
 
 export function menuFingerprint(commands: TelegramMenuCommand[]): string {
