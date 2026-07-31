@@ -2,6 +2,7 @@
  * tacp MCP server (stdio) — tools the agent can call during a Telegram session.
  *
  * speak: enqueue TTS for the tacp daemon, which sendVoice to Telegram.
+ * update / telegram_send: mid-turn text to the operator's Telegram topic.
  * schedule_*: durable jobs under <repo>/.tacp/schedules/ (prompt + optional script).
  * The MCP process cannot call Telegram itself (it is a child of the agent).
  */
@@ -18,6 +19,11 @@ import {
   speakQueueDir,
   waitForSpeakAck,
 } from "./speak-queue";
+import {
+  enqueueTelegramJob,
+  telegramQueueDir,
+  waitForTelegramAck,
+} from "./telegram-queue";
 
 const server = new FastMCP({
   name: "tacp",
@@ -94,6 +100,99 @@ server.tool(
       }).`;
     } catch (err) {
       return `speak failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "update",
+    description:
+      "Send a short progress update to the operator on Telegram in this topic, right now. " +
+      "Use while you are still working when a step takes a while, something important happened, " +
+      "or the user should know you are making progress. Do not spam every tiny step. " +
+      "Do not use this for the final answer — put that in your normal assistant reply. " +
+      "Prefer 1–3 short sentences.",
+    input: z.object({
+      text: z
+        .string()
+        .min(1)
+        .describe("Progress update for the operator (plain text)."),
+    }),
+  },
+  async ({ text }) => {
+    const cleaned = text.trim();
+    if (!cleaned) return "Nothing to send (empty update).";
+    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "update failed: TACP_SESSION_KEY not set on MCP server " +
+        "(tacp must inject session key via mcpServers env)."
+      );
+    }
+    const queueDir = telegramQueueDir();
+    try {
+      const job = await enqueueTelegramJob({
+        sessionKey,
+        text: cleaned,
+        kind: "update",
+        queueDir,
+      });
+      const ack = await waitForTelegramAck(job.id, {
+        queueDir,
+        timeoutMs: 30_000,
+      });
+      if (!ack.ok) return `update failed: ${ack.error}`;
+      return `Sent Telegram update (${cleaned.length} chars).`;
+    } catch (err) {
+      return `update failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "telegram_send",
+    description:
+      "Send a text message to the operator on Telegram in this topic (not TTS). " +
+      "Use when you need to tell the user something mid-work that is not a progress ping " +
+      "(e.g. need them to look at a link, or a clear intermediate result). " +
+      "For short status pings prefer the update tool. Final answers still go in your normal reply.",
+    input: z.object({
+      text: z
+        .string()
+        .min(1)
+        .describe("Message body for Telegram (plain text)."),
+    }),
+  },
+  async ({ text }) => {
+    const cleaned = text.trim();
+    if (!cleaned) return "Nothing to send (empty message).";
+    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "telegram_send failed: TACP_SESSION_KEY not set on MCP server " +
+        "(tacp must inject session key via mcpServers env)."
+      );
+    }
+    const queueDir = telegramQueueDir();
+    try {
+      const job = await enqueueTelegramJob({
+        sessionKey,
+        text: cleaned,
+        kind: "message",
+        queueDir,
+      });
+      const ack = await waitForTelegramAck(job.id, {
+        queueDir,
+        timeoutMs: 30_000,
+      });
+      if (!ack.ok) return `telegram_send failed: ${ack.error}`;
+      return `Sent Telegram message (${cleaned.length} chars).`;
+    } catch (err) {
+      return `telegram_send failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
     }
   },
 );
