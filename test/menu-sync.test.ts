@@ -14,8 +14,8 @@ import { fakeTelegram } from "../src/env/fake-telegram";
 describe("telegram menu commands", () => {
   test("builds BotCommand list without leading slashes", () => {
     const menu = telegramMenuCommands();
-    // Lobby + both only (topic-only /skills /cancel stay off the global menu)
-    expect(menu.length).toBeGreaterThanOrEqual(4);
+    // Full surface: lobby + topic (Telegram has no per-topic menu scope)
+    expect(menu.length).toBeGreaterThanOrEqual(8);
     for (const c of menu) {
       expect(c.command).not.toMatch(/^\//);
       expect(c.command).toMatch(/^[a-z0-9_]+$/);
@@ -27,8 +27,13 @@ describe("telegram menu commands", () => {
     expect(names).toContain("new");
     expect(names).toContain("sessions");
     expect(names).toContain("help");
-    expect(names).not.toContain("skills");
-    expect(names).not.toContain("cancel");
+    // Topic commands must appear so operators can discover them in “/”
+    expect(names).toContain("skills");
+    expect(names).toContain("cancel");
+    expect(names).toContain("mode");
+    expect(names).toContain("plan");
+    expect(names).toContain("build");
+    expect(names).toContain("mcp");
   });
 
   test("fingerprint changes when description changes", () => {
