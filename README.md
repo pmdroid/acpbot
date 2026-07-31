@@ -82,6 +82,7 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (host-side) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
+| Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
 
 ## 3. Run
