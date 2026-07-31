@@ -15,7 +15,7 @@ With a provisioned bot you can:
 1. Start the daemon (syncs the Telegram **/** menu from the command registry)
 2. **Lobby:** `/ping`, `/new`, `/sessions`, `/help`
 3. `/new` → pick a repo (or `/new <repo> <name>`) → topic appears
-4. **Topic:** type to prompt; send photos/files/voice; `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
+4. **Topic:** type to prompt; send photos/files/voice; `/status`, `/model`, `/agent`, `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
 5. **Media:** images/docs → `.tacp-inbox/` (or ACP attach when enabled); voice → STT; agent-controlled **TTS** via host MCP tool `speak` (or `<<<speak>>>` marker) when a speech provider is configured
 
 On startup tacp **wipes** stale `setMyCommands` scopes (default + private, en)
@@ -83,6 +83,7 @@ run through Grok over ACP.
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
 | Host MCP `update` / `telegram_send` (mid-turn text) | **Yes** (queue → topic; progress pings) |
+| Topic `/model` `/agent` (LLM / process switch) | **Yes** (ACP configOptions + agent respawn) |
 | Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD + host auto-fire via acp-host) |
 | Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse; OAuth Bearer from host store) |
 | Remote MCP OAuth (`/mcp auth`, host callback) | **Yes** (PKCE; tokens under `TACP_ACPX_STATE_DIR`) |

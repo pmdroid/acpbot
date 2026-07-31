@@ -74,3 +74,28 @@ export function resolveAgentLaunch(
   // Last resort: treat the name as a bare binary that speaks ACP on stdio.
   return { command: agentName.trim(), args: [] };
 }
+
+/**
+ * Registered agent ids for pickers: builtins + TACP_AGENT_COMMAND_JSON keys.
+ * Optional TACP_AGENTS=a,b,c allowlist (comma/space separated).
+ */
+export function listRegisteredAgents(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
+  const ids = new Set<string>([
+    ...Object.keys(BUILTINS),
+    ...Object.keys(overrides),
+  ]);
+  const allow = env.TACP_AGENTS?.trim();
+  if (allow) {
+    const allowed = new Set(
+      allow
+        .split(/[,;\s]+/)
+        .map((s) => normalizeAgentName(s))
+        .filter(Boolean),
+    );
+    return [...ids].filter((id) => allowed.has(id)).sort();
+  }
+  return [...ids].sort();
+}

@@ -60,7 +60,17 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/status",
     scope: "topic",
-    summary: "Session context: agent, mode, cwd, MCP, thread",
+    summary: "Session context: agent, model, mode, cwd, MCP",
+  },
+  {
+    name: "/model",
+    scope: "topic",
+    summary: "Pick LLM model (ACP config) or /model <value>",
+  },
+  {
+    name: "/agent",
+    scope: "topic",
+    summary: "Switch agent process (respawn) or /agent <id>",
   },
   {
     name: "/mcp",
