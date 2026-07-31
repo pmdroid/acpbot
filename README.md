@@ -117,21 +117,26 @@ Missing or invalid JSON → built-in only (warn on invalid). Example:
 
 See also `demo/.tacp/mcp.json.example`.
 
-### MCP profiles (multi-topic, one repo)
+### MCP profiles (one profile per repo)
 
-When one repo hosts different kinds of topics (e.g. life automation vs coding),
-declare an optional allowlist profile so sessions only see a subset of repo MCP:
+Use a profile allowlist when a repo’s `mcp.json` has more servers than a given
+workflow should see (e.g. automation tools vs coding-only). Today **`mcpProfile`
+is repo-global** — every session in that repo gets the same filter. Per-topic /
+per-session selection is not wired yet (the build path accepts an override for
+tests / future Telegram hooks).
+
+`<repo>/.tacp/config.json`:
 
 ```json
-// <repo>/.tacp/config.json
 {
   "defaultAgent": "grok-build",
   "mcpProfile": "automation"
 }
 ```
 
+`<repo>/.tacp/mcp.profiles.json`:
+
 ```json
-// <repo>/.tacp/mcp.profiles.json
 {
   "automation": ["schedule", "homeassistant"],
   "coding": []
@@ -143,8 +148,12 @@ Rules:
 - If `mcpProfile` is set **and** the named key exists in `mcp.profiles.json`,
   repo MCP is filtered to that name list before merge with built-in `tacp`.
 - Empty list `[]` → no repo MCP for that profile (built-in `tacp` still added).
-- Missing config, missing profiles file, or **unknown** profile name → no filter
-  (all servers from `mcp.json`).
+- Allowlist names with no match in `mcp.json` are ignored (may yield empty repo
+  MCP + still `tacp`).
+- Missing config, missing profiles file, **unknown** profile name, or
+  **invalid/unreadable** config or profiles JSON → no filter (all servers from
+  `mcp.json`). Fail-open paths log a **warn** when a profile was requested but
+  could not be applied (typo / missing file).
 - `defaultAgent` is read from config for future per-repo agent defaults; session
   create still uses the global `TACP_DEFAULT_AGENT` / config default today.
 
