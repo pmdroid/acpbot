@@ -17,11 +17,16 @@ import type {
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import { resolveAgentLaunch } from "./agent-launch";
+import {
+  applyModelToLaunch,
+  getCannedModelsForAgent,
+} from "./agent-models";
 import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
 import {
+  findModelConfigOption,
   normalizeConfigOptions,
   type SessionConfigOptionView,
 } from "./session-config";
@@ -167,6 +172,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     cwd: process.cwd(),
     log,
   });
+  /**
+   * Preferred spawn-time model id per session (canned / non-ACP agents).
+   * Survives process respawn within this host lifetime.
+   */
+  const preferredModelBySession = new Map<string, string>();
 
   async function persistRecord(
     partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
@@ -366,22 +376,58 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       );
   }
 
+  function syntheticCannedConfig(
+    agent: string,
+    sessionKey: string,
+  ): SessionConfigOptionView[] {
+    const canned = getCannedModelsForAgent(agent);
+    if (canned.length === 0) return [];
+    const current =
+      preferredModelBySession.get(sessionKey) ?? canned[0]!.value;
+    return [
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        category: "model",
+        currentValue: current,
+        options: canned.map((m) => ({
+          value: m.value,
+          name: m.name,
+          ...(m.description ? { description: m.description } : {}),
+        })),
+      },
+    ];
+  }
+
   async function spawnSession(input: {
     sessionKey: string;
     agent: string;
     cwd: string;
   }): Promise<LiveSession> {
-    const launch = resolveAgentLaunch(input.agent);
+    const baseLaunch = resolveAgentLaunch(input.agent);
+    const preferredModel = preferredModelBySession.get(input.sessionKey);
+    const launch = applyModelToLaunch(
+      input.agent,
+      baseLaunch,
+      preferredModel,
+    );
     log.info("spawn agent", {
       sessionKey: input.sessionKey,
       command: launch.command,
       args: launch.args,
       cwd: input.cwd,
+      model: preferredModel ?? null,
     });
+
+    const childEnv = {
+      ...process.env,
+      ...(launch.env ?? {}),
+    };
 
     const child = spawn(launch.command, launch.args, {
       cwd: input.cwd,
-      env: process.env,
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams;
 
@@ -390,21 +436,60 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const s = c.toString("utf8");
       stderrChunks.push(s);
       if (stderrChunks.join("").length < 8000) {
-        log.debug("agent stderr", { sessionKey: input.sessionKey, text: s.slice(0, 400) });
+        log.debug("agent stderr", {
+          sessionKey: input.sessionKey,
+          text: s.slice(0, 400),
+        });
       }
     });
 
+    let earlyExit: { code: number | null; signal: NodeJS.Signals | null } | null =
+      null;
     child.on("exit", (code, signal) => {
+      earlyExit = { code, signal };
       log.warn("agent process exit", {
         sessionKey: input.sessionKey,
         code,
         signal,
+        stderr: stderrChunks.join("").slice(0, 500),
       });
       live.delete(input.sessionKey);
     });
 
     if (!child.stdin || !child.stdout) {
       throw new Error("agent spawn failed: missing stdio pipes");
+    }
+
+    // Fail fast if process dies before initialize (bad command / missing adapter)
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => resolve(), 80);
+      child.once("exit", (code, signal) => {
+        clearTimeout(t);
+        const errText = stderrChunks.join("").trim().slice(0, 800);
+        reject(
+          new Error(
+            `agent process exited immediately (code=${code}, signal=${signal})` +
+              (errText ? `:\n${errText}` : "") +
+              `\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+          ),
+        );
+      });
+      child.once("error", (err) => {
+        clearTimeout(t);
+        reject(
+          new Error(
+            `agent spawn error: ${err.message}\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+          ),
+        );
+      });
+    });
+    if (earlyExit) {
+      const errText = stderrChunks.join("").trim().slice(0, 800);
+      throw new Error(
+        `agent process exited immediately (code=${earlyExit.code})` +
+          (errText ? `:\n${errText}` : "") +
+          `\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+      );
     }
 
     const output = Writable.toWeb(child.stdin);
@@ -558,7 +643,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const configRaw =
       (session as { configOptions?: unknown }).configOptions ??
       (session as { _meta?: { configOptions?: unknown } })._meta?.configOptions;
-    const configOptions = normalizeConfigOptions(configRaw);
+    let configOptions = normalizeConfigOptions(configRaw);
+    // If agent doesn't advertise models, expose canned list for this agent.
+    if (!findModelConfigOption(configOptions)) {
+      configOptions = syntheticCannedConfig(input.agent, input.sessionKey);
+    }
 
     await persistRecord({
       sessionKey: input.sessionKey,
@@ -625,6 +714,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             fromAgent: existing.agent,
             toAgent: input.agent,
           });
+          // Model preference is per agent family — clear on binary switch.
+          if (existing.agent !== input.agent) {
+            preferredModelBySession.delete(input.sessionKey);
+          }
           await killLiveSession(input.sessionKey);
         } else {
           return {
@@ -899,11 +992,29 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     getConfigOptions(sessionKey) {
       const entry = live.get(sessionKey);
-      if (!entry) return [];
-      if (entry.configOptions.length > 0) return [...entry.configOptions];
-      // Refresh from live session object if we captured none at spawn.
+      if (!entry) {
+        // No live session — still return canned list if we know agent from store later.
+        return [];
+      }
+      // Prefer live ACP options if they include a model select.
       const raw = (entry.session as { configOptions?: unknown }).configOptions;
-      entry.configOptions = normalizeConfigOptions(raw);
+      const fromAgent = normalizeConfigOptions(raw);
+      if (findModelConfigOption(fromAgent)) {
+        entry.configOptions = fromAgent;
+        return [...entry.configOptions];
+      }
+      // Canned fallback (Grok etc.)
+      if (!findModelConfigOption(entry.configOptions)) {
+        entry.configOptions = syntheticCannedConfig(
+          entry.agent,
+          sessionKey,
+        );
+      } else {
+        // Keep currentValue in sync with preferred spawn model
+        const m = findModelConfigOption(entry.configOptions);
+        const pref = preferredModelBySession.get(sessionKey);
+        if (m && pref) m.currentValue = pref;
+      }
       return [...entry.configOptions];
     },
 
@@ -912,6 +1023,39 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       if (!entry) {
         throw new Error(`no live session for ${sessionKey}`);
       }
+
+      // Detect whether this is a real ACP model option or our canned fallback.
+      const fromAgent = normalizeConfigOptions(
+        (entry.session as { configOptions?: unknown }).configOptions,
+      );
+      const acpModel = findModelConfigOption(fromAgent);
+      const useCanned =
+        configId === "model" &&
+        typeof value === "string" &&
+        !acpModel;
+
+      if (useCanned) {
+        const canned = getCannedModelsForAgent(entry.agent);
+        if (!canned.some((m) => m.value === value)) {
+          throw new Error(
+            `unknown model \`${value}\` for agent \`${entry.agent}\`. ` +
+              `Options: ${canned.map((m) => m.value).join(", ") || "(none)"}`,
+          );
+        }
+        preferredModelBySession.set(sessionKey, value);
+        log.info("setConfigOption canned model → respawn", {
+          sessionKey,
+          agent: entry.agent,
+          model: value,
+        });
+        const agent = entry.agent;
+        const cwd = entry.cwd;
+        await killLiveSession(sessionKey);
+        const next = await spawnSession({ sessionKey, agent, cwd });
+        return [...next.configOptions];
+      }
+
+      // Native ACP path
       const params =
         typeof value === "boolean"
           ? {
@@ -925,38 +1069,43 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               configId,
               value,
             };
-      const resp = await entry.connection.agent.request(
-        acp.methods.agent.session.setConfigOption,
-        params as never,
-      );
-      const nextRaw =
-        (resp as { configOptions?: unknown })?.configOptions ??
-        (entry.session as { configOptions?: unknown }).configOptions;
-      entry.configOptions = normalizeConfigOptions(nextRaw);
-      // If agent only returns partial options, patch current value locally.
-      if (entry.configOptions.length === 0) {
-        entry.configOptions = normalizeConfigOptions([
-          {
-            id: configId,
-            name: configId,
-            type: typeof value === "boolean" ? "boolean" : "select",
-            currentValue: value,
-            options:
-              typeof value === "string"
-                ? [{ value, name: value }]
-                : [],
-          },
-        ]);
-      } else {
+      try {
+        const resp = await entry.connection.agent.request(
+          acp.methods.agent.session.setConfigOption,
+          params as never,
+        );
+        const nextRaw =
+          (resp as { configOptions?: unknown })?.configOptions ??
+          (entry.session as { configOptions?: unknown }).configOptions;
+        entry.configOptions = normalizeConfigOptions(nextRaw);
         const hit = entry.configOptions.find((o) => o.id === configId);
         if (hit) hit.currentValue = value;
+        if (configId === "model" && typeof value === "string") {
+          preferredModelBySession.set(sessionKey, value);
+        }
+        log.info("setConfigOption ok (ACP)", {
+          sessionKey,
+          configId,
+          value: String(value),
+        });
+        return [...entry.configOptions];
+      } catch (err) {
+        // Fall back to canned respawn if ACP rejects set_config_option
+        if (typeof value === "string" && getCannedModelsForAgent(entry.agent).length) {
+          preferredModelBySession.set(sessionKey, value);
+          const agent = entry.agent;
+          const cwd = entry.cwd;
+          await killLiveSession(sessionKey);
+          const next = await spawnSession({ sessionKey, agent, cwd });
+          log.warn("setConfigOption ACP failed; used canned respawn", {
+            sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+            model: value,
+          });
+          return [...next.configOptions];
+        }
+        throw err;
       }
-      log.info("setConfigOption ok", {
-        sessionKey,
-        configId,
-        value: String(value),
-      });
-      return [...entry.configOptions];
     },
 
     async disposeSession(sessionKey) {
