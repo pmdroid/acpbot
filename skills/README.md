@@ -1,0 +1,27 @@
+# Bundled tacp skills
+
+Operator skills shipped with tacp and installed **globally** for coding agents
+(Grok, Claude, Codex, …) — not only under `demo/`.
+
+| Skill | Purpose |
+|-------|---------|
+| [`telegram`](./telegram/SKILL.md) | Progress, text, photo, file, voice via host MCP `tacp` |
+| [`schedules`](./schedules/SKILL.md) | Delayed / recurring jobs via `schedule_*` tools |
+
+## Install
+
+```bash
+# one-shot
+bun run skills:install
+
+# also runs automatically when the worker starts (bun run start)
+# skip with: TACP_SKIP_SKILL_INSTALL=1
+```
+
+Installs (symlink preferred, copy fallback) into:
+
+- `~/.agents/skills/`
+- `~/.grok/skills/`
+- `~/.claude/skills/`
+
+Canonical source of truth: this directory in the tacp package.

@@ -2,31 +2,29 @@ import { describe, expect, test } from "bun:test";
 import {
   extractSpeakFromReply,
   isSpeakToolName,
-  parseTtsMode,
   speakTextFromToolInput,
+  stripSpeakMarkers,
 } from "../src/core/speak";
 
-describe("extractSpeakFromReply", () => {
-  test("no marker", () => {
-    const r = extractSpeakFromReply("Hello only");
-    expect(r.speak).toBeUndefined();
-    expect(r.visibleText).toBe("Hello only");
+describe("stripSpeakMarkers", () => {
+  test("no marker leaves text alone", () => {
+    expect(stripSpeakMarkers("Hello only")).toBe("Hello only");
   });
 
-  test("marker without body uses full reply", () => {
+  test("strips marker block without requesting TTS", () => {
     const r = extractSpeakFromReply("Hi there.\n\n<<<speak>>>\n");
-    expect(r.speak?.source).toBe("marker");
-    expect(r.speak?.text).toBeUndefined();
+    expect(r.speak).toBeUndefined();
     expect(r.visibleText).toBe("Hi there.");
   });
 
-  test("marker with override text", () => {
+  test("strips marker and override body from visible text", () => {
     const r = extractSpeakFromReply(
       "Long explanation.\n\n<<<speak>>>\nShort voice line\n",
     );
-    expect(r.speak?.text).toBe("Short voice line");
+    expect(r.speak).toBeUndefined();
     expect(r.visibleText).toContain("Long explanation");
     expect(r.visibleText).not.toContain("<<<speak>>>");
+    expect(r.visibleText).not.toContain("Short voice line");
   });
 });
 
@@ -45,13 +43,5 @@ describe("speak tools", () => {
     expect(speakTextFromToolInput({ arguments: { message: "yo" } })).toBe(
       "yo",
     );
-  });
-});
-
-describe("parseTtsMode", () => {
-  test("defaults to agent", () => {
-    expect(parseTtsMode(undefined)).toBe("agent");
-    expect(parseTtsMode("always")).toBe("always");
-    expect(parseTtsMode("off")).toBe("off");
   });
 });

@@ -69,8 +69,19 @@ TACP_ACP_HOST=1 bun run start
 | Variable | Purpose |
 |---|---|
 | `TACP_SKILL_ROOTS` | Extra skill dirs, colon/semicolon/comma-separated |
+| `TACP_SKIP_SKILL_INSTALL` | `1` — do not auto-install bundled skills on worker start |
+
+Always included: package `skills/` (bundled **telegram** + **schedules**).
 
 Defaults (when `HOME` is known): `~/.grok/skills`, `~/.grok/bundled/skills`, `~/.agents/skills`, `~/.claude/skills`.
+
+Onboard / refresh global agent skills:
+
+```bash
+bun run skills:install
+```
+
+See [skills.md](skills.md).
 
 ## Media & speech
 

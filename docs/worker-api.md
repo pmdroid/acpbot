@@ -39,9 +39,18 @@ Agent-supplied paths are resolved with `resolvePathUnderRepo` (`src/mcp/repo-pat
 - `..` escapes rejected
 - Missing files fail with a clear error (containment still enforced on the candidate path)
 
-## Queues
+## Delivery path
 
-Some tools may enqueue durable jobs under the state dir (telegram-queue / speak-queue) so delivery can be acked and retried. Photo/document jobs require a path. See `src/mcp/telegram-queue.ts` and tests in `test/telegram-queue.test.ts`, `test/worker-api.test.ts`.
+MCP tools call this API **directly** (HTTP over the Unix socket). There is no mid-turn disk queue on the happy path. Legacy queue drain may still run on the worker poll loop for leftover files only.
+
+Start the API by starting the worker:
+
+```bash
+bun run start
+# logs: tacp worker API: unix://…/worker-api.sock
+```
+
+Tests: `test/worker-api.test.ts`.
 
 ## Speech modes
 
@@ -49,7 +58,7 @@ Controlled by env (see [configuration.md](configuration.md)):
 
 | `TACP_TTS_MODE` | Behavior |
 |---|---|
-| `agent` (default) | Only when the model calls MCP `speak` (or legacy `<<<speak>>>` marker) |
+| `agent` (default) | Only when the model calls MCP `speak` |
 | `always` | TTS more aggressively on agent text |
 | `off` | No TTS |
 

@@ -11,16 +11,19 @@ The name `tacp` is reserved.
 
 | Tool | Purpose |
 |---|---|
-| `speak` | TTS → voice note in the topic (via worker API) |
-| `update` / `telegram_send` | Mid-turn text to the topic |
-| `telegram_send_photo` | Send an image path under the session repo |
-| `telegram_send_file` | Send a document path under the session repo |
-| `schedule_create` | Durable job under `.tacp/schedules/` |
-| `schedule_list` | List jobs for session (or whole repo) |
-| `schedule_cancel` | Soft-disable a job |
-| `schedule_run_now` | Set `nextRunAt=now` for next host tick |
+| `speak` | TTS → voice note in the topic |
+| `update` | Short mid-turn progress ping |
+| `telegram_send` | Mid-turn text (not a status ping) |
+| `telegram_send_photo` | Image under the session repo |
+| `telegram_send_file` | Document under the session repo |
+| `schedule_create` | Create a delayed / recurring job |
+| `schedule_list` | List jobs for this session (or whole repo) |
+| `schedule_cancel` | Disable a job |
+| `schedule_run_now` | Mark due so the host fires on the next tick |
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [worker-api.md](worker-api.md).
+
+Agent guidance for these tools is in bundled skills **telegram** and **schedules** ([skills.md](skills.md)).
 
 Disable host MCP entirely:
 

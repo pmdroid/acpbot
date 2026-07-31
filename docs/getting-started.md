@@ -27,7 +27,14 @@ git clone https://github.com/pmdroid/tacp.git
 cd tacp
 bun install
 cp .env.example .env
+# Install operator skills (telegram + schedules) into global agent skill dirs
+bun run skills:install
 ```
+
+`skills:install` symlinks (or copies) package skills into `~/.agents/skills`,
+`~/.grok/skills`, and `~/.claude/skills` so **all** coding agents see them, not
+only the demo repo. The worker also runs this on startup unless
+`TACP_SKIP_SKILL_INSTALL=1`.
 
 Edit `.env` (paths are yours to choose — nothing assumes a fixed home layout):
 
@@ -128,5 +135,6 @@ bun run typecheck
 ## Next
 
 - [Architecture](architecture.md)
-- [MCP](mcp.md) — per-repo tools & schedules
+- [MCP](mcp.md) — per-repo tools & host `tacp` tools  
+- [Skills](skills.md) — bundled telegram + schedules, global install
 - [OAuth](oauth.md) — remote gateways

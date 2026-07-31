@@ -16,7 +16,8 @@ Operator and architecture docs for **tacp** — Telegram as a control surface fo
 | [Agents](agents.md) | Built-in agents, `/model`, `/agent` |
 | [MCP](mcp.md) | Built-in `tacp` tools, per-repo servers, profiles |
 | [Worker API](worker-api.md) | Unix HTTP API MCP → Telegram |
-| [Schedules](schedules.md) | Durable jobs under `.tacp/schedules/` |
+| [Schedules](schedules.md) | Durable delayed/recurring jobs + host ticker |
+| [Skills](skills.md) | Bundled `telegram` + `schedules` skills, global install |
 | [OAuth](oauth.md) | Remote MCP auth (PKCE + DCR) |
 
 ## Ideas / future

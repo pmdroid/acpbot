@@ -12,7 +12,8 @@
     "test": "bun test ./test",
     "test:contract": "bun test test/contract",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
-    "acp-host": "bun run src/acp-host/main.ts"
+    "acp-host": "bun run src/acp-host/main.ts",
+    "skills:install": "bun run src/scripts/install-skills.ts"
   },
   "license": "MIT",
   "dependencies": {

@@ -163,7 +163,7 @@ describe("daemon media + TTS", () => {
     expect(env.agents.turns[0]!.input.attachments?.length ?? 0).toBe(0);
   });
 
-  test("TTS only when agent requests speak (marker), not always", async () => {
+  test("TTS not triggered by legacy markers; text is still cleaned", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -213,7 +213,7 @@ describe("daemon media + TTS", () => {
       env.telegram.outbound.filter((c) => c.method === "sendVoice"),
     ).toHaveLength(0);
 
-    // With <<<speak>>> → voice
+    // Legacy markers are stripped from text but do NOT trigger TTS.
     env.telegram.clearOutbound();
     env.agents.queueTurn("demo/tts", {
       events: [
@@ -240,8 +240,8 @@ describe("daemon media + TTS", () => {
     for (let i = 0; i < 40; i++) await Promise.resolve();
     await Bun.sleep(50);
     expect(
-      env.telegram.outbound.filter((c) => c.method === "sendVoice").length,
-    ).toBeGreaterThanOrEqual(1);
+      env.telegram.outbound.filter((c) => c.method === "sendVoice"),
+    ).toHaveLength(0);
     const textOut = env.telegram
       .sentMessages()
       .map((m) => m.text ?? "")

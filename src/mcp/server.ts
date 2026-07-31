@@ -3,7 +3,7 @@
  *
  * Outbound Telegram (text / photo / file / speak) goes to the **worker API**
  * (HTTP over Unix socket). The daemon owns the bot token and topic map.
- * schedule_*: durable jobs under <repo>/.tacp/schedules/ (prompt + optional script).
+ * schedule_*: create / list / cancel / run-now durable delayed work.
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -61,8 +61,7 @@ server.tool(
     description:
       "Speak to the user on Telegram: synthesizes TTS and sends a voice note now. " +
       "Use when the user asked for voice/spoken/TTS, or a short audible confirmation " +
-      "is clearly better than text alone. Do not call on every message. " +
-      "Do not use <<<speak>>> markers — this tool delivers audio directly.",
+      "is clearly better than text alone. Do not call on every message.",
     input: z.object({
       text: z
         .string()
@@ -291,13 +290,11 @@ server.tool(
   {
     name: "schedule_create",
     description:
-      "Create a durable scheduled job in this repo under .tacp/schedules/. " +
-      "Requires a prompt (what the agent should do at fire time). " +
-      "Optional script: path relative to repo root (must stay inside the repo). " +
-      "kind=once needs runAt (ISO); kind=cron needs cronExpr (5-field m h dom mon dow). " +
-      "Next-run is computed in UTC only (timezone is stored for later; prefer UTC). " +
-      "When both day-of-month and day-of-week are restricted, either may match (classic cron OR). " +
-      "Host fire is separate — this only persists the job.",
+      "Create a scheduled job for later. " +
+      "Requires a prompt (what to do when it fires). " +
+      "kind=once needs runAt (ISO time); kind=cron needs cronExpr (5-field, UTC). " +
+      "Optional script path must stay inside the session repo. " +
+      "This only saves the job — the host fires it when due.",
     input: z.object({
       name: z.string().min(1).optional().describe("Short label for the job"),
       prompt: z
@@ -308,13 +305,13 @@ server.tool(
         .string()
         .min(1)
         .optional()
-        .describe("Optional path relative to repo root (no .. escapes)"),
+        .describe("Optional in-repo script path"),
       kind: z.enum(["once", "cron"]).describe("once = single runAt; cron = recurring"),
       cronExpr: z
         .string()
         .min(1)
         .optional()
-        .describe('5-field cron for kind=cron, e.g. "0 8 * * 1-5" (interpreted in UTC)'),
+        .describe('5-field cron for kind=cron, e.g. "0 8 * * 1-5" (UTC)'),
       runAt: z
         .string()
         .min(1)
@@ -324,9 +321,7 @@ server.tool(
         .string()
         .min(1)
         .optional()
-        .describe(
-          "Stored on the job; MVP next-run ignores this and always uses UTC — prefer \"UTC\"",
-        ),
+        .describe('Prefer "UTC" (firing uses UTC)'),
     }),
   },
   async (args) => {
@@ -363,7 +358,7 @@ server.tool(
   {
     name: "schedule_list",
     description:
-      "List scheduled jobs for this session (TACP_SESSION_KEY) under .tacp/schedules/. " +
+      "List scheduled jobs for this session. " +
       "Pass all=true to list every job in the repo.",
     input: z.object({
       all: z
@@ -393,14 +388,14 @@ server.tool(
   {
     name: "schedule_cancel",
     description:
-      "Soft-cancel a schedule by id for this session: sets enabled=false (file remains). " +
-      "Only jobs owned by TACP_SESSION_KEY can be cancelled (pass all=true to cancel any in-repo job).",
+      "Cancel a schedule by id for this session (disables it; does not delete). " +
+      "Pass all=true to cancel a job owned by another session in this repo.",
     input: z.object({
       id: z.string().min(1).describe("Schedule job id"),
       all: z
         .boolean()
         .optional()
-        .describe("If true, allow cancelling a job owned by another session in this repo"),
+        .describe("If true, allow cancelling a job owned by another session"),
     }),
   },
   async ({ id, all }) => {
@@ -424,15 +419,14 @@ server.tool(
   {
     name: "schedule_run_now",
     description:
-      "Mark a schedule job due immediately (nextRunAt=now, enabled=true) so the acp-host " +
-      "scheduler fires it on the next tick. Does not spawn the agent itself — host must be running. " +
-      "Session-scoped unless all=true.",
+      "Mark a schedule job due now so it fires on the next scheduler tick. " +
+      "The host must be running. Session-scoped unless all=true.",
     input: z.object({
       id: z.string().min(1).describe("Schedule job id"),
       all: z
         .boolean()
         .optional()
-        .describe("If true, allow marking a job owned by another session in this repo"),
+        .describe("If true, allow a job owned by another session"),
     }),
   },
   async ({ id, all }) => {

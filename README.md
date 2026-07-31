@@ -70,10 +70,11 @@ See [docs/configuration.md](docs/configuration.md) and [docs/getting-started.md]
 
 ```bash
 bun install
+bun run skills:install   # global telegram + schedules skills for all agents
 bun test ./test
 
 set -a && source .env && set +a
-bun run start
+bun run start            # also installs skills unless TACP_SKIP_SKILL_INSTALL=1
 ```
 
 **Prove Telegram without an agent login:**
@@ -123,7 +124,8 @@ TACP_ACP_HOST=1 bun run start
 | [docs/agents.md](docs/agents.md) | Agent registry, `/model`, `/agent` |
 | [docs/mcp.md](docs/mcp.md) | Built-in tools, `.tacp/mcp.json`, profiles |
 | [docs/worker-api.md](docs/worker-api.md) | Unix outbound API for MCP → Telegram |
-| [docs/schedules.md](docs/schedules.md) | In-repo jobs and host ticker |
+| [docs/schedules.md](docs/schedules.md) | Delayed/recurring jobs and host ticker |
+| [docs/skills.md](docs/skills.md) | Bundled telegram + schedules skills, global install |
 | [docs/oauth.md](docs/oauth.md) | Remote MCP OAuth (PKCE + DCR) |
 | [docs/configuration.md](docs/configuration.md) | Full environment reference |
 | [docs/ideas/](docs/ideas/) | Design notes / future work |
@@ -143,7 +145,8 @@ src/
   env/              Environment port (telegram, agents, store, speech)
   schedules/        In-repo schedule store helpers
 test/               Acceptance + unit tests (bun test)
-demo/               Sample repo / skills / media
+skills/             Bundled agent skills (telegram, schedules) — installed globally on onboard
+demo/               Sample repo / media
 docs/               Operator & architecture docs
 ```
 
