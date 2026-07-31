@@ -500,23 +500,19 @@ export async function startAcpHostServer(
       return { status: "busy" };
     }
 
-    // Resolve agent: existing slot → durable store → default
+    // Resolve agent: existing slot → durable store → default.
+    // Cold schedule fires always use catalog repoRoot as cwd (not store cwd).
     let agent = slot?.agent ?? defaultAgent;
-    let cwd = slot?.cwd ?? args.repoRoot;
+    const cwd = slot?.cwd ?? args.repoRoot;
     if (!slot && options.sessionStore) {
       try {
         const rec = await options.sessionStore.load(slotKey);
-        if (rec) {
-          agent = rec.agent || agent;
-          cwd = rec.cwd || cwd;
+        if (rec?.agent) {
+          agent = rec.agent;
         }
       } catch {
         /* use defaults */
       }
-    }
-    // Prefer catalog repo path for cwd when ensuring from schedule scan
-    if (!slot) {
-      cwd = args.repoRoot;
     }
 
     try {

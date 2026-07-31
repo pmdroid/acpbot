@@ -138,10 +138,13 @@ may match).
 
 **Host fire:** `bun run acp-host` scans each catalog repo (`TACP_REPOS_JSON`) under
 `.tacp/schedules/` every `TACP_SCHEDULE_TICK_MS` (default 20s). Due jobs
-(`enabled && nextRunAt <= now`) ensure the job’s `sessionKey` slot and prompt with
-an envelope (prompt + optional script path). `once` disables after fire; `cron`
-recomputes `nextRunAt` from now (catch-up once — no multi-miss storm). Busy slots
-get `lastStatus: busy` and retry next tick. Works even if the Telegram worker is down.
+(`enabled && nextRunAt <= now`) are **claimed on disk before** the agent turn
+(`once` → `enabled: false`; `cron` → next `nextRunAt` from now) so a crash mid-fire
+cannot double-run the same occurrence. Then the host ensures the job’s `sessionKey`
+slot and prompts with an envelope (prompt + optional script path). Busy slots roll
+the claim back, set `lastStatus: busy`, and retry next tick. Fire `error` leaves the
+claim in place (no hot-loop; re-due once jobs via `schedule_run_now`). Works even if
+the Telegram worker is down.
 
 Skill: `demo/.agents/skills/schedule/`.
 
