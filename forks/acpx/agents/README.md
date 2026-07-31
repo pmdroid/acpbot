@@ -1,0 +1,47 @@
+# Agent Docs
+
+Built-in agents:
+
+- `pi -> npx pi-acp`
+- `openclaw -> openclaw acp`
+- `codex -> npx -y @agentclientprotocol/codex-acp`
+- `claude -> npx -y @agentclientprotocol/claude-agent-acp`
+- `gemini -> gemini --acp`
+- `cursor -> cursor-agent acp`
+- `copilot -> copilot --acp --stdio`
+- `droid -> droid exec --output-format acp` (`factory-droid` and `factorydroid` also resolve to `droid`)
+- `fast-agent -> uvx fast-agent-mcp acp`
+- `grok-build -> grok agent stdio`
+- `iflow -> iflow --experimental-acp`
+- `kilocode -> npx -y @kilocode/cli acp`
+- `kimi -> kimi acp`
+- `kiro -> kiro-cli-chat acp`
+- `mux -> mux acp` via an ACPX-owned npm range
+- `opencode -> npx -y opencode-ai acp`
+- `pool -> pool acp`
+- `qoder -> qodercli --acp`
+- `qwen -> qwen --acp`
+- `trae -> traecli acp serve`
+- `zeroclaw -> zeroclaw acp`
+
+Harness-specific docs in this directory:
+
+- [Codex](Codex.md): built-in `codex -> npx -y @agentclientprotocol/codex-acp`
+- [Claude](Claude.md): built-in `claude -> npx -y @agentclientprotocol/claude-agent-acp`
+- [Gemini](Gemini.md): built-in `gemini -> gemini --acp`
+- [Cursor](Cursor.md): built-in `cursor -> cursor-agent acp`
+- [Copilot](Copilot.md): built-in `copilot -> copilot --acp --stdio`
+- [Droid](Droid.md): built-in `droid -> droid exec --output-format acp` with `factory-droid` and `factorydroid` aliases
+- [fast-agent](FastAgent.md): built-in `fast-agent -> uvx fast-agent-mcp acp`
+- [Grok Build](GrokBuild.md): built-in `grok-build -> grok agent stdio`
+- [iFlow](Iflow.md): built-in `iflow -> iflow --experimental-acp`
+- [Kilocode](Kilocode.md): built-in `kilocode -> npx -y @kilocode/cli acp`
+- [Kimi](Kimi.md): built-in `kimi -> kimi acp`
+- [Kiro](Kiro.md): built-in `kiro -> kiro-cli-chat acp`
+- [Mux](Mux.md): built-in `mux -> mux acp` via an ACPX-owned npm range
+- [OpenCode](OpenCode.md): built-in `opencode -> npx -y opencode-ai acp`
+- [Pool](Pool.md): built-in `pool -> pool acp`
+- [Qoder](Qoder.md): built-in `qoder -> qodercli --acp`
+- [Qwen](Qwen.md): built-in `qwen -> qwen --acp`
+- [Trae](Trae.md): built-in `trae -> traecli acp serve`
+- [ZeroClaw](ZeroClaw.md): built-in `zeroclaw -> zeroclaw acp`

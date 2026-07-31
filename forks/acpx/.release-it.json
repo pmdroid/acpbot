@@ -1,0 +1,25 @@
+{
+  "git": {
+    "requireCleanWorkingDir": false,
+    "requireBranch": "main",
+    "commit": false,
+    "tag": true,
+    "tagName": "v${version}",
+    "push": true,
+    "pushArgs": ["--tags"]
+  },
+  "npm": {
+    "allowSameVersion": true,
+    "version": false,
+    "publish": true,
+    "skipChecks": true,
+    "publishArgs": ["--provenance"]
+  },
+  "github": {
+    "release": true,
+    "autoGenerate": true
+  },
+  "hooks": {
+    "before:init": "pnpm run lint && pnpm run typecheck && pnpm test"
+  }
+}

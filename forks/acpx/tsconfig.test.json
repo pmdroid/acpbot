@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist-test",
+    "rootDir": ".",
+    "paths": {
+      "acpx/flows": ["./src/flows.ts"]
+    },
+    "allowJs": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/flows/pr-triage/review-text.js"],
+  "exclude": ["node_modules", "dist", "dist-test"]
+}

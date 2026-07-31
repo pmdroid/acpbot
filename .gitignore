@@ -1,0 +1,26 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+goals/
+
+# Local runtime / scratch
+data/
+.scratch/
+.scratch-*/
+.scratch-acpx-contract/
+.claude/
+.tacp-inbox/
+**/.tacp-inbox/
+
+# Demo app deps & nested git (tracked as plain source under demo/)
+demo/node_modules/
+demo/dist/
+
+# acpx fork deps (source is vendored under forks/acpx; build via postinstall)
+forks/acpx/node_modules/
+forks/acpx/dist/

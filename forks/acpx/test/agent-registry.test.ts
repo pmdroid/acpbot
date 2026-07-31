@@ -1,0 +1,234 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { normalizeAgentCommandInput } from "../src/acp/client-process.js";
+import {
+  AGENT_ARGV_REGISTRY,
+  AGENT_REGISTRY,
+  BUILT_IN_AGENT_PACKAGES,
+  DEFAULT_AGENT_NAME,
+  listBuiltInAgents,
+  resolveBuiltInAgentLaunch,
+  resolveInstalledBuiltInAgentLaunch,
+  resolvePackageExecBuiltInAgentLaunch,
+  resolveAgentCommand,
+} from "../src/agent-registry.js";
+
+test("built-in command displays stay synchronized with structured argv", () => {
+  assert.deepEqual(Object.keys(AGENT_ARGV_REGISTRY), Object.keys(AGENT_REGISTRY));
+  for (const [name, argv] of Object.entries(AGENT_ARGV_REGISTRY)) {
+    assert.equal(argv.join(" "), AGENT_REGISTRY[name]);
+    assert.equal(normalizeAgentCommandInput(argv).agentCommand, AGENT_REGISTRY[name]);
+  }
+});
+
+test("resolveAgentCommand maps known agents to commands", () => {
+  for (const [name, command] of Object.entries(AGENT_REGISTRY)) {
+    assert.equal(resolveAgentCommand(name), command);
+  }
+});
+
+test("resolveAgentCommand returns raw value for unknown agents", () => {
+  assert.equal(resolveAgentCommand("custom-acp-server"), "custom-acp-server");
+});
+
+test("resolveAgentCommand maps factory droid aliases to the droid command", () => {
+  assert.equal(resolveAgentCommand("factory-droid"), AGENT_REGISTRY.droid);
+  assert.equal(resolveAgentCommand("factorydroid"), AGENT_REGISTRY.droid);
+});
+
+test("resolveAgentCommand prefers explicit alias overrides over built-in alias mapping", () => {
+  assert.equal(
+    resolveAgentCommand("factory-droid", {
+      "factory-droid": "custom-factory-droid --acp",
+      droid: "custom-droid --acp",
+    }),
+    "custom-factory-droid --acp",
+  );
+});
+
+test("trae built-in uses the standard traecli executable", () => {
+  assert.equal(AGENT_REGISTRY.trae, "traecli acp serve");
+  assert.equal(resolveAgentCommand("trae"), "traecli acp serve");
+});
+
+test("kiro built-in uses kiro-cli-chat directly", () => {
+  assert.equal(AGENT_REGISTRY.kiro, "kiro-cli-chat acp");
+  assert.equal(resolveAgentCommand("kiro"), "kiro-cli-chat acp");
+});
+
+test("fast-agent built-in runs the ACP entrypoint through uvx", () => {
+  assert.equal(AGENT_REGISTRY["fast-agent"], "uvx fast-agent-mcp acp");
+  assert.equal(resolveAgentCommand("fast-agent"), "uvx fast-agent-mcp acp");
+});
+
+test("grok-build built-in runs the Grok Build ACP entrypoint", () => {
+  assert.equal(AGENT_REGISTRY["grok-build"], "grok agent stdio");
+  assert.equal(resolveAgentCommand("grok-build"), "grok agent stdio");
+});
+
+test("mux built-in runs the coder/mux ACP stdio bridge through npx", () => {
+  assert.equal(AGENT_REGISTRY.mux, "npx -y mux@^0.28.0 acp");
+  assert.equal(resolveAgentCommand("mux"), "npx -y mux@^0.28.0 acp");
+});
+
+test("pool built-in runs the Poolside ACP entrypoint", () => {
+  assert.equal(AGENT_REGISTRY.pool, "pool acp");
+  assert.deepEqual(AGENT_ARGV_REGISTRY.pool, ["pool", "acp"]);
+  assert.equal(resolveAgentCommand("pool"), "pool acp");
+});
+
+test("zeroclaw built-in launches the native ZeroClaw ACP server", () => {
+  assert.equal(AGENT_REGISTRY.zeroclaw, "zeroclaw acp");
+  assert.deepEqual(AGENT_ARGV_REGISTRY.zeroclaw, ["zeroclaw", "acp"]);
+  assert.equal(resolveAgentCommand("zeroclaw"), "zeroclaw acp");
+});
+
+test("listBuiltInAgents preserves the required example prefix and alphabetical tail", () => {
+  const agents = listBuiltInAgents();
+  assert.deepEqual(agents, Object.keys(AGENT_REGISTRY));
+  assert.deepEqual(agents.slice(0, 7), [
+    "pi",
+    "openclaw",
+    "codex",
+    "claude",
+    "gemini",
+    "cursor",
+    "copilot",
+  ]);
+  assert.deepEqual(agents.slice(7), [
+    "droid",
+    "fast-agent",
+    "grok-build",
+    "iflow",
+    "kilocode",
+    "kimi",
+    "kiro",
+    "mux",
+    "opencode",
+    "pool",
+    "qoder",
+    "qwen",
+    "trae",
+    "zeroclaw",
+  ]);
+});
+
+test("default agent is codex", () => {
+  assert.equal(DEFAULT_AGENT_NAME, "codex");
+});
+
+test("claude built-in uses the current ACP adapter package range", () => {
+  assert.equal(BUILT_IN_AGENT_PACKAGES.claude.packageRange, "^0.60.0");
+  assert.equal(AGENT_REGISTRY.claude, "npx -y @agentclientprotocol/claude-agent-acp@^0.60.0");
+});
+
+test("npm-backed built-ins use current adapter package ranges", () => {
+  assert.equal(BUILT_IN_AGENT_PACKAGES.codex.packageRange, "^1.1.5");
+  assert.equal(AGENT_REGISTRY.codex, "npx -y @agentclientprotocol/codex-acp@^1.1.5");
+  assert.equal(AGENT_REGISTRY.pi, "npx pi-acp@^0.0.31");
+});
+
+test("resolveInstalledBuiltInAgentLaunch uses a locally installed adapter when available", (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "acpx-agent-registry-"));
+  t.after(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const packageRoot = path.join(
+    tempDir,
+    "node_modules",
+    "@agentclientprotocol",
+    "claude-agent-acp",
+  );
+  fs.mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  fs.writeFileSync(
+    path.join(packageRoot, "package.json"),
+    JSON.stringify({
+      name: BUILT_IN_AGENT_PACKAGES.claude.packageName,
+      version: "0.37.0",
+      bin: {
+        "claude-agent-acp": "bin/claude-agent-acp.js",
+      },
+    }),
+  );
+  fs.writeFileSync(path.join(packageRoot, "dist", "index.js"), "export {};\n");
+  fs.writeFileSync(path.join(packageRoot, "bin", "claude-agent-acp.js"), "#!/usr/bin/env node\n");
+
+  const launch = resolveInstalledBuiltInAgentLaunch(AGENT_REGISTRY.claude, {
+    resolvePackageRoot: () => packageRoot,
+  });
+
+  assert.deepEqual(launch, {
+    source: "installed",
+    command: process.execPath,
+    args: [path.join(packageRoot, "bin", "claude-agent-acp.js")],
+    packageName: BUILT_IN_AGENT_PACKAGES.claude.packageName,
+    packageRange: BUILT_IN_AGENT_PACKAGES.claude.packageRange,
+    packageVersion: "0.37.0",
+    binPath: path.join(packageRoot, "bin", "claude-agent-acp.js"),
+  });
+});
+
+test("resolveInstalledBuiltInAgentLaunch ignores non-built-in commands", () => {
+  assert.equal(resolveInstalledBuiltInAgentLaunch("custom-acp-server --stdio"), undefined);
+});
+
+test("resolvePackageExecBuiltInAgentLaunch bridges built-ins through the current Node npm CLI", () => {
+  const npmCliPath = path.join(os.tmpdir(), "acpx-test-npm-cli.js");
+  const launch = resolvePackageExecBuiltInAgentLaunch(AGENT_REGISTRY.codex, {
+    execPath: "/tmp/node",
+    existsSync: (candidate) => candidate === npmCliPath,
+    resolveNpmCliPath: () => npmCliPath,
+  });
+
+  assert.deepEqual(launch, {
+    source: "package-exec",
+    command: "/tmp/node",
+    args: [
+      npmCliPath,
+      "exec",
+      "--yes",
+      `--package=${BUILT_IN_AGENT_PACKAGES.codex.packageName}@${BUILT_IN_AGENT_PACKAGES.codex.packageRange}`,
+      "--",
+      BUILT_IN_AGENT_PACKAGES.codex.preferredBinName,
+    ],
+    packageName: BUILT_IN_AGENT_PACKAGES.codex.packageName,
+    packageRange: BUILT_IN_AGENT_PACKAGES.codex.packageRange,
+    npmCliPath,
+  });
+});
+
+test("resolveBuiltInAgentLaunch accepts the legacy Claude npm exec default", () => {
+  const npmCliPath = path.join(os.tmpdir(), "acpx-test-claude-npm-cli.js");
+  const launch = resolveBuiltInAgentLaunch(
+    `npm exec @agentclientprotocol/claude-agent-acp@${BUILT_IN_AGENT_PACKAGES.claude.packageRange}`,
+    {
+      execPath: "/tmp/node",
+      existsSync: (candidate) => candidate === npmCliPath,
+      resolvePackageRoot: () => {
+        throw new Error("adapter not installed");
+      },
+      resolveNpmCliPath: () => npmCliPath,
+    },
+  );
+
+  assert.deepEqual(launch, {
+    source: "package-exec",
+    command: "/tmp/node",
+    args: [
+      npmCliPath,
+      "exec",
+      "--yes",
+      `--package=${BUILT_IN_AGENT_PACKAGES.claude.packageName}@${BUILT_IN_AGENT_PACKAGES.claude.packageRange}`,
+      "--",
+      BUILT_IN_AGENT_PACKAGES.claude.preferredBinName,
+    ],
+    packageName: BUILT_IN_AGENT_PACKAGES.claude.packageName,
+    packageRange: BUILT_IN_AGENT_PACKAGES.claude.packageRange,
+    npmCliPath,
+  });
+});

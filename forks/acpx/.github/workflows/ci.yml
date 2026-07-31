@@ -1,0 +1,181 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: 24
+  PNPM_VERSION: 10.34.5
+
+jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+      docs_changed: ${{ steps.scope.outputs.docs_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: false
+          submodules: false
+
+      - name: Detect changed scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BASE_SHA="${{ github.event.before }}"
+            BASE_REF="origin/${{ github.ref_name }}"
+          else
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          fi
+
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "${BASE_REF#origin/}" --depth=1
+          fi
+
+          mapfile -t changed_files < <(git diff --name-only "${BASE_SHA}"...HEAD)
+
+          docs_changed=false
+          docs_only=true
+          changelog_present=false
+          changelog_scope_only=true
+
+          if [ "${#changed_files[@]}" -eq 0 ]; then
+            docs_only=false
+          fi
+
+          for file in "${changed_files[@]}"; do
+            case "$file" in
+              docs/**|README.md|CONTRIBUTING.md|CHANGELOG.md)
+                docs_changed=true
+                if [ "$file" = "CHANGELOG.md" ]; then
+                  changelog_present=true
+                else
+                  changelog_scope_only=false
+                fi
+                ;;
+              .github/workflows/ci.yml)
+                docs_only=false
+                changelog_scope_only=false
+                ;;
+              *)
+                docs_only=false
+                changelog_scope_only=false
+                ;;
+            esac
+          done
+
+          if [ "$docs_only" != "true" ] && [ "$changelog_present" = "true" ] && [ "$changelog_scope_only" = "true" ]; then
+            docs_only=true
+          fi
+
+          echo "docs_only=${docs_only}" >> "$GITHUB_OUTPUT"
+          echo "docs_changed=${docs_changed}" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: ${{ matrix.name }}
+    needs: scope
+    if: needs.scope.outputs.docs_only != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Format
+            command: pnpm run format:check
+          - name: Typecheck
+            command: pnpm run typecheck
+          - name: Lint
+            command: pnpm run lint
+          - name: Build
+            command: pnpm run build
+          - name: Conformance Smoke
+            command: pnpm run conformance:run -- --case acp.v1.initialize.handshake
+          - name: Test
+            node_version: 22
+            command: pnpm run test:coverage
+          - name: Mutation
+            node_version: 22
+            command: pnpm run mutate
+          - name: Slophammer
+            command: |
+              pnpm dlx slophammer-ts@latest rules --format text
+              pnpm dlx slophammer-ts@latest dry .
+              pnpm dlx slophammer-ts@latest check . --only ts.dependency-boundaries-required
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+          submodules: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node_version || env.NODE_VERSION }}
+          check-latest: true
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ${{ matrix.name }}
+        run: ${{ matrix.command }}
+
+  check-docs:
+    name: Docs
+    needs: scope
+    if: needs.scope.outputs.docs_changed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+          submodules: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          check-latest: true
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check docs
+        run: pnpm run check:docs

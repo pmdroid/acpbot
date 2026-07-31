@@ -1,0 +1,285 @@
+import type {
+  AcpTurnEvent,
+  AgentSessionHandle,
+  AgentsPort,
+  ElicitationDecision,
+  ElicitationRequest,
+  PermissionDecision,
+  PermissionRequest,
+  PromptTurn,
+  PromptTurnInput,
+  SessionIdentity,
+} from "./types";
+
+export type ScriptedTurn = {
+  events: AcpTurnEvent[];
+  stopReason?: string;
+  /** If set, the turn hangs until this promise resolves (for permission tests). */
+  hold?: Promise<void>;
+  /** If true, simulate process death mid-turn. */
+  die?: boolean | string;
+};
+
+export type FakeAgentsOptions = {
+  /** Map repo key → cwd. Required for ensureSession. */
+  repos?: Record<string, string>;
+  /** Scripted turns dequeued per sessionKey. */
+  scripts?: Map<string, ScriptedTurn[]>;
+  /**
+   * When true, record whether timeoutMs was passed on any turn.
+   * Used to assert the core never sets it.
+   */
+  trackTimeoutMs?: boolean;
+};
+
+/**
+ * Agent double: scripted ACP event streams, no real child processes.
+ * Permission requests can be raised on command and left pending.
+ */
+export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
+  sessions: Map<string, AgentSessionHandle>;
+  turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }>;
+  /** True if any runPromptTurn received a timeoutMs field. */
+  sawTimeoutMs: boolean;
+  /** Queue a scripted turn for a session key (repo/name). */
+  queueTurn(sessionKey: string, script: ScriptedTurn): void;
+  /** Raise a permission request against the registered handler. */
+  raisePermission(
+    req: PermissionRequest,
+  ): Promise<PermissionDecision | undefined>;
+  raiseElicitation(
+    req: ElicitationRequest,
+  ): Promise<ElicitationDecision | undefined>;
+  raiseAskUserQuestion(req: {
+    sessionId: string;
+    raw: unknown;
+  }): Promise<Record<string, unknown>>;
+  /** Mode last set for a session (for safety assertions). */
+  modes: Map<string, string>;
+  setMode(sessionKey: string, modeId: string): void;
+  /** Record of ensureSession calls. */
+  ensureCalls: SessionIdentity[];
+} {
+  const sessions = new Map<string, AgentSessionHandle>();
+  const turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }> =
+    [];
+  const scripts = options.scripts ?? new Map<string, ScriptedTurn[]>();
+  const modes = new Map<string, string>();
+  const ensureCalls: SessionIdentity[] = [];
+  const abortBySession = new Map<string, AbortController>();
+  let sawTimeoutMs = false;
+  let permissionHandler:
+    | ((
+        req: PermissionRequest,
+        ctx: { signal: AbortSignal },
+      ) => Promise<PermissionDecision | undefined>)
+    | undefined;
+  let elicitationHandler:
+    | ((
+        req: ElicitationRequest,
+        ctx: { signal: AbortSignal },
+      ) => Promise<ElicitationDecision | undefined>)
+    | undefined;
+  let askUserQuestionHandler:
+    | ((
+        req: { sessionId: string; raw: unknown },
+        ctx: { signal: AbortSignal },
+      ) => Promise<Record<string, unknown>>)
+    | undefined;
+
+  const sessionKeyOf = (id: SessionIdentity) => `${id.repo}/${id.name}`;
+
+  const port: AgentsPort & {
+    sessions: Map<string, AgentSessionHandle>;
+    turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }>;
+    sawTimeoutMs: boolean;
+    queueTurn(sessionKey: string, script: ScriptedTurn): void;
+    raisePermission(
+      req: PermissionRequest,
+    ): Promise<PermissionDecision | undefined>;
+    raiseElicitation(
+      req: ElicitationRequest,
+    ): Promise<ElicitationDecision | undefined>;
+    raiseAskUserQuestion(req: {
+      sessionId: string;
+      raw: unknown;
+    }): Promise<Record<string, unknown>>;
+    modes: Map<string, string>;
+    setMode(sessionKey: string, modeId: string): void;
+    ensureCalls: SessionIdentity[];
+  } = {
+    sessions,
+    turns,
+    get sawTimeoutMs() {
+      return sawTimeoutMs;
+    },
+    modes,
+    ensureCalls,
+
+    queueTurn(sessionKey, script) {
+      const list = scripts.get(sessionKey) ?? [];
+      list.push(script);
+      scripts.set(sessionKey, list);
+    },
+
+    setMode(sessionKey, modeId) {
+      modes.set(sessionKey, modeId);
+    },
+
+    async raisePermission(req) {
+      if (!permissionHandler) return undefined;
+      const ac = abortBySession.get(req.sessionId) ?? new AbortController();
+      return permissionHandler(req, { signal: ac.signal });
+    },
+
+    async raiseElicitation(req) {
+      if (!elicitationHandler) return undefined;
+      const ac = abortBySession.get(req.sessionId) ?? new AbortController();
+      return elicitationHandler(req, { signal: ac.signal });
+    },
+
+    setPermissionHandler(handler) {
+      permissionHandler = handler;
+    },
+
+    setElicitationHandler(handler) {
+      elicitationHandler = handler;
+    },
+
+    setAskUserQuestionHandler(handler) {
+      askUserQuestionHandler = handler;
+    },
+
+    async raiseAskUserQuestion(req) {
+      if (!askUserQuestionHandler) return { outcome: "skip_interview" };
+      const ac = abortBySession.get(req.sessionId) ?? new AbortController();
+      return askUserQuestionHandler(req, { signal: ac.signal });
+    },
+
+    async cancelTurn(sessionKey) {
+      const ac = abortBySession.get(sessionKey);
+      ac?.abort();
+      abortBySession.delete(sessionKey);
+    },
+
+    async ensureSession(identity) {
+      ensureCalls.push({ ...identity });
+      const key = sessionKeyOf(identity);
+      const existing = sessions.get(key);
+      if (existing) return existing;
+
+      const repos = options.repos ?? {};
+      const cwd = repos[identity.repo];
+      if (!cwd) {
+        throw new Error(
+          `unknown repo "${identity.repo}" — configure it before creating a session`,
+        );
+      }
+
+      const handle: AgentSessionHandle = {
+        sessionKey: key,
+        identity: { ...identity },
+        cwd,
+      };
+      sessions.set(key, handle);
+      // Simulate read-only mode being applied immediately after create.
+      modes.set(key, "read-only");
+      return handle;
+    },
+
+    async runPromptTurn(handle, input): Promise<PromptTurn> {
+      // Detect if caller passed timeoutMs (should never happen).
+      if (
+        input !== null &&
+        typeof input === "object" &&
+        "timeoutMs" in (input as object)
+      ) {
+        sawTimeoutMs = true;
+      }
+      turns.push({ handle, input });
+
+      const ac = new AbortController();
+      abortBySession.set(handle.sessionKey, ac);
+      if (input.signal) {
+        if (input.signal.aborted) ac.abort();
+        else {
+          input.signal.addEventListener("abort", () => ac.abort(), {
+            once: true,
+          });
+        }
+      }
+
+      const queue = scripts.get(handle.sessionKey) ?? [];
+      const script = queue.shift() ?? {
+        events: [
+          { type: "turn_started" as const },
+          { type: "turn_ended" as const, stopReason: "end_turn" },
+        ],
+        stopReason: "end_turn",
+      };
+
+      const events = (async function* () {
+        if (ac.signal.aborted) {
+          yield { type: "turn_ended" as const, stopReason: "cancelled" };
+          return;
+        }
+        if (script.hold) {
+          await Promise.race([
+            script.hold,
+            new Promise<void>((resolve) => {
+              ac.signal.addEventListener("abort", () => resolve(), {
+                once: true,
+              });
+            }),
+          ]);
+          if (ac.signal.aborted) {
+            yield { type: "turn_ended" as const, stopReason: "cancelled" };
+            return;
+          }
+        }
+        for (const ev of script.events) {
+          if (ac.signal.aborted) {
+            yield { type: "turn_ended" as const, stopReason: "cancelled" };
+            return;
+          }
+          yield ev;
+        }
+        if (script.die) {
+          yield {
+            type: "process_died" as const,
+            error:
+              typeof script.die === "string" ? script.die : "agent process died",
+          };
+        }
+      })();
+
+      const done = (async () => {
+        if (script.hold) {
+          await Promise.race([
+            script.hold,
+            new Promise<void>((resolve) => {
+              ac.signal.addEventListener("abort", () => resolve(), {
+                once: true,
+              });
+            }),
+          ]);
+        }
+        if (ac.signal.aborted) {
+          return { stopReason: "cancelled" };
+        }
+        if (script.die) {
+          throw new Error(
+            typeof script.die === "string" ? script.die : "agent process died",
+          );
+        }
+        return { stopReason: script.stopReason ?? "end_turn" };
+      })().finally(() => {
+        abortBySession.delete(handle.sessionKey);
+      });
+
+      return { events, done };
+    },
+  };
+
+  return port;
+}
