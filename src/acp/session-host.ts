@@ -427,6 +427,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         ? []
         : buildTacpMcpServers({
             enabled: options.config.mcpEnabled !== false,
+            sessionKey: input.sessionKey,
+            stateDir: options.stateDir,
           });
 
     const mcpList = mcpServers as acp.McpServer[];

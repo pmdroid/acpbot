@@ -72,6 +72,11 @@ import {
   type SpeakRequest,
 } from "./speak";
 import {
+  completeSpeakJob,
+  listPendingSpeakJobs,
+  speakQueueDir,
+} from "../mcp/speak-queue";
+import {
   buildSkillsKeyboard,
   clampSkillPage,
   composeSkillAgentPrompt,
@@ -1126,13 +1131,13 @@ export function createDaemon(
               title: event.title,
               hasText: Boolean(text),
             });
-            // Prefer speaking as soon as the MCP/tool call arrives (with text),
-            // so voice is not delayed until the full turn ends.
+            // MCP speak enqueues a job and waits for ack — drain now so the
+            // MCP tool can complete (do not rely on <<<speak>>> markers).
             const ttsMode = env.config.ttsMode ?? "agent";
-            if (ttsMode !== "off" && text?.trim()) {
-              const ok = await maybeSendTts(session, text, "tool");
-              // Mark delivered only on success so end-of-turn can retry.
-              if (ok) {
+            if (ttsMode !== "off") {
+              await drainSpeakQueue();
+              // If queue already delivered this tool's text, skip end-of-turn TTS.
+              if (text?.trim()) {
                 speakFromTool = { source: "tool", text: "" };
               }
             }
@@ -1201,7 +1206,7 @@ export function createDaemon(
       }
 
       if (speakReq) {
-        // Empty text after mid-turn tool TTS means already delivered.
+        // Empty text after mid-turn MCP delivery means already spoken.
         const alreadySpokenViaTool =
           speakReq.source === "tool" && speakReq.text === "";
         if (!alreadySpokenViaTool) {
@@ -1212,6 +1217,8 @@ export function createDaemon(
           await maybeSendTts(session, toSpeak, speakReq.source);
         }
       }
+      // Catch MCP speak jobs that finished enqueue after the tool_call event.
+      await drainSpeakQueue();
     } catch (err) {
       try {
         await renameTopic(session, "failed");
@@ -1226,7 +1233,68 @@ export function createDaemon(
   }
 
 
-  /** @returns true when a voice note was sent */
+  /**
+   * MCP speak tool enqueues jobs; deliver TTS to the matching Telegram topic.
+   */
+  async function drainSpeakQueue(): Promise<void> {
+    const stateDir =
+      process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state";
+    let jobs;
+    try {
+      jobs = await listPendingSpeakJobs(speakQueueDir(stateDir));
+    } catch {
+      return;
+    }
+    for (const job of jobs) {
+      const session = sessionIndex.byKey[job.sessionKey];
+      if (!session) {
+        await completeSpeakJob(job, {
+          ok: false,
+          error: `unknown sessionKey: ${job.sessionKey}`,
+        }, speakQueueDir(stateDir));
+        log.warn("speak queue: unknown session", {
+          sessionKey: job.sessionKey,
+          id: job.id,
+        });
+        continue;
+      }
+      try {
+        const ok = await maybeSendTts(session, job.text, "mcp-speak");
+        if (ok) {
+          await completeSpeakJob(
+            job,
+            { ok: true },
+            speakQueueDir(stateDir),
+          );
+          log.info("speak queue: delivered", {
+            sessionKey: job.sessionKey,
+            id: job.id,
+            textLen: job.text.length,
+          });
+        } else {
+          await completeSpeakJob(
+            job,
+            {
+              ok: false,
+              error: "TTS unavailable or empty text",
+            },
+            speakQueueDir(stateDir),
+          );
+        }
+      } catch (err) {
+        await completeSpeakJob(
+          job,
+          {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          speakQueueDir(stateDir),
+        );
+      }
+    }
+  }
+
+    /** @returns true when a voice note was sent */
   async function maybeSendTts(
     session: PersistedSession,
     replyText: string,
@@ -1998,6 +2066,8 @@ export function createDaemon(
         await saveUpdateOffset(env.store, offset);
         log.debug("acked update offset", { offset });
       }
+        // Deliver MCP speak jobs even when Telegram is idle.
+        await drainSpeakQueue();
     }
   }
 
