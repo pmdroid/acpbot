@@ -123,6 +123,76 @@ export function normalizeConfigOptions(raw: unknown): SessionConfigOptionView[] 
   return out;
 }
 
+/**
+ * Grok Build (and ACP agents using SessionModelState) advertise models as:
+ * `{ currentModelId, availableModels: [{ modelId, name, … }] }`
+ * on session/new|load and via `_x.ai/models/update` — not as configOptions.
+ *
+ * See https://github.com/xai-org/grok-build (model_state.rs, set_session_model).
+ */
+export function modelsStateToConfigOptions(
+  models: unknown,
+): SessionConfigOptionView[] {
+  if (!models || typeof models !== "object") return [];
+  const m = models as Record<string, unknown>;
+  const currentRaw = m.currentModelId ?? m.current_model_id ?? m.current;
+  const currentValue =
+    typeof currentRaw === "string"
+      ? currentRaw
+      : currentRaw &&
+          typeof currentRaw === "object" &&
+          typeof (currentRaw as { 0?: string }).toString === "function"
+        ? String((currentRaw as { 0?: string }).toString?.() ?? "")
+        : typeof (currentRaw as { id?: string })?.id === "string"
+          ? (currentRaw as { id: string }).id
+          : null;
+
+  const available = m.availableModels ?? m.available_models ?? m.available;
+  if (!Array.isArray(available) || available.length === 0) return [];
+
+  const options: ConfigSelectOption[] = [];
+  for (const item of available) {
+    if (typeof item === "string") {
+      options.push({ value: item, name: item });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const value =
+      typeof rec.modelId === "string"
+        ? rec.modelId
+        : typeof rec.model_id === "string"
+          ? rec.model_id
+          : typeof rec.id === "string"
+            ? rec.id
+            : typeof rec.value === "string"
+              ? rec.value
+              : "";
+    if (!value) continue;
+    const name =
+      typeof rec.name === "string"
+        ? rec.name
+        : typeof rec.label === "string"
+          ? rec.label
+          : value;
+    const opt: ConfigSelectOption = { value, name };
+    if (typeof rec.description === "string") opt.description = rec.description;
+    options.push(opt);
+  }
+  if (options.length === 0) return [];
+
+  const view: SessionConfigOptionView = {
+    id: "model",
+    name: "Model",
+    type: "select",
+    category: "model",
+    options,
+  };
+  if (currentValue) view.currentValue = currentValue;
+  else if (options[0]) view.currentValue = options[0].value;
+  return [view];
+}
+
 /** Prefer category "model", else id matching /model/i. */
 export function findModelConfigOption(
   options: SessionConfigOptionView[],
