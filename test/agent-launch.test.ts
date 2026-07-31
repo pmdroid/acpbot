@@ -28,6 +28,12 @@ describe("agent-launch", () => {
     const launch = resolveAgentLaunch("grok-build");
     expect(launch).toEqual({ command: "grok", args: ["agent", "stdio"] });
   });
+
+  test("opencode uses native acp subcommand", () => {
+    expect(normalizeAgentName("opencode-ai")).toBe("opencode");
+    const launch = resolveAgentLaunch("opencode");
+    expect(launch).toEqual({ command: "opencode", args: ["acp"] });
+  });
 });
 
 describe("agent-models canned", () => {
@@ -45,10 +51,11 @@ describe("agent-models canned", () => {
 });
 
 describe("listRegisteredAgents", () => {
-  test("includes grok-build claude codex", () => {
+  test("includes grok-build claude codex opencode", () => {
     const ids = listRegisteredAgents({});
     expect(ids).toContain("grok-build");
     expect(ids).toContain("claude");
     expect(ids).toContain("codex");
+    expect(ids).toContain("opencode");
   });
 });

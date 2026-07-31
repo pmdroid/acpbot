@@ -2,8 +2,8 @@
  * Resolve tacp agent names → stdio spawn command.
  * Small built-in registry (replaces acpx agent-registry for the agents we care about).
  *
- * Claude/Codex need the official ACP adapters (not `claude acp` / `codex acp` —
- * those CLIs do not speak ACP natively).
+ * Claude/Codex need the official ACP adapters (not bare `claude acp` / `codex acp`).
+ * OpenCode has a native `opencode acp` command.
  */
 
 export type AgentLaunch = {
@@ -16,6 +16,7 @@ export function normalizeAgentName(name: string): string {
   const n = name.trim().toLowerCase();
   if (n === "grok" || n === "xai" || n === "grok-build") return "grok-build";
   if (n === "claude-code" || n === "claude-acp") return "claude";
+  if (n === "opencode-ai" || n === "open-code") return "opencode";
   return n;
 }
 
@@ -35,6 +36,13 @@ const BUILTINS: Record<string, AgentLaunch> = {
   claude: {
     command: "npx",
     args: ["-y", "@agentclientprotocol/claude-agent-acp"],
+  },
+  // OpenCode speaks ACP natively: `opencode acp`
+  opencode: { command: "opencode", args: ["acp"] },
+  // Fallback if only the npm package is available
+  "opencode-ai": {
+    command: "npx",
+    args: ["-y", "opencode-ai", "acp"],
   },
 };
 
