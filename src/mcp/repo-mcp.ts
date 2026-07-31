@@ -17,9 +17,9 @@
  * - Empty profile list `[]` → no repo MCP (built-in still added).
  * - Missing config, missing profiles file, or unknown profile name → no filter.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import type { McpServer } from "@agentclientprotocol/sdk";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
@@ -28,6 +28,12 @@ import {
   type BuildTacpMcpServersOptions,
   type TacpMcpServer,
 } from "./servers";
+import { missingOAuthTokenMessage } from "./oauth-flow";
+import {
+  bearerForMcp,
+  repoKeyForOAuth,
+  resolveOAuthStateDir,
+} from "./oauth-store";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
 export type TacpMcpRemoteServer = {
@@ -84,6 +90,19 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
    * When undefined, uses `mcpProfile` from `.tacp/config.json` if present.
    */
   mcpProfile?: string;
+  /**
+   * OAuth token store root (`TACP_ACPX_STATE_DIR`). When set (or defaulted from
+   * env), remote http/sse entries get `Authorization: Bearer` from the store.
+   */
+  oauthStateDir?: string;
+  /** Configured repo key for token path (`by-repo/<repoKey>/<id>.json`). */
+  repoKey?: string;
+  /**
+   * When true, remote http/sse without a stored token throw
+   * `run /mcp auth <id>`. Default: true when `TACP_OAUTH_CALLBACK_BASE` is set,
+   * otherwise false (public remotes still work).
+   */
+  oauthFailClosed?: boolean;
 };
 
 /** Reserved built-in host MCP name (speak). */
@@ -574,9 +593,74 @@ export function injectSessionEnv(
 }
 
 /**
+/**
+ * Attach OAuth Bearer tokens from the host token store onto remote http/sse
+ * MCP entries. Never reads or writes the git repo for tokens.
+ *
+ * @throws when failClosed and a remote has no stored token
+ */
+export async function applyOAuthTokensToServers(
+  servers: SessionMcpServer[],
+  input: {
+    stateDir: string;
+    repoKey: string;
+    failClosed?: boolean;
+    log?: Logger;
+  },
+): Promise<SessionMcpServer[]> {
+  const log = input.log ?? silentLogger();
+  const out: SessionMcpServer[] = [];
+
+  for (const s of servers) {
+    const type = (s as { type?: string }).type;
+    if (type !== "http" && type !== "sse") {
+      out.push(s);
+      continue;
+    }
+    const remote = s as TacpMcpRemoteServer;
+    const auth = await bearerForMcp(input.stateDir, input.repoKey, remote.name);
+    if (!auth) {
+      if (input.failClosed) {
+        throw new Error(missingOAuthTokenMessage(remote.name));
+      }
+      out.push(remote);
+      continue;
+    }
+    if (auth.expired) {
+      log.warn("mcp oauth token expired; using anyway (no refresh in MVP)", {
+        id: remote.name,
+        repoKey: input.repoKey,
+      });
+    }
+    // Merge Authorization; prefer stored token over any accidental header.
+    const headers = remote.headers.filter(
+      (h) => h.name.toLowerCase() !== "authorization",
+    );
+    headers.push({ name: "Authorization", value: auth.value });
+    out.push({
+      type: remote.type,
+      name: remote.name,
+      url: remote.url,
+      headers,
+    });
+  }
+  return out;
+}
+
+function oauthFailClosedDefault(
+  explicit: boolean | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (explicit !== undefined) return explicit;
+  // When OAuth callback infra is configured, require tokens for remotes.
+  return Boolean(env.TACP_OAUTH_CALLBACK_BASE?.trim());
+}
+
+/**
  * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in tacp** (speak).
  * Missing/invalid repo config → built-in only.
  * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_STATE_DIR into every stdio child.
+ * Merges OAuth Bearer headers for remote http/sse from the host token store.
  *
  * Profile filter (when `.tacp/config.json` has `mcpProfile` and profiles file exists):
  * see `filterRepoMcpByProfile`. Built-in `tacp` is never filtered out.
@@ -644,11 +728,300 @@ export async function buildSessionMcpServers(
     injectCtx.sessionKey = options.sessionKey;
   }
 
-  const merged: SessionMcpServer[] = [
+  let merged: SessionMcpServer[] = [
     ...repo.map((s) => injectSessionEnv(s, injectCtx)),
     ...tacp.map((s) => injectSessionEnv(s, injectCtx)),
   ];
 
+  // OAuth: merge Bearer from host store (never from repo mcp.json).
+  // Always absolute so ensure (acp-host) matches /mcp auth (worker).
+  const oauthStateDir = resolveOAuthStateDir(
+    options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
+  );
+  const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
+  const failClosed = oauthFailClosedDefault(options.oauthFailClosed);
+  merged = await applyOAuthTokensToServers(merged, {
+    stateDir: oauthStateDir,
+    repoKey,
+    failClosed,
+    log,
+  });
+
   // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).
   return merged as McpServer[];
 }
+
+// ── Registry read/write (id + url only for remotes; never tokens) ────────────
+
+/** On-disk shape of `<repo>/.tacp/mcp.json` (raw entries preserved for stdio). */
+export type McpConfigFile = {
+  mcpServers: Array<Record<string, unknown>>;
+};
+
+export type McpConfigPathOptions = {
+  /** Override path to mcp.json (tests). Default: `<repoRoot>/.tacp/mcp.json`. */
+  configPath?: string;
+};
+
+export type RemoteMcpWriteInput = {
+  name: string;
+  url: string;
+  /** Default `"http"`. */
+  type?: "http" | "sse";
+};
+
+/** Default path: `<repoRoot>/.tacp/mcp.json`. */
+export function mcpConfigPath(
+  repoRoot: string,
+  options: McpConfigPathOptions = {},
+): string {
+  if (options.configPath) return options.configPath;
+  return join(resolve(repoRoot), ".tacp", "mcp.json");
+}
+
+/**
+ * Read raw mcp.json for registry edits.
+ * Missing file → `{ mcpServers: [] }`. Invalid JSON / shape → throws.
+ */
+export async function readMcpConfig(
+  repoRoot: string,
+  options: McpConfigPathOptions = {},
+): Promise<McpConfigFile> {
+  const configPath = mcpConfigPath(repoRoot, options);
+  let text: string;
+  try {
+    text = await readFile(configPath, "utf8");
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === "ENOENT") return { mcpServers: [] };
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch (err) {
+    throw new Error(
+      `invalid JSON in mcp.json: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("mcp.json root must be an object");
+  }
+
+  const list = (parsed as { mcpServers?: unknown }).mcpServers;
+  if (list == null) return { mcpServers: [] };
+  if (!Array.isArray(list)) {
+    throw new Error("mcpServers must be an array");
+  }
+
+  const mcpServers: Array<Record<string, unknown>> = [];
+  for (const entry of list) {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      mcpServers.push({ ...(entry as Record<string, unknown>) });
+    }
+  }
+  return { mcpServers };
+}
+
+/**
+ * Atomic write of mcp.json (temp file + rename).
+ * Single-writer assumption (one operator / sequential topic commands); concurrent
+ * RMW on the same repo can last-write-win.
+ */
+export async function writeMcpConfig(
+  repoRoot: string,
+  config: McpConfigFile,
+  options: McpConfigPathOptions = {},
+): Promise<void> {
+  const configPath = mcpConfigPath(repoRoot, options);
+  await mkdir(dirname(configPath), { recursive: true });
+  const payload = `${JSON.stringify({ mcpServers: config.mcpServers }, null, 2)}\n`;
+  const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await writeFile(tmp, payload, "utf8");
+    await rename(tmp, configPath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
+}
+
+const REMOTE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function validateRemoteName(name: string): string {
+  const n = name.trim();
+  if (!n) throw new Error("MCP id is required");
+  if (n === TACP_BUILTIN_MCP_NAME) {
+    throw new Error(`MCP id "${TACP_BUILTIN_MCP_NAME}" is reserved`);
+  }
+  if (!REMOTE_NAME_RE.test(n)) {
+    throw new Error(
+      `invalid MCP id "${n}" (use letters, digits, . _ -; start with alphanumeric)`,
+    );
+  }
+  return n;
+}
+
+/**
+ * Validate remote MCP URL. Rejects credentials in userinfo (`user:pass@`) so
+ * secrets cannot land in git-tracked mcp.json via the URL string.
+ */
+function validateRemoteUrl(url: string): string {
+  const u = url.trim();
+  if (!u) throw new Error("MCP url is required");
+  let parsed: URL;
+  try {
+    parsed = new URL(u);
+  } catch {
+    throw new Error(`invalid MCP url: ${u}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`MCP url must be http(s): ${u}`);
+  }
+  // Fail closed: userinfo is a common secret channel (Basic auth / API tokens).
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new Error(
+      "MCP url must not include credentials (user:pass@); tokens are never stored in the repo",
+    );
+  }
+  return u;
+}
+
+/** True when an existing entry looks like stdio (command, no remote url type). */
+function isStdioConfigEntry(s: Record<string, unknown>): boolean {
+  const typeRaw =
+    typeof s.type === "string" ? s.type.trim().toLowerCase() : undefined;
+  if (typeRaw === "http" || typeRaw === "sse") return false;
+  return typeof s.command === "string" && s.command.trim() !== "";
+}
+
+/**
+ * Add or replace a remote (http/sse) MCP entry. Writes **only** `name`, `type`, `url`
+ * — never tokens, headers, env, or other secret fields.
+ *
+ * Same-id replace overwrites an existing **remote** entry. Refuses to clobber a
+ * **stdio** entry (command/args/env) — remove it first.
+ */
+export async function writeRemoteMcpServer(
+  repoRoot: string,
+  entry: RemoteMcpWriteInput,
+  options: McpConfigPathOptions = {},
+): Promise<{ name: string; type: "http" | "sse"; url: string }> {
+  const name = validateRemoteName(entry.name);
+  const url = validateRemoteUrl(entry.url);
+  const type: "http" | "sse" = entry.type === "sse" ? "sse" : "http";
+
+  // Intentionally only these three keys — no headers/tokens/env.
+  const clean: { name: string; type: "http" | "sse"; url: string } = {
+    name,
+    type,
+    url,
+  };
+
+  const config = await readMcpConfig(repoRoot, options);
+  const idx = config.mcpServers.findIndex(
+    (s) => typeof s.name === "string" && s.name.trim() === name,
+  );
+  if (idx >= 0) {
+    const existing = config.mcpServers[idx]!;
+    if (isStdioConfigEntry(existing)) {
+      throw new Error(
+        `MCP id "${name}" is already a stdio server; run /mcp remove ${name} first before adding a remote URL`,
+      );
+    }
+    config.mcpServers[idx] = { ...clean };
+  } else {
+    config.mcpServers.push({ ...clean });
+  }
+  await writeMcpConfig(repoRoot, config, options);
+  return clean;
+}
+
+/**
+ * Remove a server entry by name from mcp.json.
+ * @returns true if an entry was removed.
+ */
+export async function removeMcpServer(
+  repoRoot: string,
+  name: string,
+  options: McpConfigPathOptions = {},
+): Promise<boolean> {
+  const id = name.trim();
+  if (!id) throw new Error("MCP id is required");
+
+  const config = await readMcpConfig(repoRoot, options);
+  const before = config.mcpServers.length;
+  config.mcpServers = config.mcpServers.filter(
+    (s) => !(typeof s.name === "string" && s.name.trim() === id),
+  );
+  if (config.mcpServers.length === before) return false;
+  await writeMcpConfig(repoRoot, config, options);
+  return true;
+}
+
+/** Human-readable status for `/mcp` / `/mcp status`. */
+export function formatMcpRegistryStatus(
+  config: McpConfigFile,
+  repoRoot?: string,
+  auth?: {
+    tokenIds?: string[];
+    /**
+     * When true (TACP_OAUTH_CALLBACK_BASE set), show auth ok/missing for remotes.
+     * When false/omitted, omit auth notes (public remotes without OAuth infra).
+     */
+    oauthEnabled?: boolean;
+  },
+): string {
+  const rootNote = repoRoot ? `\nRepo: \`${resolve(repoRoot)}\`` : "";
+  const tokenSet = new Set(auth?.tokenIds ?? []);
+  const showAuth = auth?.oauthEnabled === true;
+  if (config.mcpServers.length === 0) {
+    return (
+      `No MCP servers in \`.tacp/mcp.json\`.${rootNote}\n\n` +
+      `Add a remote gateway:\n\`/mcp add <id> <url>\``
+    );
+  }
+
+  const lines = config.mcpServers.map((s) => {
+    const name = typeof s.name === "string" ? s.name : "?";
+    if (typeof s.url === "string") {
+      const type =
+        typeof s.type === "string" && s.type.trim()
+          ? s.type.trim()
+          : "http";
+      let authNote = "";
+      if (showAuth) {
+        authNote = tokenSet.has(name)
+          ? " · auth: ok"
+          : " · auth: missing (run `/mcp auth " + name + "`)";
+      }
+      return `• **${name}** (${type}) ${s.url}${authNote}`;
+    }
+    if (typeof s.command === "string") {
+      return `• **${name}** (stdio) \`${s.command}\``;
+    }
+    return `• **${name}**`;
+  });
+
+  return (
+    `MCP gateways for this repo (${config.mcpServers.length}):${rootNote}\n\n` +
+    lines.join("\n") +
+    `\n\n\`/mcp add <id> <url>\` · \`/mcp remove <id>\` · \`/mcp auth <id>\``
+  );
+}
+
+export const MCP_COMMAND_USAGE =
+  "Usage:\n" +
+  "`/mcp` or `/mcp status` — list gateways + OAuth status\n" +
+  "`/mcp add <id> <url>` — register remote http MCP (id + url only)\n" +
+  "`/mcp remove <id>` — remove entry\n" +
+  "`/mcp auth <id>` — start OAuth (Telegram link; tokens on host)\n" +
+  "`/mcp code <callback-url-or-code> [id]` — paste fallback if redirect cannot reach host\n\n" +
+  "Tokens are never written to the repo (no user:pass@ in URLs).\n" +
+  "Same id replaces an existing remote entry; stdio entries require `/mcp remove` first.";
+

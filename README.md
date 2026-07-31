@@ -82,7 +82,9 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
-| Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse pass-through) |
+| Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD + host auto-fire via acp-host) |
+| Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse; OAuth Bearer from host store) |
+| Remote MCP OAuth (`/mcp auth`, host callback) | **Yes** (PKCE; tokens under `TACP_ACPX_STATE_DIR`) |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
 
@@ -115,7 +117,84 @@ Missing or invalid JSON → built-in only (warn on invalid). Example:
 }
 ```
 
+Topic commands: `/mcp status|add|remove` (registry id+url only) and
+`/mcp auth <id>` / `/mcp code …` (OAuth — see below).
+
 See also `demo/.tacp/mcp.json.example`.
+
+### In-repo schedules (`.tacp/schedules/`)
+
+Agents can create **durable jobs** via built-in MCP tools on server **`tacp`**:
+
+| Tool | Action |
+|------|--------|
+| `schedule_create` | `prompt` (required) + optional `script` path + `once`/`cron` → `.tacp/schedules/<id>.json` |
+| `schedule_list` | jobs for `TACP_SESSION_KEY` (or whole repo with `all: true`) |
+| `schedule_cancel` | soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
+| `schedule_run_now` | set `nextRunAt=now` so the host fires on the next tick |
+
+`script` must be **relative to the repo root** (no `..` escapes). Prefer
+`.tacp/schedules/scripts/<name>`. Cron is 5-field (`m h dom mon dow`). **Next-run
+is always computed in UTC** for MVP — the `timezone` field is stored (and non-UTC
+values get a create warning) but does **not** shift the schedule yet. When both
+day-of-month and day-of-week are restricted, classic cron **OR** applies (either
+may match).
+
+**Host fire:** `bun run acp-host` scans each catalog repo (`TACP_REPOS_JSON`) under
+`.tacp/schedules/` every `TACP_SCHEDULE_TICK_MS` (default 20s). Due jobs
+(`enabled && nextRunAt <= now`) are **claimed on disk before** the agent turn
+(`once` → `enabled: false`; `cron` → next `nextRunAt` from now) so a crash mid-fire
+cannot double-run the same occurrence. Then the host ensures the job’s `sessionKey`
+slot and prompts with an envelope (prompt + optional script path). Busy slots roll
+the claim back, set `lastStatus: busy`, and retry next tick. Fire `error` leaves the
+claim in place (no hot-loop; re-due once jobs via `schedule_run_now`). Works even if
+the Telegram worker is down.
+
+Skill: `demo/.agents/skills/schedule/`.
+
+### Remote MCP OAuth
+
+Tokens are **never** written to the repo (not under `.tacp/`). They live under:
+
+`$TACP_ACPX_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json` (files mode `0600`)
+
+**Shared absolute state dir:** `/mcp auth` runs in the **Telegram worker** and
+writes pending PKCE; `GET /oauth/callback` and session ensure run on **acp-host**.
+Both processes must use the **same absolute** `TACP_ACPX_STATE_DIR` (resolved at
+startup). Prefer an absolute path in `.env` so different CWDs cannot diverge.
+Boot logs print the resolved path on both processes.
+
+Flow:
+
+1. Set `TACP_OAUTH_CALLBACK_BASE` to a URL the **phone browser** can reach
+   (prefer **Tailscale Serve**; or `http://100.x.y.z:8788` on your tailnet).
+2. Run `bun run acp-host` — it listens for `GET /oauth/callback` when the base is set.
+   If bind fails (port in use), **acp-host exits** with a clear error; fix the port
+   or use paste fallback below.
+3. In a session topic: `/mcp add linear https://…` then `/mcp auth linear`.
+4. Open the **tappable authorize URL** in Telegram (host does not open a browser).
+5. On callback, PKCE completes and Bearer tokens are merged into remote MCP at ensure.
+   Pending PKCE expires after **15 minutes**.
+
+When `TACP_OAUTH_CALLBACK_BASE` is set, ensure **fail-closes** if a remote MCP
+has no token: `MCP "<id>" has no OAuth token; run /mcp auth <id>`.
+
+Fallback if the redirect cannot reach the host (or the listener failed):
+prefer `/mcp code <full-callback-url>` (includes `code` + `state`); bare
+`/mcp code <code> <id>` is last resort.
+
+**Listen surface:** default `TACP_OAUTH_LISTEN_HOST=0.0.0.0` so phone redirects
+work. Anyone who can hit the port can *attempt* a callback; protection is
+high-entropy `state` + PKCE (`code_verifier` never leaves the host). Prefer
+Serve/tailnet over public Funnel/IP without understanding that model.
+
+Some gateways need endpoint overrides (no AS metadata):
+
+```bash
+TACP_MCP_OAUTH_LINEAR_AUTH_URL=…
+TACP_MCP_OAUTH_LINEAR_TOKEN_URL=…
+TACP_MCP_OAUTH_LINEAR_CLIENT_ID=tacp
+```
 
 ### MCP profiles (one profile per repo)
 
@@ -157,13 +236,15 @@ Rules:
 - `defaultAgent` is read from config for future per-repo agent defaults; session
   create still uses the global `TACP_DEFAULT_AGENT` / config default today.
 
+
 ## ACP host (keep agents alive across worker restarts)
 
 Like Ursula’s `acp-host`: a long-lived process owns agent stdio for **any** ACP agent
 (not Grok-leader-specific). The Telegram worker can restart and reattach.
+Also fires in-repo schedules into the right session slots.
 
 ```bash
-# Terminal 1 — agent owner
+# Terminal 1 — agent owner (+ schedule ticker when TACP_REPOS_JSON is set)
 bun run acp-host
 
 # Terminal 2 — Telegram worker
