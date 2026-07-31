@@ -14,6 +14,37 @@ import type { Logger } from "../env/logger";
 
 const CLIENT_UA = "tacp-mcp-oauth/0.1";
 
+/**
+ * Full, multi-line OAuth HTTP error for Telegram (do not mid-string truncate).
+ * Parses standard OAuth JSON error bodies when present.
+ */
+export function formatOAuthHttpFailure(
+  what: string,
+  res: { status: number; text: string; json: unknown },
+  extra?: Record<string, string>,
+): string {
+  const lines = [`${what} failed (HTTP ${res.status}).`];
+  const j = res.json as Record<string, unknown> | null;
+  if (j && typeof j === "object") {
+    if (typeof j.error === "string") lines.push(`Error: ${j.error}`);
+    if (typeof j.error_description === "string") {
+      lines.push(j.error_description);
+    } else if (typeof j.error_uri === "string") {
+      lines.push(`Details: ${j.error_uri}`);
+    } else if (!j.error && res.text.trim()) {
+      lines.push(res.text.trim().slice(0, 1500));
+    }
+  } else if (res.text.trim()) {
+    lines.push(res.text.trim().slice(0, 1500));
+  }
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v) lines.push(`${k}: ${v}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export type ProtectedResourceMeta = {
   resource?: string;
   authorization_servers?: string[];
@@ -259,7 +290,9 @@ export async function registerOAuthClient(
     token_endpoint_auth_method: "none",
     application_type: "native",
   };
-  const res = await httpJson<RegisteredClient & { error?: string }>(
+  const res = await httpJson<
+    RegisteredClient & { error?: string; error_description?: string }
+  >(
     registrationEndpoint,
     {
       method: "POST",
@@ -269,9 +302,9 @@ export async function registerOAuthClient(
     fetchImpl,
   );
   if (res.status >= 300 || !res.json?.client_id) {
-    throw new Error(
-      `dynamic client registration failed ${res.status}: ${res.text.slice(0, 400)}`,
-    );
+    throw new Error(formatOAuthHttpFailure("dynamic client registration", res, {
+      redirect_uri: redirectUri,
+    }));
   }
   return {
     client_id: res.json.client_id,
