@@ -98,6 +98,13 @@ import {
   resolvePlanModeId,
   togglePlanBuildModeId,
 } from "../acp/session-mode";
+import {
+  formatMcpRegistryStatus,
+  MCP_COMMAND_USAGE,
+  readMcpConfig,
+  removeMcpServer,
+  writeRemoteMcpServer,
+} from "../mcp/repo-mcp";
 import type { AcpTurnEvent, PromptAttachment } from "../env/types";
 
 export type DaemonOptions = {
@@ -1335,6 +1342,95 @@ export function createDaemon(
 
 
   /**
+   * /mcp [status|add <id> <url>|remove <id>] — repo `.tacp/mcp.json` registry.
+   * Uses session.cwd (topic-bound repo). Never writes tokens.
+   */
+  async function handleMcpCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const repoRoot = session.cwd;
+    const sub = (args[0] ?? "status").toLowerCase();
+
+    try {
+      if (args.length === 0 || sub === "status") {
+        if (args.length > 1) {
+          await sendInTopic(session, MCP_COMMAND_USAGE);
+          return;
+        }
+        const config = await readMcpConfig(repoRoot);
+        await sendInTopic(
+          session,
+          formatMcpRegistryStatus(config, repoRoot),
+        );
+        return;
+      }
+
+      if (sub === "add") {
+        const id = args[1];
+        const url = args[2];
+        if (!id || !url || args.length > 3) {
+          await sendInTopic(
+            session,
+            "Usage: `/mcp add <id> <url>`\n\nOnly id and url are stored (no tokens).",
+          );
+          return;
+        }
+        const entry = await writeRemoteMcpServer(repoRoot, {
+          name: id,
+          url,
+        });
+        log.info("mcp registry add", {
+          sessionKey: session.sessionKey,
+          name: entry.name,
+          type: entry.type,
+          // url only — never log tokens (none accepted)
+          url: entry.url,
+        });
+        await sendInTopic(
+          session,
+          `Added MCP **${entry.name}** (${entry.type})\n${entry.url}\n\n` +
+            `Written to \`.tacp/mcp.json\` (id + url only; no tokens).\n` +
+            `Active on next session ensure / restart.`,
+        );
+        return;
+      }
+
+      if (sub === "remove") {
+        const id = args[1];
+        if (!id || args.length > 2) {
+          await sendInTopic(session, "Usage: `/mcp remove <id>`");
+          return;
+        }
+        const removed = await removeMcpServer(repoRoot, id);
+        if (!removed) {
+          await sendInTopic(
+            session,
+            `No MCP entry named **${id}** in \`.tacp/mcp.json\`.`,
+          );
+          return;
+        }
+        log.info("mcp registry remove", {
+          sessionKey: session.sessionKey,
+          name: id,
+        });
+        await sendInTopic(
+          session,
+          `Removed MCP **${id}** from \`.tacp/mcp.json\`.`,
+        );
+        return;
+      }
+
+      await sendInTopic(session, MCP_COMMAND_USAGE);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `MCP registry error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
    * /plan /build /mode — ACP session/set_mode control (like acpx session modes).
    */
   async function handleSessionModeCommand(
@@ -1521,6 +1617,10 @@ export function createDaemon(
         slash.name === "/build"
       ) {
         await handleSessionModeCommand(session, slash.name, slash.args);
+        return;
+      }
+      if (slash.name === "/mcp") {
+        await handleMcpCommand(session, slash.args);
         return;
       }
       if (slash.name === "/help") {
