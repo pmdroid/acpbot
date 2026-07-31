@@ -422,7 +422,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       protocolVersion: initResult.protocolVersion,
     });
 
-    const mcpServers =
+    const mcpList: acp.McpServer[] =
       options.mcpEnabled === false
         ? []
         : await buildSessionMcpServers({
@@ -434,8 +434,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               : {}),
             log,
           });
-
-    const mcpList = mcpServers as acp.McpServer[];
     const prior = sessionStore
       ? await sessionStore.load(input.sessionKey)
       : undefined;
@@ -500,7 +498,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       log.info("session/new ok", {
         sessionKey: input.sessionKey,
         agentSessionId: session.sessionId,
-        mcp: mcpServers.map((s) => s.name),
+        mcp: mcpList.map((s) => s.name),
         hadPrior: Boolean(prior),
       });
     }

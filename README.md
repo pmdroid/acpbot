@@ -90,9 +90,15 @@ run through Grok over ACP.
 
 Each session’s **cwd** (repo root) may declare MCP servers at
 `<repo>/.tacp/mcp.json`. On `session/new` / ensure, tacp loads that file,
-resolves relative paths from the repo root (rejects `..` escapes outside the
-repo), injects `TACP_SESSION_KEY` / `TACP_REPO_ROOT` / `TACP_STATE_DIR`, then
-**merges repo servers first** and built-in host tools (`speak`) after.
+resolves **relative path-like** tokens from the repo root (write them as
+`./path` or `.tacp/…`; rejects `..` escapes outside the repo), injects
+`TACP_SESSION_KEY` / `TACP_REPO_ROOT` / `TACP_STATE_DIR`, then **merges repo
+servers first** and built-in host tools (`speak`, name `tacp`) after.
+
+**Absolute** command/arg paths are allowed (system/shared tools). Only relative
+path-like tokens are constrained to the repo. Containment is lexical (no
+symlink follow). npm package specs (`@scope/pkg`), CLI flags, and bare binaries
+are left unchanged. The name `tacp` is reserved for the built-in server.
 
 Missing or invalid JSON → built-in only (warn on invalid). Example:
 

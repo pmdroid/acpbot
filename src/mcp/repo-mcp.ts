@@ -1,9 +1,20 @@
 /**
  * Load per-repo MCP servers from `<repo>/.tacp/mcp.json`.
- * Resolve relative paths from repo root; reject path escapes outside the repo.
+ *
+ * Path policy (lexical only — no realpath/symlink follow):
+ * - Absolute command/arg paths are allowed (system/shared tools).
+ * - Relative path-like tokens (`./…`, `../…`, `.tacp/…`) resolve from repo root;
+ *   rejected if the resolved path escapes outside the repo.
+ * - Symlinks are not resolved; containment is string-based after `path.resolve`.
+ * - npm package specs (`@scope/pkg`), flags (`-y`, `--flag=…`), and URL schemes
+ *   are left unchanged. Write repo-relative scripts as `./path` or `.tacp/…`.
+ * - `~` / `~/…` expands to the process home directory (then treated as absolute).
+ * - Built-in server name `tacp` is reserved; repo entries with that name are skipped.
  */
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+import type { McpServer } from "@agentclientprotocol/sdk";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import {
@@ -20,7 +31,7 @@ export type TacpMcpRemoteServer = {
   headers: Array<{ name: string; value: string }>;
 };
 
-/** Stdio or remote MCP descriptor for a session. */
+/** Stdio or remote MCP descriptor for a session (matches ACP McpServer shapes we emit). */
 export type SessionMcpServer = TacpMcpServer | TacpMcpRemoteServer;
 
 export type LoadRepoMcpServersOptions = {
@@ -37,18 +48,46 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
   configPath?: string;
 };
 
-/** True when token looks like a filesystem path (not a bare PATH binary). */
+/** Reserved built-in host MCP name (speak). */
+export const TACP_BUILTIN_MCP_NAME = "tacp";
+
+/**
+ * True when token should be treated as a filesystem path for repo resolution.
+ *
+ * Path-like:
+ * - absolute (`/…`, and Windows drive if present)
+ * - relative with explicit path prefix: `./…`, `../…`, or leading `.` (e.g. `.tacp/…`)
+ * - home-relative: `~`, `~/…`
+ *
+ * Not path-like (left unchanged):
+ * - bare binaries (`bun`, `npx`)
+ * - npm scoped packages (`@scope/pkg`)
+ * - flags (`-y`, `--flag`, `--flag=value`)
+ * - URL / scheme tokens (`https://…`)
+ */
 export function isPathLikeToken(token: string): boolean {
   if (!token) return false;
-  if (token.startsWith(".") || token.startsWith("/") || token.startsWith("~")) {
+  // npm scoped package — never a filesystem path
+  if (token.startsWith("@")) return false;
+  // CLI flags (including --flag=./path forms) — do not rewrite
+  if (token.startsWith("-")) return false;
+  // URL / scheme (https:, file:, …) — not a repo-relative path
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(token)) return false;
+
+  if (token.startsWith("/") || token.startsWith("\\")) return true;
+  if (token.startsWith("./") || token.startsWith("../")) return true;
+  // `.tacp/tools/server.ts`, `.` — leading-dot relative paths
+  if (token.startsWith(".")) return true;
+  // home-relative
+  if (token === "~" || token.startsWith("~/") || token.startsWith("~\\")) {
     return true;
   }
-  return token.includes("/") || token.includes("\\");
+  return false;
 }
 
 /**
- * Whether `candidate` (absolute) lies inside `repoRoot` (inclusive).
- * Uses resolved normalized paths; rejects `..` escapes outside the repo.
+ * Lexical containment only (no realpath / symlink follow).
+ * Whether `candidate` lies inside `repoRoot` after `path.resolve` (inclusive).
  */
 export function isWithinRepo(repoRoot: string, candidate: string): boolean {
   const root = resolve(repoRoot);
@@ -58,22 +97,37 @@ export function isWithinRepo(repoRoot: string, candidate: string): boolean {
   return abs.startsWith(prefix);
 }
 
+/** Expand `~` / `~/…` to an absolute path under the process home directory. */
+export function expandHomeToken(token: string): string {
+  if (token === "~") return homedir();
+  if (token.startsWith("~/") || token.startsWith("~\\")) {
+    return resolve(homedir(), token.slice(2));
+  }
+  return token;
+}
+
 /**
  * Resolve a path-like token against repo root.
- * - Bare tokens (PATH binaries like `bun`, `npx`) are returned unchanged.
+ * - Non-path-like tokens (binaries, `@scope/pkg`, flags, URLs) returned unchanged.
+ * - `~` expanded via `os.homedir()`, then treated as absolute.
  * - Absolute paths are normalized and allowed (system tools / shared scripts).
  * - Relative paths resolve from repo root; throws if result escapes outside the repo
- *   (blocks `..` escapes).
+ *   (blocks `..` escapes). Containment is lexical only — see module docs.
  */
 export function resolveRepoPathToken(repoRoot: string, token: string): string {
   if (!isPathLikeToken(token)) return token;
 
   const root = resolve(repoRoot);
-  if (isAbsolute(token)) {
-    return resolve(normalize(token));
+  let candidate = token;
+  if (candidate === "~" || candidate.startsWith("~/") || candidate.startsWith("~\\")) {
+    candidate = expandHomeToken(candidate);
   }
 
-  const abs = resolve(root, token);
+  if (isAbsolute(candidate)) {
+    return resolve(normalize(candidate));
+  }
+
+  const abs = resolve(root, candidate);
   if (!isWithinRepo(root, abs)) {
     throw new Error(
       `path escapes repo root: ${token} → ${abs} (repo: ${root})`,
@@ -129,6 +183,7 @@ function parseOneServer(
   repoRoot: string,
   index: number,
   log: Logger,
+  seenNames: Set<string>,
 ): SessionMcpServer | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     log.warn("repo mcp: skip non-object server entry", { index });
@@ -141,6 +196,19 @@ function parseOneServer(
     return undefined;
   }
 
+  if (name === TACP_BUILTIN_MCP_NAME) {
+    log.warn("repo mcp: skip server; name is reserved for built-in tacp", {
+      index,
+      name,
+    });
+    return undefined;
+  }
+
+  if (seenNames.has(name)) {
+    log.warn("repo mcp: skip duplicate server name", { index, name });
+    return undefined;
+  }
+
   const typeRaw =
     typeof rec.type === "string" ? rec.type.trim().toLowerCase() : undefined;
 
@@ -150,6 +218,7 @@ function parseOneServer(
       log.warn("repo mcp: skip remote server without url", { index, name });
       return undefined;
     }
+    seenNames.add(name);
     return {
       type: typeRaw,
       name,
@@ -184,6 +253,7 @@ function parseOneServer(
       }
       args.push(resolveRepoPathToken(repoRoot, a));
     }
+    seenNames.add(name);
     return {
       name,
       command,
@@ -203,6 +273,7 @@ function parseOneServer(
 /**
  * Read `<repoRoot>/.tacp/mcp.json` and return parsed servers.
  * Missing file → []; invalid JSON → warn + [].
+ * Name `tacp` is reserved; duplicate names within the file are skipped with warn.
  */
 export async function loadRepoMcpServers(
   repoRoot: string,
@@ -252,16 +323,21 @@ export async function loadRepoMcpServers(
     return [];
   }
 
+  const seenNames = new Set<string>();
   const out: SessionMcpServer[] = [];
   for (let i = 0; i < list.length; i++) {
-    const s = parseOneServer(list[i], root, i, log);
+    const s = parseOneServer(list[i], root, i, log, seenNames);
     if (s) out.push(s);
   }
   return out;
 }
 
-function isStdioServer(s: SessionMcpServer): s is TacpMcpServer {
-  return !("type" in s) || (s as { type?: string }).type === undefined;
+/** Stdio when type is absent/undefined/"stdio", or when command is present without remote type. */
+export function isStdioServer(s: SessionMcpServer): s is TacpMcpServer {
+  const t = (s as { type?: string }).type;
+  if (t === "http" || t === "sse" || t === "acp") return false;
+  // absent, undefined, or explicit "stdio"
+  return "command" in s && typeof (s as TacpMcpServer).command === "string";
 }
 
 /** Inject session/repo identity into stdio MCP child env. */
@@ -295,10 +371,12 @@ export function injectSessionEnv(
  * Merge order: **repo MCP first**, then **built-in tacp** (speak).
  * Missing/invalid repo config → built-in only.
  * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_STATE_DIR into every stdio child.
+ *
+ * Returns ACP `McpServer[]` (stdio + optional http/sse).
  */
 export async function buildSessionMcpServers(
   options: BuildSessionMcpServersOptions,
-): Promise<SessionMcpServer[]> {
+): Promise<McpServer[]> {
   const enabled =
     options.enabled ??
     (process.env.TACP_MCP !== "0" && process.env.TACP_MCP !== "false");
@@ -340,8 +418,11 @@ export async function buildSessionMcpServers(
     injectCtx.sessionKey = options.sessionKey;
   }
 
-  return [
+  const merged: SessionMcpServer[] = [
     ...repo.map((s) => injectSessionEnv(s, injectCtx)),
     ...tacp.map((s) => injectSessionEnv(s, injectCtx)),
   ];
+
+  // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).
+  return merged as McpServer[];
 }
