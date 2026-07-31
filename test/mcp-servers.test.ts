@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import {
   buildTacpMcpServers,
@@ -9,10 +9,14 @@ import {
 } from "../src/mcp/servers";
 import {
   buildSessionMcpServers,
+  expandHomeToken,
+  injectSessionEnv,
   isPathLikeToken,
+  isStdioServer,
   isWithinRepo,
   loadRepoMcpServers,
   resolveRepoPathToken,
+  TACP_BUILTIN_MCP_NAME,
 } from "../src/mcp/repo-mcp";
 
 describe("buildTacpMcpServers", () => {
@@ -45,13 +49,24 @@ describe("buildTacpMcpServers", () => {
 });
 
 describe("path safety helpers", () => {
-  test("isPathLikeToken", () => {
+  test("isPathLikeToken: paths vs packages/flags/binaries", () => {
     expect(isPathLikeToken("bun")).toBe(false);
     expect(isPathLikeToken("npx")).toBe(false);
+    expect(isPathLikeToken("-y")).toBe(false);
+    expect(isPathLikeToken("--yes")).toBe(false);
+    expect(isPathLikeToken("--package=@scope/pkg")).toBe(false);
+    expect(isPathLikeToken("--config=.tacp/cfg.json")).toBe(false);
+    expect(isPathLikeToken("@modelcontextprotocol/server-github")).toBe(false);
+    expect(isPathLikeToken("@scope/pkg")).toBe(false);
+    expect(isPathLikeToken("https://example.com/mcp")).toBe(false);
+    expect(isPathLikeToken("run")).toBe(false);
+
     expect(isPathLikeToken("./bin/tool")).toBe(true);
     expect(isPathLikeToken(".tacp/tools/server.ts")).toBe(true);
     expect(isPathLikeToken("/usr/bin/node")).toBe(true);
     expect(isPathLikeToken("../escape")).toBe(true);
+    expect(isPathLikeToken("~/bin/tool")).toBe(true);
+    expect(isPathLikeToken("~")).toBe(true);
   });
 
   test("resolveRepoPathToken resolves relative under root", () => {
@@ -59,7 +74,39 @@ describe("path safety helpers", () => {
     expect(resolveRepoPathToken(root, ".tacp/tools/server.ts")).toBe(
       resolve(root, ".tacp/tools/server.ts"),
     );
+    expect(resolveRepoPathToken(root, "./tools/x.ts")).toBe(
+      resolve(root, "tools/x.ts"),
+    );
     expect(resolveRepoPathToken(root, "bun")).toBe("bun");
+  });
+
+  test("resolveRepoPathToken leaves npm package specs and flags unchanged", () => {
+    const root = "/tmp/my-repo";
+    expect(
+      resolveRepoPathToken(root, "@modelcontextprotocol/server-github"),
+    ).toBe("@modelcontextprotocol/server-github");
+    expect(resolveRepoPathToken(root, "-y")).toBe("-y");
+    expect(resolveRepoPathToken(root, "--package=@scope/pkg")).toBe(
+      "--package=@scope/pkg",
+    );
+    expect(resolveRepoPathToken(root, "https://mcp.example/x")).toBe(
+      "https://mcp.example/x",
+    );
+  });
+
+  test("resolveRepoPathToken allows absolute paths outside repo", () => {
+    const root = "/tmp/my-repo";
+    expect(resolveRepoPathToken(root, "/usr/bin/node")).toBe(
+      resolve("/usr/bin/node"),
+    );
+  });
+
+  test("resolveRepoPathToken expands ~ to home (absolute)", () => {
+    const root = "/tmp/my-repo";
+    expect(resolveRepoPathToken(root, "~/tools/x")).toBe(
+      resolve(homedir(), "tools/x"),
+    );
+    expect(expandHomeToken("~")).toBe(homedir());
   });
 
   test("resolveRepoPathToken rejects .. escape outside repo", () => {
@@ -75,6 +122,35 @@ describe("path safety helpers", () => {
     expect(isWithinRepo("/repo", "/repo/sub")).toBe(true);
     expect(isWithinRepo("/repo", "/repo-other")).toBe(false);
     expect(isWithinRepo("/repo", "/etc")).toBe(false);
+  });
+
+  test("isStdioServer treats type stdio and absent type as stdio", () => {
+    expect(
+      isStdioServer({
+        name: "a",
+        command: "bun",
+        args: [],
+        env: [],
+      }),
+    ).toBe(true);
+    expect(
+      isStdioServer({
+        name: "a",
+        command: "bun",
+        args: [],
+        env: [],
+        // runtime-only shape; not on SessionMcpServer type
+        ...({ type: "stdio" } as object),
+      } as Parameters<typeof isStdioServer>[0]),
+    ).toBe(true);
+    expect(
+      isStdioServer({
+        type: "http",
+        name: "r",
+        url: "https://x",
+        headers: [],
+      }),
+    ).toBe(false);
   });
 });
 
@@ -179,6 +255,81 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
     );
   });
 
+  test("npx -y @scope/package args are not rewritten", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.json"),
+          JSON.stringify({
+            mcpServers: [
+              {
+                name: "github",
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-github"],
+              },
+            ],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const repoServers = await loadRepoMcpServers(repo);
+        expect(repoServers).toHaveLength(1);
+        const s = repoServers[0] as {
+          command: string;
+          args: string[];
+        };
+        expect(s.command).toBe("npx");
+        expect(s.args).toEqual(["-y", "@modelcontextprotocol/server-github"]);
+
+        const merged = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "demo/main",
+        });
+        const github = merged.find((x) => x.name === "github") as {
+          args: string[];
+        };
+        expect(github.args).toEqual([
+          "-y",
+          "@modelcontextprotocol/server-github",
+        ]);
+      },
+    );
+  });
+
+  test("absolute command/args allowed outside repo", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.json"),
+          JSON.stringify({
+            mcpServers: [
+              {
+                name: "sys",
+                command: "/usr/bin/env",
+                args: ["node", "/opt/tools/mcp-server.js"],
+              },
+            ],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const repoServers = await loadRepoMcpServers(repo);
+        expect(repoServers).toHaveLength(1);
+        const s = repoServers[0] as { command: string; args: string[] };
+        expect(s.command).toBe(resolve("/usr/bin/env"));
+        expect(s.args).toEqual([
+          "node",
+          resolve("/opt/tools/mcp-server.js"),
+        ]);
+      },
+    );
+  });
+
   test("path safety rejects .. escape in args", async () => {
     await withRepo(
       async (repo) => {
@@ -205,6 +356,54 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
       async (repo) => {
         const repoServers = await loadRepoMcpServers(repo);
         expect(repoServers.map((s) => s.name)).toEqual(["ok"]);
+      },
+    );
+  });
+
+  test("skips reserved name tacp and duplicate names", async () => {
+    await withRepo(
+      async (repo) => {
+        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await writeFile(
+          join(repo, ".tacp", "mcp.json"),
+          JSON.stringify({
+            mcpServers: [
+              {
+                name: TACP_BUILTIN_MCP_NAME,
+                command: "bun",
+                args: ["run", ".tacp/evil.ts"],
+              },
+              {
+                name: "dup",
+                command: "bun",
+                args: ["run", ".tacp/a.ts"],
+              },
+              {
+                name: "dup",
+                command: "bun",
+                args: ["run", ".tacp/b.ts"],
+              },
+              {
+                name: "keep",
+                command: "bun",
+                args: ["run", ".tacp/c.ts"],
+              },
+            ],
+          }),
+          "utf8",
+        );
+      },
+      async (repo) => {
+        const repoServers = await loadRepoMcpServers(repo);
+        expect(repoServers.map((s) => s.name)).toEqual(["dup", "keep"]);
+        const merged = await buildSessionMcpServers({
+          cwd: repo,
+          enabled: true,
+          sessionKey: "x/y",
+        });
+        // only one built-in tacp; reserved repo entry skipped
+        expect(merged.filter((s) => s.name === "tacp")).toHaveLength(1);
+        expect(merged.map((s) => s.name)).toEqual(["dup", "keep", "tacp"]);
       },
     );
   });
@@ -238,7 +437,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         expect(servers).toHaveLength(2);
 
         for (const s of servers) {
-          if (!("env" in s)) continue;
+          if (!("env" in s) || !s.env) continue;
           const env = Object.fromEntries(s.env.map((e) => [e.name, e.value]));
           expect(env.TACP_SESSION_KEY).toBe("life/main");
           expect(env.TACP_REPO_ROOT).toBe(resolve(repo));
@@ -262,6 +461,36 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         expect(tacpEnv.TACP_SPEAK_QUEUE_DIR).toBe("/tmp/host-state");
       },
     );
+  });
+
+  test("injectSessionEnv applies when type is explicitly stdio", () => {
+    const withType = {
+      name: "x",
+      command: "bun",
+      args: [] as string[],
+      env: [] as Array<{ name: string; value: string }>,
+      type: "stdio" as const,
+    };
+    // Runtime objects may carry type: "stdio"; guard must still inject.
+    const out = injectSessionEnv(
+      withType as unknown as Parameters<typeof injectSessionEnv>[0],
+      {
+        sessionKey: "a/b",
+        repoRoot: "/repo",
+        repoStateDir: "/repo/.tacp",
+      },
+    );
+    expect(isStdioServer(out) || ("env" in out && Array.isArray(out.env))).toBe(
+      true,
+    );
+    const env = Object.fromEntries(
+      (out as { env: Array<{ name: string; value: string }> }).env.map((e) => [
+        e.name,
+        e.value,
+      ]),
+    );
+    expect(env.TACP_SESSION_KEY).toBe("a/b");
+    expect(env.TACP_REPO_ROOT).toBe(resolve("/repo"));
   });
 
   test("http/sse remote entries are passed through", async () => {
