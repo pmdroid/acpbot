@@ -231,7 +231,11 @@ describe("agent final text uses HTML parse mode", () => {
     await settle(40);
     const reply = env.telegram
       .sentMessages()
-      .find((m) => m.messageThreadId === session.messageThreadId);
+      .find(
+        (m) =>
+          m.messageThreadId === session.messageThreadId &&
+          m.parseMode === "HTML",
+      );
     expect(reply?.parseMode).toBe("HTML");
     expect(reply?.text).toContain("<b>");
   });

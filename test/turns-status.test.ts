@@ -97,7 +97,7 @@ describe("03 — live turns with status projection", () => {
     expect(env.agents.turns[0]?.input.text).toBe("hello agent");
   });
 
-  test("topic name transitions running → done across a turn", async () => {
+  test("topic title never rewritten during a turn (status is the working bubble)", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -109,6 +109,7 @@ describe("03 — live turns with status projection", () => {
     await daemon.handleUpdate(root("/new tacp work", 1));
     const session = (await daemon.listSessions())[0]!;
 
+    env.telegram.clearOutbound();
     env.agents.queueTurn("tacp/work", {
       events: [
         { type: "turn_started" },
@@ -122,15 +123,16 @@ describe("03 — live turns with status projection", () => {
     const renames = env.telegram.outbound.filter(
       (c) => c.method === "editForumTopic",
     );
-    const names = renames
-      .filter((c) => c.method === "editForumTopic")
-      .map((c) => (c.method === "editForumTopic" ? c.params.name : undefined));
+    expect(renames).toHaveLength(0);
 
-    expect(names).toContain(topicName("tacp", "work", "running"));
-    expect(names).toContain(topicName("tacp", "work", "done"));
+    // Live working bubble still appears.
+    const working = env.telegram
+      .sentMessages()
+      .filter((m) => m.text?.startsWith("⏳"));
+    expect(working.length).toBeGreaterThan(0);
   });
 
-  test("agent process dying renames topic to failed", async () => {
+  test("agent process dying does not rename topic to failed (bubble + message instead)", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -142,6 +144,7 @@ describe("03 — live turns with status projection", () => {
     await daemon.handleUpdate(root("/new tacp work", 1));
     const session = (await daemon.listSessions())[0]!;
 
+    env.telegram.clearOutbound();
     env.agents.queueTurn("tacp/work", {
       events: [{ type: "turn_started" }, { type: "process_died", error: "boom" }],
       die: "boom",
@@ -153,7 +156,12 @@ describe("03 — live turns with status projection", () => {
     const names = env.telegram.outbound
       .filter((c) => c.method === "editForumTopic")
       .map((c) => (c.method === "editForumTopic" ? c.params.name : undefined));
-    expect(names).toContain(topicName("tacp", "work", "failed"));
+    expect(names).not.toContain(topicName("tacp", "work", "failed"));
+    // Status still tracked; failure is messaged in-topic.
+    const after = (await daemon.listSessions()).find(
+      (s) => s.sessionKey === "tacp/work",
+    );
+    expect(after?.status).toBe("failed");
   });
 
   test("timeoutMs is never set on a turn", async () => {
@@ -242,12 +250,6 @@ describe("03 — live turns with status projection", () => {
     );
     await settle();
 
-    const names = env.telegram.outbound
-      .filter((c) => c.method === "editForumTopic")
-      .map((c) => (c.method === "editForumTopic" ? c.params.name : ""));
-    expect(names).toContain(topicName("tacp", "loop", "running"));
-    expect(names).toContain(topicName("tacp", "loop", "done"));
-
     const reply = env.telegram
       .sentMessages()
       .find(
@@ -256,6 +258,11 @@ describe("03 — live turns with status projection", () => {
           m.text?.includes("hello from the agent"),
       );
     expect(reply).toBeDefined();
+
+    // Working bubble was used (and removed) rather than topic renames.
+    expect(
+      env.telegram.outbound.some((c) => c.method === "deleteMessage"),
+    ).toBe(true);
   });
 
   test("session is placed in read-only mode before it can act", async () => {

@@ -3,12 +3,14 @@ import {
   type AnswerCallbackQueryParams,
   type BotMe,
   type CreateForumTopicParams,
+  type DeleteMessageParams,
   type DeleteMyCommandsParams,
   type EditForumTopicParams,
   type EditMessageTextParams,
   type ForumTopic,
   type GetMyCommandsParams,
   type GetUpdatesParams,
+  type SendChatActionParams,
   type SendMessageParams,
   type SetMyCommandsParams,
   type TelegramBotCommand,
@@ -20,7 +22,9 @@ export type OutboundTelegramCall =
   | { method: "getMe" }
   | { method: "getUpdates"; params: GetUpdatesParams }
   | { method: "sendMessage"; params: SendMessageParams }
+  | { method: "sendChatAction"; params: SendChatActionParams }
   | { method: "editMessageText"; params: EditMessageTextParams }
+  | { method: "deleteMessage"; params: DeleteMessageParams }
   | { method: "editForumTopic"; params: EditForumTopicParams }
   | { method: "createForumTopic"; params: CreateForumTopicParams }
   | { method: "answerCallbackQuery"; params: AnswerCallbackQueryParams }
@@ -205,8 +209,16 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
       return { message_id };
     },
 
+    async sendChatAction(params: SendChatActionParams) {
+      record({ method: "sendChatAction", params: { ...params } });
+    },
+
     async editMessageText(params: EditMessageTextParams) {
       record({ method: "editMessageText", params: { ...params } });
+    },
+
+    async deleteMessage(params: DeleteMessageParams) {
+      record({ method: "deleteMessage", params: { ...params } });
     },
 
     async editForumTopic(params: EditForumTopicParams) {

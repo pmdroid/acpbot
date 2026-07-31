@@ -11,7 +11,6 @@ import {
   decisionFromOption,
   extractPermissionOptions,
 } from "../src/core/permissions";
-import { topicName } from "../src/core/status";
 import { createFakeEnvironment } from "../src/env/fake-env";
 import type { TelegramUpdate } from "../src/env/types";
 
@@ -167,7 +166,7 @@ describe("minimal repo picker", () => {
 });
 
 describe("permission inline keyboard round-trip", () => {
-  test("raises keyboard, renames waiting-on-you before prompt, settles via callback + edit", async () => {
+  test("raises keyboard, marks waiting in bubble, settles via callback + edit", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -209,13 +208,18 @@ describe("permission inline keyboard round-trip", () => {
     }
     expect(permMsg).toBeDefined();
 
-    const renames = env.telegram.outbound
-      .filter((c) => c.method === "editForumTopic")
-      .map((c) =>
-        c.method === "editForumTopic" ? c.params.name : undefined,
+    // Status is in the working bubble, not via topic renames.
+    const waitingBubble = env.telegram
+      .sentMessages()
+      .find(
+        (m) =>
+          m.messageThreadId === session.messageThreadId &&
+          m.text?.startsWith("❓"),
       );
-    // waiting-on-you must appear (rename before prompt send).
-    expect(renames[0]).toBe(topicName("tacp", "perm", "waiting-on-you"));
+    expect(waitingBubble?.text).toMatch(/Waiting/i);
+    expect(
+      env.telegram.outbound.filter((c) => c.method === "editForumTopic"),
+    ).toHaveLength(0);
 
     expect(permMsg?.messageThreadId).toBe(session.messageThreadId);
     const kb = permMsg?.replyMarkup as {
@@ -283,7 +287,7 @@ describe("permission inline keyboard round-trip", () => {
 });
 
 describe("/cancel stops turn and keeps session", () => {
-  test("cancel aborts hold, renames idle, session still listed", async () => {
+  test("cancel aborts hold, keeps session, clears working bubble", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -321,9 +325,10 @@ describe("/cancel stops turn and keeps session", () => {
       .find((m) => m.text?.includes("cancelled") && m.text?.includes("kept"));
     expect(cancelMsg?.messageThreadId).toBe(session.messageThreadId);
 
-    const names = env.telegram.outbound
-      .filter((c) => c.method === "editForumTopic")
-      .map((c) => (c.method === "editForumTopic" ? c.params.name : ""));
-    expect(names).toContain(topicName("tacp", "cxl", "idle"));
+    // Topic title is never rewritten for status.
+    expect(
+      env.telegram.outbound.filter((c) => c.method === "editForumTopic"),
+    ).toHaveLength(0);
+    expect(sessions[0]?.status).toBe("idle");
   });
 });

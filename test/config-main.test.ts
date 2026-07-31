@@ -33,7 +33,6 @@ describe("loadConfig (shipped entry config)", () => {
         TACP_STORE_PATH: "/cfg/store.json",
         TACP_ACPX_STATE_DIR: "/cfg/acpx",
         TACP_REPOS_JSON: JSON.stringify({ tacp: "/cfg/repos/tacp" }),
-        TACP_AGENT_BACKEND: "echo",
         TACP_DEFAULT_AGENT: "codex",
       },
     });
@@ -42,35 +41,22 @@ describe("loadConfig (shipped entry config)", () => {
     expect(cfg.storePath).toBe("/cfg/store.json");
     expect(cfg.acpxStateDir).toBe("/cfg/acpx");
     expect(cfg.repos?.tacp).toBe("/cfg/repos/tacp");
-    expect(cfg.agentBackend).toBe("echo");
     expect(cfg.defaultAgent).toBe("codex");
-  });
-
-  test("agentBackend real is default when unset", () => {
-    const cfg = loadConfig({
-      env: {
-        TACP_BOT_TOKEN: "t",
-        TACP_OPERATOR_USER_ID: "9",
-        TACP_STORE_PATH: "/s",
-        TACP_ACPX_STATE_DIR: "/a",
-      },
-    });
-    expect(cfg.agentBackend).toBe("real");
+    expect("agentBackend" in cfg).toBe(false);
   });
 });
 
 describe("main entry wiring (structural + import)", () => {
-  test("main.ts wires telegram, agents, store, clock from config", () => {
+  test("main.ts wires telegram, real agents, store, clock from config", () => {
     const mainPath = join(import.meta.dir, "../src/main.ts");
     const src = readFileSync(mainPath, "utf8");
     expect(src).toContain("loadConfig");
     expect(src).toContain("realTelegram");
     expect(src).toContain("realAgents");
-    expect(src).toContain("echoAgents");
+    expect(src).not.toContain("echoAgents");
     expect(src).toContain("createJsonFileStore");
     expect(src).toContain("systemClock");
     expect(src).toContain("createDaemon");
-    expect(src).toContain("agentBackend");
     // No hardcoded bot tokens or home paths.
     expect(src).not.toMatch(/[0-9]{8,}:[A-Za-z0-9_-]{20,}/);
     expect(src).not.toMatch(/\/Users\//);

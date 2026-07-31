@@ -14,6 +14,8 @@ describe("Environment port shape (single seam)", () => {
     expect(typeof env.telegram.getMe).toBe("function");
     expect(typeof env.telegram.getUpdates).toBe("function");
     expect(typeof env.telegram.sendMessage).toBe("function");
+    expect(typeof env.telegram.sendChatAction).toBe("function");
+    expect(typeof env.telegram.deleteMessage).toBe("function");
     expect(typeof env.telegram.createForumTopic).toBe("function");
     expect(typeof env.telegram.editForumTopic).toBe("function");
     expect(typeof env.agents.ensureSession).toBe("function");

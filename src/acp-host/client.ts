@@ -33,18 +33,17 @@ type Pending = {
   reject: (err: Error) => void;
 };
 
+/**
+ * Prefer long-lived acp-host for agent processes (default on).
+ * Opt out with TACP_ACP_HOST=0 / false (in-process SessionHost).
+ */
 export function shouldUseAcpHost(
   env: NodeJS.ProcessEnv = process.env,
-  sockPath?: string,
+  _sockPath?: string,
 ): boolean {
   if (env.TACP_ACP_HOST === "0" || env.TACP_ACP_HOST === "false") return false;
-  if (env.TACP_ACP_HOST === "1" || env.TACP_ACP_HOST === "true") return true;
-  const path = sockPath ?? defaultAcpHostSock();
-  try {
-    return existsSync(path);
-  } catch {
-    return false;
-  }
+  // Default true — worker always attaches to acp-host unless explicitly disabled.
+  return true;
 }
 
 export function createAcpHostClient(

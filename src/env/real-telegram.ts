@@ -3,6 +3,7 @@ import {
   type AnswerCallbackQueryParams,
   type BotMe,
   type CreateForumTopicParams,
+  type DeleteMessageParams,
   type DeleteMyCommandsParams,
   type EditForumTopicParams,
   type EditMessageTextParams,
@@ -10,6 +11,7 @@ import {
   type GetMyCommandsParams,
   type GetUpdatesParams,
   type Logger,
+  type SendChatActionParams,
   type SendDocumentParams,
   type SendMessageParams,
   type SendPhotoParams,
@@ -144,6 +146,21 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
       return { message_id: result.message_id };
     },
 
+    sendChatAction: async (params: SendChatActionParams) => {
+      log.debug("outbound sendChatAction", {
+        chatId: params.chatId,
+        thread: params.messageThreadId,
+        action: params.action,
+      });
+      await call("sendChatAction", {
+        chat_id: params.chatId,
+        action: params.action,
+        ...(params.messageThreadId !== undefined
+          ? { message_thread_id: params.messageThreadId }
+          : {}),
+      });
+    },
+
     editMessageText: async (params: EditMessageTextParams) => {
       log.info("outbound editMessageText", {
         chatId: params.chatId,
@@ -157,6 +174,17 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
         text: params.text,
         reply_markup: params.replyMarkup,
         parse_mode: params.parseMode,
+      });
+    },
+
+    deleteMessage: async (params: DeleteMessageParams) => {
+      log.info("outbound deleteMessage", {
+        chatId: params.chatId,
+        messageId: params.messageId,
+      });
+      await call("deleteMessage", {
+        chat_id: params.chatId,
+        message_id: params.messageId,
       });
     },
 

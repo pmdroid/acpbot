@@ -48,36 +48,60 @@ type BuiltinSpec = {
 const PREFERRED_ORDER = ["grok-build", "claude", "codex", "opencode"] as const;
 
 /**
+ * Default npm package pins for ACP adapters (update when bumping adapters).
+ * Override with TACP_CLAUDE_ACP_PKG / TACP_CODEX_ACP_PKG (full package@ver).
+ *
+ * https://github.com/agentclientprotocol/claude-agent-acp
+ * https://github.com/agentclientprotocol/codex-acp
+ */
+export const DEFAULT_CLAUDE_ACP_PKG =
+  "@agentclientprotocol/claude-agent-acp@0.64.0";
+export const DEFAULT_CODEX_ACP_PKG = "@agentclientprotocol/codex-acp@1.1.7";
+
+/**
  * Built-in launches. Override with TACP_AGENT_COMMAND_JSON:
  * {"grok-build":{"command":"grok","args":["agent","stdio"]}}
  *
  * Claude/Codex use @agentclientprotocol/* adapters via npx (same as acpx).
  */
-const BUILTINS: Record<string, BuiltinSpec> = {
+function claudeAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
+  return env.TACP_CLAUDE_ACP_PKG?.trim() || DEFAULT_CLAUDE_ACP_PKG;
+}
+
+function codexAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
+  return env.TACP_CODEX_ACP_PKG?.trim() || DEFAULT_CODEX_ACP_PKG;
+}
+
+const BUILTINS_BASE: Record<
+  string,
+  Omit<BuiltinSpec, "launch"> & {
+    launchFor: (env: NodeJS.ProcessEnv) => AgentLaunch;
+  }
+> = {
   "grok-build": {
-    launch: { command: "grok", args: ["agent", "stdio"] },
+    launchFor: () => ({ command: "grok", args: ["agent", "stdio"] }),
     requires: ["grok"],
     label: "grok",
   },
   claude: {
-    launch: {
+    launchFor: (env) => ({
       command: "npx",
-      args: ["-y", "@agentclientprotocol/claude-agent-acp"],
-    },
+      args: ["-y", claudeAcpPkg(env)],
+    }),
     // Adapter needs npx + the Claude Code CLI
     requires: ["npx", "claude"],
     label: "claude",
   },
   codex: {
-    launch: {
+    launchFor: (env) => ({
       command: "npx",
-      args: ["-y", "@agentclientprotocol/codex-acp"],
-    },
+      args: ["-y", codexAcpPkg(env)],
+    }),
     requires: ["npx", "codex"],
     label: "codex",
   },
   opencode: {
-    launch: { command: "opencode", args: ["acp"] },
+    launchFor: () => ({ command: "opencode", args: ["acp"] }),
     requires: ["opencode"],
     label: "opencode",
   },
@@ -95,7 +119,7 @@ export function normalizeAgentName(name: string): string {
 /** Human label for pickers/status (e.g. grok-build → grok). */
 export function agentDisplayName(agentId: string): string {
   const id = normalizeAgentName(agentId);
-  return BUILTINS[id]?.label ?? id;
+  return BUILTINS_BASE[id]?.label ?? id;
 }
 
 export function defaultWhich(command: string): string | null {
@@ -167,7 +191,7 @@ export function resolveAgentLaunch(
   const id = normalizeAgentName(agentName);
   const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
   if (overrides[id]) return overrides[id]!;
-  if (BUILTINS[id]) return BUILTINS[id]!.launch;
+  if (BUILTINS_BASE[id]) return BUILTINS_BASE[id]!.launchFor(env);
 
   // Last resort: treat the name as a bare binary that speaks ACP on stdio.
   return { command: agentName.trim(), args: [] };
@@ -181,7 +205,7 @@ export function requiredBinsForAgent(
   const id = normalizeAgentName(agentId);
   const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
   if (overrides[id]) return [overrides[id]!.command];
-  if (BUILTINS[id]) return [...BUILTINS[id]!.requires];
+  if (BUILTINS_BASE[id]) return [...BUILTINS_BASE[id]!.requires];
   return [agentId.trim()];
 }
 
@@ -226,7 +250,7 @@ export function listKnownAgentIds(
 ): string[] {
   const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
   const ids = new Set<string>();
-  for (const key of Object.keys(BUILTINS)) {
+  for (const key of Object.keys(BUILTINS_BASE)) {
     ids.add(normalizeAgentName(key));
   }
   for (const key of Object.keys(overrides)) {

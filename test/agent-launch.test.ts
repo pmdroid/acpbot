@@ -15,14 +15,31 @@ describe("agent-launch", () => {
     expect(normalizeAgentName("claude-code")).toBe("claude");
     const launch = resolveAgentLaunch("claude");
     expect(launch.command).toBe("npx");
-    expect(launch.args.join(" ")).toContain("claude-agent-acp");
+    expect(launch.args.join(" ")).toContain(
+      "@agentclientprotocol/claude-agent-acp@0.64.0",
+    );
   });
 
   test("codex uses codex-acp adapter not codex acp", () => {
     const launch = resolveAgentLaunch("codex");
     expect(launch.command).toBe("npx");
-    expect(launch.args.join(" ")).toContain("codex-acp");
+    expect(launch.args.join(" ")).toContain(
+      "@agentclientprotocol/codex-acp@1.1.7",
+    );
     expect(launch.args).not.toContain("acp");
+  });
+
+  test("adapter package pins can be overridden via env", () => {
+    const claude = resolveAgentLaunch("claude", {
+      TACP_CLAUDE_ACP_PKG: "@agentclientprotocol/claude-agent-acp@9.9.9",
+    });
+    expect(claude.args).toContain(
+      "@agentclientprotocol/claude-agent-acp@9.9.9",
+    );
+    const codex = resolveAgentLaunch("codex", {
+      TACP_CODEX_ACP_PKG: "@agentclientprotocol/codex-acp@8.8.8",
+    });
+    expect(codex.args).toContain("@agentclientprotocol/codex-acp@8.8.8");
   });
 
   test("grok-build keeps native stdio", () => {

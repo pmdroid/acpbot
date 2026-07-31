@@ -77,17 +77,8 @@ import {
   stripSpeakMarkers,
   type SpeakRequest,
 } from "./speak";
-import {
-  completeSpeakJob,
-  listPendingSpeakJobs,
-  speakQueueDir,
-} from "../mcp/speak-queue";
-import {
-  completeTelegramJob,
-  listPendingTelegramJobs,
-  telegramQueueDir,
-} from "../mcp/telegram-queue";
 import { createWorkerApiServer } from "./worker-api-server";
+import { shouldUseAcpHost } from "../acp-host/client";
 import {
   buildSkillsKeyboard,
   clampSkillPage,
@@ -202,6 +193,11 @@ export function createDaemon(
 
   const drainTasks = new Map<string, Promise<void>>();
   const turnAbort = new Map<string, AbortController>();
+  /**
+   * Live “working…” status bubble per session (message_id in that topic).
+   * Posted at turn start; MCP `update` edits it; removed when the turn ends.
+   */
+  const workingStatusMsg = new Map<string, number>();
   const permissions: PermissionBroker = createPermissionBroker();
   const elicitations: ElicitationBroker = createElicitationBroker();
   const askQuestions: AskUserQuestionBroker = createAskUserQuestionBroker();
@@ -324,24 +320,26 @@ export function createDaemon(
     }
   }
 
-  async function renameTopic(
+  /**
+   * Persist session status only. Topic titles are never rewritten for status —
+   * the live working bubble carries “working / waiting” instead.
+   */
+  async function setSessionStatus(
     session: PersistedSession,
     status: SessionStatus,
   ): Promise<void> {
-    const name = topicName(
-      session.identity.repo,
-      session.identity.name,
-      status,
-    );
-    await env.telegram.editForumTopic({
-      chatId: session.chatId,
-      messageThreadId: session.messageThreadId,
-      name,
-    });
     session.status = status;
     session.updatedAt = env.clock.now();
     sessionIndex.byKey[session.sessionKey] = session;
     await persistIndex();
+  }
+
+  /** Status-only; does not rename the Telegram topic. */
+  async function renameTopic(
+    session: PersistedSession,
+    status: SessionStatus,
+  ): Promise<void> {
+    await setSessionStatus(session, status);
   }
 
   async function createSession(
@@ -495,7 +493,7 @@ export function createDaemon(
   /**
    * Permission UI is allowed to await Telegram — it runs on the acpx host
    * hook, not inside the event-queue drain consumer.
-   * Rename to waiting-on-you BEFORE the prompt message is sent.
+   * Status + working bubble updated before the prompt is sent (no topic rename).
    */
   async function handlePermissionRequest(
     req: PermissionRequest,
@@ -508,12 +506,12 @@ export function createDaemon(
       return { outcome: "reject_once" };
     }
 
-    log.info("permission UI: rename waiting-on-you", {
+    log.info("permission UI: waiting-on-you", {
       sessionKey,
       toolCallId: req.toolCallId,
     });
-    // Status first so the topic list is correct when the notification lands.
-    await renameTopic(session, "waiting-on-you");
+    await setSessionStatus(session, "waiting-on-you");
+    await setWorkingStatus(session, "Waiting for your decision…");
 
     const ui = buildPermissionUi(req);
     log.info("permission UI: send keyboard", {
@@ -582,9 +580,8 @@ export function createDaemon(
       });
     }
 
-    if (session.status === "waiting-on-you") {
-      await renameTopic(session, "running");
-    }
+    await setSessionStatus(session, "running");
+    await setWorkingStatus(session, "Working…");
 
     return decision;
   }
@@ -647,7 +644,8 @@ export function createDaemon(
       return { action: "decline" };
     }
 
-    await renameTopic(session, "waiting-on-you");
+    await setSessionStatus(session, "waiting-on-you");
+    await setWorkingStatus(session, "Waiting for your answer…");
 
     const ui = buildElicitationUi({ sessionId: sessionKey, raw: req.raw });
     log.info("elicitation UI: send keyboard", {
@@ -717,9 +715,8 @@ export function createDaemon(
       });
     }
 
-    if (session.status === "waiting-on-you") {
-      await renameTopic(session, "running");
-    }
+    await setSessionStatus(session, "running");
+    await setWorkingStatus(session, "Working…");
     return decision;
   }
 
@@ -743,7 +740,8 @@ export function createDaemon(
       return toAskUserQuestionExtResponse({ answers: [] }, { declined: true });
     }
 
-    await renameTopic(session, "waiting-on-you");
+    await setSessionStatus(session, "waiting-on-you");
+    await setWorkingStatus(session, "Waiting for your answer…");
 
     const token = newAskToken();
     const first = buildAskQuestionUi(token, 0, questions.length, questions[0]!);
@@ -825,9 +823,8 @@ export function createDaemon(
       /* ignore — often races with callback handler's final edit */
     }
 
-    if (session.status === "waiting-on-you") {
-      await renameTopic(session, "running");
-    }
+    await setSessionStatus(session, "running");
+    await setWorkingStatus(session, "Working…");
 
     return wire;
   }
@@ -1120,7 +1117,7 @@ export function createDaemon(
         }
         const lines = sessions.map(
           (s) =>
-            `${topicName(s.identity.repo, s.identity.name, s.status)}  (thread ${s.messageThreadId})`,
+            `${topicName(s.identity.repo, s.identity.name)} · ${s.status}  (thread ${s.messageThreadId})`,
         );
         await lobbyReply(lines.join("\n"));
         return;
@@ -1156,10 +1153,85 @@ export function createDaemon(
     if (env.agents.cancelTurn) {
       await env.agents.cancelTurn(session.sessionKey, "operator /cancel");
     }
+    await clearWorkingStatus(session);
     await renameTopic(session, "idle");
     await sendInTopic(session, "⏹ turn cancelled — session kept", undefined, {
       html: true,
     });
+  }
+
+  function formatWorkingStatus(
+    text: string,
+    status: SessionStatus = "running",
+  ): string {
+    const body = text.trim();
+    if (status === "waiting-on-you") {
+      return `❓ ${body || "Waiting for you…"}`;
+    }
+    return `⏳ ${body || "Working…"}`;
+  }
+
+  /**
+   * Post (or keep) a single status bubble in this topic for the live turn.
+   * Covers working + waiting-on-you; topic titles are never rewritten.
+   */
+  async function ensureWorkingStatus(
+    session: PersistedSession,
+    text = "Working…",
+  ): Promise<void> {
+    const body = formatWorkingStatus(text, session.status);
+    const existing = workingStatusMsg.get(session.sessionKey);
+    if (existing !== undefined) {
+      try {
+        await env.telegram.editMessageText({
+          chatId: session.chatId,
+          messageId: existing,
+          text: body,
+        });
+        return;
+      } catch {
+        workingStatusMsg.delete(session.sessionKey);
+      }
+    }
+    try {
+      const sent = await sendInTopic(session, body, undefined, {
+        html: false,
+      });
+      workingStatusMsg.set(session.sessionKey, sent.message_id);
+    } catch (err) {
+      log.warn("working status post failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * MCP `update` (and ensureWorkingStatus): edit the live bubble when present.
+   */
+  async function setWorkingStatus(
+    session: PersistedSession,
+    text: string,
+  ): Promise<void> {
+    await ensureWorkingStatus(session, text);
+  }
+
+  async function clearWorkingStatus(session: PersistedSession): Promise<void> {
+    const messageId = workingStatusMsg.get(session.sessionKey);
+    if (messageId === undefined) return;
+    workingStatusMsg.delete(session.sessionKey);
+    try {
+      await env.telegram.deleteMessage({
+        chatId: session.chatId,
+        messageId,
+      });
+    } catch (err) {
+      log.debug("working status delete failed", {
+        sessionKey: session.sessionKey,
+        messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -1177,113 +1249,122 @@ export function createDaemon(
     let speakFromTool: SpeakRequest | undefined;
 
     try {
-      for await (const event of events) {
-        const next = reduceStatus(status, event);
-        if (next !== status) {
-          status = next;
-          statusTransitions.push(next);
-        }
-        if (event.type === "agent_message_chunk" && event.text) {
-          textParts.push(event.text);
-        }
-        if (event.type === "tool_call") {
-          // Outbound Telegram MCP tools call the worker Unix API directly.
-          if (isSpeakToolName(event.title)) {
-            // MCP speak already delivered; skip end-of-turn TTS.
-            speakFromTool = { source: "tool", text: "" };
-            log.info("agent requested speak (worker API)", {
-              sessionKey: session.sessionKey,
-              title: event.title,
-            });
-          }
-        }
-        if (event.type === "process_died") {
-          deathError = event.error ?? "process died";
-          if (status !== "failed") {
-            status = "failed";
-            statusTransitions.push("failed");
-          }
-        }
-      }
-    } catch (err) {
-      status = "failed";
-      statusTransitions.push("failed");
-      deathError =
-        deathError ?? (err instanceof Error ? err.message : String(err));
-    }
-
-    try {
-      // Skip intermediate waiting-on-you here if permission handler already set it;
-      // still apply final statuses from the stream.
-      for (const s of statusTransitions) {
-        if (s === "waiting-on-you" && session.status === "waiting-on-you") {
-          continue;
-        }
-        await renameTopic(session, s);
-      }
-      if (statusTransitions.length === 0 && session.status !== status) {
-        await renameTopic(session, status);
-      }
-
-      if (deathError) {
-        await sendInTopic(
-          session,
-          `**Agent failed**\n\n\`${deathError}\``,
-          undefined,
-          { html: true },
-        );
-        return;
-      }
-
-      if (status === "idle" && textParts.length === 0) {
-        // cancelled path may already have messaged
-        return;
-      }
-
-      const rawReply = textParts.join("");
-      // Strip any legacy speak markers from text; TTS is MCP speak (or always mode).
-      const visibleText = stripSpeakMarkers(rawReply);
-      const ttsMode = env.config.ttsMode ?? "agent";
-      const speakReq: SpeakRequest | undefined =
-        ttsMode === "always"
-          ? { source: "always", text: undefined }
-          : ttsMode === "off"
-            ? undefined
-            : speakFromTool;
-
-      if (visibleText.trim()) {
-        await sendInTopic(session, visibleText, undefined, { html: true });
-      } else if (status === "done" && !speakReq) {
-        await sendInTopic(session, "✓ turn finished (no text output)", undefined, {
-          html: true,
-        });
-      }
-
-      if (speakReq) {
-        // Empty text after mid-turn MCP delivery means already spoken.
-        const alreadySpokenViaTool =
-          speakReq.source === "tool" && speakReq.text === "";
-        if (!alreadySpokenViaTool) {
-          const toSpeak =
-            speakReq.text?.trim() ||
-            visibleText.trim() ||
-            rawReply.trim();
-          await maybeSendTts(session, toSpeak, speakReq.source);
-        }
-      }
-      // Catch MCP speak / telegram jobs that finished enqueue after tool_call.
-      await drainTelegramQueue();
-      await drainSpeakQueue();
-    } catch (err) {
       try {
-        await renameTopic(session, "failed");
-        await sendInTopic(
-          session,
-          `✕ turn error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      } catch {
-        /* ignore */
+        for await (const event of events) {
+          const next = reduceStatus(status, event);
+          if (next !== status) {
+            status = next;
+            statusTransitions.push(next);
+          }
+          if (event.type === "agent_message_chunk" && event.text) {
+            textParts.push(event.text);
+          }
+          if (event.type === "tool_call") {
+            // Outbound Telegram MCP tools call the worker Unix API directly.
+            if (isSpeakToolName(event.title)) {
+              // MCP speak already delivered; skip end-of-turn TTS.
+              speakFromTool = { source: "tool", text: "" };
+              log.info("agent requested speak (worker API)", {
+                sessionKey: session.sessionKey,
+                title: event.title,
+              });
+            }
+          }
+          if (event.type === "process_died") {
+            deathError = event.error ?? "process died";
+            if (status !== "failed") {
+              status = "failed";
+              statusTransitions.push("failed");
+            }
+          }
+        }
+      } catch (err) {
+        status = "failed";
+        statusTransitions.push("failed");
+        deathError =
+          deathError ?? (err instanceof Error ? err.message : String(err));
       }
+
+      // Remove the working bubble before final status / reply so the chat stays clean.
+      await clearWorkingStatus(session);
+
+      try {
+        // Skip intermediate waiting-on-you here if permission handler already set it;
+        // still apply final statuses from the stream.
+        for (const s of statusTransitions) {
+          if (s === "waiting-on-you" && session.status === "waiting-on-you") {
+            continue;
+          }
+          await renameTopic(session, s);
+        }
+        if (statusTransitions.length === 0 && session.status !== status) {
+          await renameTopic(session, status);
+        }
+
+        if (deathError) {
+          await sendInTopic(
+            session,
+            `**Agent failed**\n\n\`${deathError}\``,
+            undefined,
+            { html: true },
+          );
+          return;
+        }
+
+        if (status === "idle" && textParts.length === 0) {
+          // cancelled path may already have messaged
+          return;
+        }
+
+        const rawReply = textParts.join("");
+        // Strip any legacy speak markers from text; TTS is MCP speak (or always mode).
+        const visibleText = stripSpeakMarkers(rawReply);
+        const ttsMode = env.config.ttsMode ?? "agent";
+        const speakReq: SpeakRequest | undefined =
+          ttsMode === "always"
+            ? { source: "always", text: undefined }
+            : ttsMode === "off"
+              ? undefined
+              : speakFromTool;
+
+        if (visibleText.trim()) {
+          await sendInTopic(session, visibleText, undefined, { html: true });
+        } else if (status === "done" && !speakReq) {
+          await sendInTopic(
+            session,
+            "✓ turn finished (no text output)",
+            undefined,
+            {
+              html: true,
+            },
+          );
+        }
+
+        if (speakReq) {
+          // Empty text after mid-turn MCP delivery means already spoken.
+          const alreadySpokenViaTool =
+            speakReq.source === "tool" && speakReq.text === "";
+          if (!alreadySpokenViaTool) {
+            const toSpeak =
+              speakReq.text?.trim() ||
+              visibleText.trim() ||
+              rawReply.trim();
+            await maybeSendTts(session, toSpeak, speakReq.source);
+          }
+        }
+      } catch (err) {
+        try {
+          await renameTopic(session, "failed");
+          await sendInTopic(
+            session,
+            `✕ turn error: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    } finally {
+      await clearWorkingStatus(session);
     }
   }
 
@@ -1294,165 +1375,6 @@ export function createDaemon(
       throw new Error(`unknown sessionKey: ${sessionKey}`);
     }
     return session;
-  }
-
-  /**
-   * Legacy disk-queue drain (pre worker API). Kept for any leftover jobs.
-   */
-  async function drainTelegramQueue(): Promise<void> {
-    const stateDir =
-      process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state";
-    const qDir = telegramQueueDir(stateDir);
-    let jobs;
-    try {
-      jobs = await listPendingTelegramJobs(qDir);
-    } catch {
-      return;
-    }
-    for (const job of jobs) {
-      const session = sessionIndex.byKey[job.sessionKey];
-      if (!session) {
-        await completeTelegramJob(
-          job,
-          { ok: false, error: `unknown sessionKey: ${job.sessionKey}` },
-          qDir,
-        );
-        log.warn("telegram queue: unknown session", {
-          sessionKey: job.sessionKey,
-          id: job.id,
-          kind: job.kind,
-        });
-        continue;
-      }
-      try {
-        if (job.kind === "photo" || job.kind === "document") {
-          await deliverTelegramMedia(session, job);
-        } else {
-          const prefix = job.kind === "update" ? "↻ " : "";
-          await sendInTopic(session, `${prefix}${job.text}`);
-        }
-        await completeTelegramJob(job, { ok: true }, qDir);
-        log.info("telegram queue: delivered", {
-          sessionKey: job.sessionKey,
-          id: job.id,
-          kind: job.kind,
-          textLen: job.text.length,
-          path: job.path ?? null,
-        });
-      } catch (err) {
-        await completeTelegramJob(
-          job,
-          {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          qDir,
-        );
-      }
-    }
-  }
-
-  async function deliverTelegramMedia(
-    session: PersistedSession,
-    job: {
-      kind: string;
-      path?: string;
-      filename?: string;
-      text: string;
-    },
-  ): Promise<void> {
-    if (!job.path) {
-      throw new Error("media job missing path");
-    }
-    const data = new Uint8Array(await readFile(job.path));
-    if (data.byteLength === 0) {
-      throw new Error(`media file is empty: ${job.path}`);
-    }
-    const caption = job.text.trim() || undefined;
-    if (job.kind === "photo") {
-      if (!env.telegram.sendPhoto) {
-        throw new Error("Telegram sendPhoto is not available on this host");
-      }
-      await env.telegram.sendPhoto({
-        chatId: session.chatId,
-        messageThreadId: session.messageThreadId,
-        data,
-        filename: job.filename ?? "photo.jpg",
-        ...(caption ? { caption } : {}),
-      });
-      return;
-    }
-    if (!env.telegram.sendDocument) {
-      throw new Error("Telegram sendDocument is not available on this host");
-    }
-    await env.telegram.sendDocument({
-      chatId: session.chatId,
-      messageThreadId: session.messageThreadId,
-      data,
-      filename: job.filename ?? "file",
-      ...(caption ? { caption } : {}),
-    });
-  }
-
-  /**
-   * Legacy speak disk-queue drain (pre worker API).
-   */
-  async function drainSpeakQueue(): Promise<void> {
-    const stateDir =
-      process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state";
-    let jobs;
-    try {
-      jobs = await listPendingSpeakJobs(speakQueueDir(stateDir));
-    } catch {
-      return;
-    }
-    for (const job of jobs) {
-      const session = sessionIndex.byKey[job.sessionKey];
-      if (!session) {
-        await completeSpeakJob(job, {
-          ok: false,
-          error: `unknown sessionKey: ${job.sessionKey}`,
-        }, speakQueueDir(stateDir));
-        log.warn("speak queue: unknown session", {
-          sessionKey: job.sessionKey,
-          id: job.id,
-        });
-        continue;
-      }
-      try {
-        const ok = await maybeSendTts(session, job.text, "mcp-speak");
-        if (ok) {
-          await completeSpeakJob(
-            job,
-            { ok: true },
-            speakQueueDir(stateDir),
-          );
-          log.info("speak queue: delivered", {
-            sessionKey: job.sessionKey,
-            id: job.id,
-            textLen: job.text.length,
-          });
-        } else {
-          await completeSpeakJob(
-            job,
-            {
-              ok: false,
-              error: "TTS unavailable or empty text",
-            },
-            speakQueueDir(stateDir),
-          );
-        }
-      } catch (err) {
-        await completeSpeakJob(
-          job,
-          {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          speakQueueDir(stateDir),
-        );
-      }
-    }
   }
 
   /** @returns true when a voice note was sent */
@@ -1501,18 +1423,26 @@ export function createDaemon(
     handlers: {
       async sendMessage({ sessionKey, text, kind }) {
         const session = requireSession(sessionKey);
-        const prefix = kind === "update" ? "↻ " : "";
-        await sendInTopic(session, `${prefix}${text}`);
+        if (kind === "update") {
+          // Edit the single “working…” bubble (create if missing).
+          await setWorkingStatus(session, text);
+          log.info("worker-api update (working status)", {
+            sessionKey,
+            textLen: text.length,
+            messageId: workingStatusMsg.get(sessionKey),
+          });
+          return {
+            message: `Updated working status (${text.length} chars).`,
+          };
+        }
+        await sendInTopic(session, text);
         log.info("worker-api message", {
           sessionKey,
           kind,
           textLen: text.length,
         });
         return {
-          message:
-            kind === "update"
-              ? `Sent Telegram update (${text.length} chars).`
-              : `Sent Telegram message (${text.length} chars).`,
+          message: `Sent Telegram message (${text.length} chars).`,
         };
       },
       async sendPhoto({ sessionKey, path, caption, filename }) {
@@ -2027,9 +1957,7 @@ export function createDaemon(
       }
     }
 
-    const acpHost =
-      process.env.TACP_ACP_HOST === "1" ||
-      process.env.TACP_ACP_HOST === "true";
+    const acpHost = shouldUseAcpHost();
 
     await sendInTopic(
       session,
@@ -2729,31 +2657,38 @@ export function createDaemon(
       attachments: attachments.length,
       skillId: pendingSkill?.skill.id,
     });
-    const handle = await env.agents.ensureSession(session.identity);
-    const ac = new AbortController();
-    turnAbort.set(session.sessionKey, ac);
+    // One “⏳ Working…” bubble in this topic; MCP update edits it; final clears it.
+    await ensureWorkingStatus(session, "Working…");
+    try {
+      const handle = await env.agents.ensureSession(session.identity);
+      const ac = new AbortController();
+      turnAbort.set(session.sessionKey, ac);
 
-    const turn = await env.agents.runPromptTurn(handle, {
-      text: agentText,
-      ...(attachments.length > 0 ? { attachments } : {}),
-      mode: session.status === "running" ? "steer" : "prompt",
-      signal: ac.signal,
-    });
-
-    const drain = drainTurn(session, turn.events)
-      .catch(async () => {
-        try {
-          await renameTopic(session, "failed");
-        } catch {
-          /* ignore */
-        }
-      })
-      .finally(() => {
-        drainTasks.delete(session.sessionKey);
-        turnAbort.delete(session.sessionKey);
+      const turn = await env.agents.runPromptTurn(handle, {
+        text: agentText,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        mode: session.status === "running" ? "steer" : "prompt",
+        signal: ac.signal,
       });
-    drainTasks.set(session.sessionKey, drain);
-    void turn.done.catch(() => {});
+
+      const drain = drainTurn(session, turn.events)
+        .catch(async () => {
+          try {
+            await renameTopic(session, "failed");
+          } catch {
+            /* ignore */
+          }
+        })
+        .finally(() => {
+          drainTasks.delete(session.sessionKey);
+          turnAbort.delete(session.sessionKey);
+        });
+      drainTasks.set(session.sessionKey, drain);
+      void turn.done.catch(() => {});
+    } catch (err) {
+      await clearWorkingStatus(session);
+      throw err;
+    }
   }
 
   async function offerSkillPicker(
@@ -3209,9 +3144,6 @@ export function createDaemon(
       }
 
       if (updates.length === 0) {
-        // Best-effort legacy disk queues (pre worker API).
-        await drainTelegramQueue();
-        await drainSpeakQueue();
         try {
           await env.clock.sleep(conflictBackoffMs, signal);
         } catch {
@@ -3234,8 +3166,6 @@ export function createDaemon(
         await saveUpdateOffset(env.store, offset);
         log.debug("acked update offset", { offset });
       }
-      await drainTelegramQueue();
-      await drainSpeakQueue();
       }
     } finally {
       signal?.removeEventListener("abort", onAbort);

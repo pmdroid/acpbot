@@ -13,11 +13,6 @@ export type ProcessConfig = TacpConfig & {
   storePath: string;
   /** Directory for acpx session records — caller chooses location. */
   acpxStateDir: string;
-  /**
-   * `real` — spawn agents via acpx/runtime.
-   * `echo` — no child process; replies with a canned echo (Telegram path demo).
-   */
-  agentBackend: "real" | "echo";
   verbose?: boolean;
   /** debug | info | warn | error | silent — TACP_LOG_LEVEL (default info; TACP_VERBOSE=1 → debug). */
   logLevel: LogLevel;
@@ -99,20 +94,11 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     ? Number(operatorChatIdRaw)
     : undefined;
 
-  const backendRaw = (
-    file.agentBackend ??
-    env.TACP_AGENT_BACKEND ??
-    "real"
-  ).toLowerCase();
-  const agentBackend: "real" | "echo" =
-    backendRaw === "echo" || backendRaw === "fake" ? "echo" : "real";
-
   const config: ProcessConfig = {
     botToken,
     storePath,
     acpxStateDir,
     operatorUserId,
-    agentBackend,
     defaultAgent: normalizeAgentName(
       file.defaultAgent ?? env.TACP_DEFAULT_AGENT ?? "grok-build",
     ),

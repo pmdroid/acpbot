@@ -5,7 +5,7 @@
 - [Bun](https://bun.sh) ≥ 1.1
 - A Telegram bot with **topic mode enabled** in private chats (@BotFather)
 - For real agents: at least one CLI on `PATH` and logged in where required:
-  - **Grok Build** — `grok` (`grok agent stdio`), or `XAI_API_KEY`
+  - **Grok Build** — `grok` on `PATH` (`grok agent stdio`) and logged in
   - **Claude** — `claude` + `npx` (ACP adapter)
   - **Codex** — `codex` + `npx` (ACP adapter)
   - **OpenCode** — `opencode` (`opencode acp`)
@@ -45,16 +45,29 @@ TACP_STORE_PATH=./data/tacp-store.json
 # Prefer absolute so worker + acp-host always share the same dir
 TACP_ACPX_STATE_DIR=/absolute/path/to/tacp/data/acpx-state
 TACP_REPOS_JSON='{"demo":"/absolute/path/to/tacp/demo","tacp":"/absolute/path/to/tacp"}'
-TACP_AGENT_BACKEND=echo   # start with echo; switch to real later
+TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
 ```
 
 Full reference: [configuration.md](configuration.md).
 
-## 3. Smoke-test Telegram (`echo` backend)
+## 3. Start worker + host (real ACP)
+
+Recommended layout:
 
 ```bash
 set -a && source .env && set +a
+
+# Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
+bun run acp-host
+
+# Terminal 2 — Telegram worker + worker API (uses acp-host by default)
 bun run start
+```
+
+To spawn agents inside the worker instead of acp-host (not recommended):
+
+```bash
+TACP_ACP_HOST=0 bun run start
 ```
 
 In the private chat with the bot:
@@ -62,31 +75,12 @@ In the private chat with the bot:
 ```text
 /ping          → pong
 /new demo hi   → creates a forum topic
-# open the topic, type: hello
-# → echo agent replies in-topic
+# open the topic, type a prompt → real agent turn
 ```
 
 On startup tacp **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
 
-## 4. Run a real agent
-
-```bash
-# .env
-TACP_AGENT_BACKEND=real
-TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
-```
-
-Optional but recommended — keep agents warm across worker restarts:
-
-```bash
-# Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
-bun run acp-host
-
-# Terminal 2 — Telegram worker
-TACP_ACP_HOST=1 bun run start
-```
-
-If `acp-host.sock` already exists under `TACP_ACPX_STATE_DIR`, the worker auto-attaches unless `TACP_ACP_HOST=0`.
+The worker **always** attaches to acp-host unless `TACP_ACP_HOST=0`. Start `bun run acp-host` first (or together) so the socket is available.
 
 In a topic:
 
@@ -101,7 +95,9 @@ In a topic:
 | `/mcp` | Per-repo remote MCP registry + OAuth |
 | `/cancel` | Stop current turn (session kept) |
 
-Details: [commands.md](commands.md), [agents.md](agents.md).
+While a turn runs you will see a single **`⏳ Working…`** (or **`❓ Waiting…`**) message in the topic. MCP `update` rewrites that bubble; the final agent reply appears after it is removed. Forum topic titles stay fixed (`⏸ repo/name`).
+
+Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](architecture.md#turn-ux-working-bubble).
 
 ## 5. Media & speech (optional)
 

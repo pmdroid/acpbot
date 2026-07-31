@@ -2,7 +2,6 @@
 import { loadConfig } from "./config";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
 import { systemClock } from "./env/clock";
-import { echoAgents } from "./env/echo-agents";
 import { createLogger } from "./env/logger";
 import { realAgents } from "./env/real-agents";
 import { realTelegram } from "./env/real-telegram";
@@ -35,7 +34,6 @@ async function main(): Promise<void> {
   const speech = speechFromEnv(process.env, log);
 
   log.info("boot", {
-    agentBackend: cfg.agentBackend,
     defaultAgent: cfg.defaultAgent,
     logLevel: cfg.logLevel,
     operatorUserId: cfg.operatorUserId,
@@ -48,15 +46,12 @@ async function main(): Promise<void> {
     },
   });
 
-  const agents =
-    cfg.agentBackend === "echo"
-      ? echoAgents(tacpConfig)
-      : realAgents({
-          config: tacpConfig,
-          acpxStateDir: acpxStateDirAbs,
-          verbose: cfg.verbose,
-          log,
-        });
+  const agents = realAgents({
+    config: tacpConfig,
+    acpxStateDir: acpxStateDirAbs,
+    verbose: cfg.verbose,
+    log,
+  });
 
   const env: Environment = {
     config: tacpConfig,
@@ -103,7 +98,7 @@ async function main(): Promise<void> {
 
   try {
     console.error(
-      `tacp starting (agent backend: ${cfg.agentBackend}, agent: ${cfg.defaultAgent}, log: ${cfg.logLevel})…`,
+      `tacp starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel})…`,
     );
     console.error(`tacp acpx state dir: ${acpxStateDirAbs}`);
     if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {

@@ -17,7 +17,7 @@ Host MCP server: **`tacp`**. Call tools by name (clients may show them as `tacp_
 
 | Tool | When |
 |------|------|
-| **`update`** | Short progress ping while work continues (preferred status) |
+| **`update`** | Edit the live “⏳ working…” bubble while work continues (one message, not spam) |
 | **`telegram_send`** | Mid-turn text that is not a status ping (link, note, intermediate result) |
 | **`telegram_send_photo`** | Image the operator should see (screenshot, plot, generated picture) |
 | **`telegram_send_file`** | Non-image file (log, PDF, patch, archive) |
@@ -33,8 +33,8 @@ update({ text: "Migrated schema; running tests…" })
 telegram_send({ text: "Preview: https://…" })
 ```
 
-- **`update`**: 1–3 short sentences; lead with what happened / next step. No spam.
-- **`telegram_send`**: same channel, for content that is not a progress ping.
+- **`update`**: 1–3 short sentences; lead with what happened / next step. Edits the single working bubble; the host deletes it when the final reply lands.
+- **`telegram_send`**: permanent mid-turn messages (links, intermediate results) — not the working bubble.
 - Do **not** use either for the final answer (use the normal reply).
 - Do **not** ping on every tiny tool call.
 

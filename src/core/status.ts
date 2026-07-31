@@ -2,7 +2,7 @@ import type { AcpTurnEvent, SessionStatus } from "../env/types";
 
 /**
  * Status projection: a pure state machine over ACP events.
- * Topic names are derived from status; see topicName().
+ * Status is shown in the in-topic working bubble, not via topic renames.
  */
 export function reduceStatus(
   current: SessionStatus,
@@ -40,26 +40,18 @@ export function reduceStatus(
 }
 
 /**
- * Topic display name. Status is carried in the name so the topic list is the
- * dashboard. Format matches the surface mock: status marker + repo/name.
+ * Stable topic display name. Set once at createForumTopic; never rewritten for
+ * status (work / wait live in the in-topic “⏳/❓” bubble instead).
  */
-export function topicName(repo: string, name: string, status: SessionStatus): string {
-  const base = `${repo}/${name}`;
-  switch (status) {
-    case "running":
-      return `▶ ${base}`;
-    case "waiting-on-you":
-      return `❓ ${base}`;
-    case "idle":
-      return `⏸ ${base}`;
-    case "done":
-      return `✓ ${base}`;
-    case "failed":
-      return `✕ ${base}`;
-  }
+export function topicName(
+  repo: string,
+  name: string,
+  _status?: SessionStatus,
+): string {
+  return `⏸ ${repo}/${name}`;
 }
 
-/** Bare session identity for createForumTopic (before first status). */
+/** Bare session identity for createForumTopic. */
 export function initialTopicName(repo: string, name: string): string {
-  return topicName(repo, name, "idle");
+  return topicName(repo, name);
 }

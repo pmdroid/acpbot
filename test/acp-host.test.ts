@@ -17,9 +17,12 @@ describe("acp-host protocol helpers", () => {
     expect(defaultAcpHostSock("/tmp/x")).toBe("/tmp/x/acp-host.sock");
   });
 
-  test("shouldUseAcpHost respects env", () => {
+  test("shouldUseAcpHost defaults on; only 0/false opt out", () => {
+    expect(shouldUseAcpHost({})).toBe(true);
     expect(shouldUseAcpHost({ TACP_ACP_HOST: "1" })).toBe(true);
+    expect(shouldUseAcpHost({ TACP_ACP_HOST: "true" })).toBe(true);
     expect(shouldUseAcpHost({ TACP_ACP_HOST: "0" })).toBe(false);
+    expect(shouldUseAcpHost({ TACP_ACP_HOST: "false" })).toBe(false);
   });
 });
 
