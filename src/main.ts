@@ -1,0 +1,99 @@
+#!/usr/bin/env bun
+import { loadConfig } from "./config";
+import { createDaemon, TopicsDisabledError } from "./core/daemon";
+import { systemClock } from "./env/clock";
+import { echoAgents } from "./env/echo-agents";
+import { createLogger } from "./env/logger";
+import { realAgents } from "./env/real-agents";
+import { realTelegram } from "./env/real-telegram";
+import { speechFromEnv } from "./env/speech";
+import { createJsonFileStore } from "./env/store";
+import type { Environment } from "./env/types";
+
+async function main(): Promise<void> {
+  const cfg = loadConfig();
+  const log = createLogger({ level: cfg.logLevel, name: "tacp" });
+  const store = await createJsonFileStore(cfg.storePath);
+
+  const tacpConfig: import("./env/types").TacpConfig = {
+    operatorUserId: cfg.operatorUserId,
+    ...(cfg.operatorChatId !== undefined
+      ? { operatorChatId: cfg.operatorChatId }
+      : {}),
+    ...(cfg.repos ? { repos: cfg.repos } : {}),
+    ...(cfg.defaultAgent ? { defaultAgent: cfg.defaultAgent } : {}),
+    ...(cfg.skillRoots ? { skillRoots: cfg.skillRoots } : {}),
+    ...(cfg.acpMediaAttachments !== undefined
+      ? { acpMediaAttachments: cfg.acpMediaAttachments }
+      : {}),
+    ...(cfg.ttsMode ? { ttsMode: cfg.ttsMode } : {}),
+    ...(cfg.mcpEnabled !== undefined ? { mcpEnabled: cfg.mcpEnabled } : {}),
+  };
+
+  const speech = speechFromEnv(process.env, log);
+
+  log.info("boot", {
+    agentBackend: cfg.agentBackend,
+    defaultAgent: cfg.defaultAgent,
+    logLevel: cfg.logLevel,
+    operatorUserId: cfg.operatorUserId,
+    repos: Object.keys(cfg.repos ?? {}),
+    ttsMode: cfg.ttsMode,
+    mcpEnabled: cfg.mcpEnabled !== false,
+    speech: {
+      stt: Boolean(speech?.stt),
+      tts: Boolean(speech?.tts),
+    },
+  });
+
+  const agents =
+    cfg.agentBackend === "echo"
+      ? echoAgents(tacpConfig)
+      : realAgents({
+          config: tacpConfig,
+          acpxStateDir: cfg.acpxStateDir,
+          verbose: cfg.verbose,
+          log,
+        });
+
+  const env: Environment = {
+    config: tacpConfig,
+    telegram: realTelegram({ token: cfg.botToken, log }),
+    agents,
+    clock: systemClock(),
+    store,
+    log,
+    speech,
+  };
+
+  const daemon = createDaemon(env);
+  const ac = new AbortController();
+
+  const stop = () => {
+    log.info("signal: shutting down");
+    ac.abort();
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+
+  try {
+    console.error(
+      `tacp starting (agent backend: ${cfg.agentBackend}, agent: ${cfg.defaultAgent}, log: ${cfg.logLevel})…`,
+    );
+    await daemon.run(ac.signal);
+    console.error("tacp stopped.");
+  } catch (err) {
+    if (err instanceof TopicsDisabledError) {
+      log.error(err.message);
+      console.error(err.message);
+      process.exitCode = 2;
+      return;
+    }
+    throw err;
+  }
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+});
