@@ -17,7 +17,21 @@ agent's text, tool calls, or diffs. That requires an output volume policy, which
 is out of scope for the current map, and this ticket is deliberately scoped to
 defer it. Do not improvise one.
 
-Two runtime constraints are load-bearing and must be enforced, not merely
+**Safety: the session must be put in read-only mode before it can act.** This is
+not optional hardening, it is a defect if omitted. The agent's *own* session mode
+— not acpx's `permissionMode` — decides what happens without a prompt, and acpx
+never sets it. The Codex adapter ships a default that creates, edits, and deletes
+files anywhere under `cwd` and runs arbitrary shell commands, emitting **no
+permission request at all**. Since this ticket deliberately has no permission
+round-trip yet, a session must not be able to write anything.
+
+Required wiring: call `setMode` to read-only immediately after session creation,
+and pass the codex adapter an initial-mode environment variable to close the
+window before that first call. Mode ids differ between adapters — read them from
+the runtime's status rather than hardcoding. Also set
+`nonInteractivePermissions: "deny"`, never `"fail"`.
+
+Two further runtime constraints are load-bearing and must be enforced, not merely
 observed:
 
 - **`timeoutMs` is never set.** `runPromptTurn` wraps the entire `session/prompt`
@@ -52,3 +66,8 @@ drift silently.
 - [ ] Contract suite against real `acpx/runtime` confirms `onPermissionRequest` is
       awaited unbounded and beats `permissionMode`
 - [ ] No agent text, tool call, or diff content is emitted to the topic
+- [ ] Every session is placed in read-only mode before it can run a turn, with the
+      pre-`setMode` window closed via the adapter's initial-mode environment
+- [ ] Mode ids are read from runtime status, never hardcoded
+- [ ] A test asserts a session cannot modify the filesystem in this slice — the
+      permission round-trip does not exist yet, so nothing may write

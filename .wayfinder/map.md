@@ -73,6 +73,15 @@ the beginning of the implementation. Plan, don't do.
   auto-delete. Root area is a commands-only lobby. Makes wrong-session approval
   structurally near-impossible. Mock:
   [`assets/004-surface-model-mock.md`](assets/004-surface-model-mock.md).
+- [Verify the client-side fs and terminal permission path per agent](tickets/007-fs-terminal-permission-path.md)
+  — acpx's missing `confirmWrite` is **unreachable** for both agents (neither
+  calls client `fs`/`terminal`), **but an agent still writes files with no prompt
+  by default**: the real gate is the agent's own session mode, which acpx never
+  sets. Fix is `setMode` to read-only after `ensureSession`, not `permissionMode`.
+  Reads, agent-internal context IO, and operator hooks stay ungated regardless —
+  tacp is a control over what the model *chooses*, not a sandbox. Also corrects
+  two findings in the ACP semantics ticket. Findings: branch
+  `research/fs-terminal-gate`.
 
 ## Not yet specified
 

@@ -4,7 +4,7 @@ title: Design the permission and question round-trip
 type: prototype
 status: open
 assignee: null
-blocked_by: ["001", "003", "004", "008"]
+blocked_by: ["001", "003", "004", "008", "009"]
 ---
 
 ## Question
@@ -42,11 +42,15 @@ Design the full round-trip:
    *are* a protocol primitive (`elicitation/create`), and ACP's authors
    deliberately refused to fold permissions into it, so these stay two mechanisms
    with two designs. Three decisions follow:
-   - **Advertise `clientCapabilities.elicitation.form`?** Gap G2, and the
-     highest-leverage call in the project: Claude *disables its question tool
-     outright* unless tacp advertises it. Decide, and state what breaks either way.
-   - **The prose path is unavoidable regardless.** Codex never elicits at all, and
-     the spec's own prescribed fallback is to ask in turn text — which arrives as
+   - ~~**Advertise `clientCapabilities.elicitation.form`?**~~ **Superseded by
+     ticket 007's correction.** tacp *cannot* advertise it — acpx never does and
+     exposes no seam to. Whether that changes is
+     [Decide how tacp obtains structured questions through acpx](009-elicitation-through-acpx.md),
+     which now blocks this ticket. Design against its answer, not against G2 as
+     originally framed.
+   - **The prose path is unavoidable regardless.** (Note: "Codex never elicits" is
+     stale — the adapter acpx launches does elicit, but unreachably.) The spec's
+     own prescribed fallback is to ask in turn text — which arrives as
      `agent_message_chunk` then `stopReason: "end_turn"`, byte-identical to a
      finished answer. Decide whether tacp attempts detection or simply lets the
      operator reply to a finished turn like any other prompt.

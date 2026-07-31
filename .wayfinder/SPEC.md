@@ -206,10 +206,13 @@ separate.
 - **`optionId` is opaque and the option set is unbounded.** Never hardcode
   allow/deny; render whatever options the agent offered.
 - **Questions** are `elicitation/create` (form mode), which stabilized 2026-07-24.
-  Agent support splits sharply: **Claude disables its question tool outright
-  unless the client advertises `clientCapabilities.elicitation.form`**, and
-  **Codex never elicits at all**. Both the structured path and the unmarked-prose
-  path must exist.
+  **Claude disables its question tool outright unless the client advertises
+  `clientCapabilities.elicitation.form`** — and **acpx never advertises it, nor
+  registers a handler, nor exposes a seam to add one.** So through acpx as it
+  ships, structured questions do not work at all: Claude's `AskUserQuestion` is
+  disabled and the Codex adapter's elicitation support is unreachable. Both agents
+  fall back to unmarked prose. What to do about this is **OPEN, ticket 009**, and
+  it blocks the round-trip.
 - **The prose path is unmarked.** A clarifying question asked in turn text arrives
   as `agent_message_chunk` then `stopReason: "end_turn"` — byte-identical to a
   finished answer. This is the spec's *prescribed* fallback, not an edge case.
@@ -332,6 +335,7 @@ Do not implement these from inference. Each is a live ticket.
 | Repo selection from a phone, agent selection, session creation, listing, cancel-vs-end-vs-delete, restart survival, concurrency cap | [006](tickets/006-repo-selection-session-lifecycle.md) |
 | What an agent can do with no prompt: whether `fs`/`terminal` client methods are exercised per agent, the safe `permissionMode`, whether withholding client capabilities is a viable lever | [007](tickets/007-fs-terminal-permission-path.md) |
 | Bot provisioning, and the measured `answerCallbackQuery` window | [008](tickets/008-provision-bot-topic-mode.md) |
+| How tacp obtains structured questions at all, given acpx neither advertises `elicitation` nor exposes a seam — accept prose-only, upstream a patch, fork, or reopen the substrate decision | [009](tickets/009-elicitation-through-acpx.md) |
 
 ## Testing Decisions
 
@@ -431,13 +435,28 @@ retirement, and lobby semantics are all independent of which was chosen. The
 supergroup route regains `closeForumTopic`/`reopenForumTopic` as a real archive
 signal, at the cost of privacy-mode handling and the 20 msg/min cap.
 
-**The safety boundary is not yet known.** Ticket 007 is verifying what an agent can
-do under `approve-all` without any prompt reaching the operator — specifically
-whether the client-side `fs`/`terminal` path, which bypasses `onPermissionRequest`
-entirely, is exercised in practice. Until it reports, treat the blast radius of a
-running session as unestablished. A promising lever under investigation: simply not
-advertising `fs.writeTextFile` or `terminal` in `clientCapabilities`, forcing
-agents to do their own IO and surface it as gated tool calls.
+**The safety boundary is now known, and it is not where ticket 001 thought.**
+Neither agent calls the client's `fs`/`terminal` methods at all — both spawn their
+own CLI and do IO in-process — so acpx's missing `confirmWrite` is unreachable and
+`permissionMode` opens no hole. The capability-withholding lever I proposed turns
+out to be a **no-op**: neither agent reads those capabilities, and
+`AcpRuntimeOptions` cannot express it anyway.
+
+**The real gate is the agent's own session mode, and acpx never sets it.** The
+Codex adapter ships a default under which it creates, edits and deletes files
+anywhere under `cwd` and runs arbitrary sandboxed shell commands with **no
+permission request emitted at all**; Claude matches whenever local settings raise
+its default mode or carry allow-rules. The fix is `setMode` to read-only
+immediately after session creation, plus an initial-mode environment variable to
+close the window before that call — not `permissionMode`.
+
+**What stays ungated regardless:** all reads, with full-disk read access, in every
+mode of both agents; agent-internal context IO (CLAUDE.md/AGENTS.md, skills, git
+probing), which emits no tool call; and operator-configured hooks, which run
+arbitrary shell commands and are invisible to ACP entirely. **tacp's permission
+round-trip is a control over what the model *chooses* to do, not a sandbox.** A
+hard guarantee needs a dedicated user or container, which this spec does not
+provide.
 
 **Research assets**, all on throwaway branches: `research/acpx-runtime` (710
 lines), `research/telegram-bot-api` (641), `research/acp-semantics` (1022), and
