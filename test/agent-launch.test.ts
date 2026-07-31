@@ -1,28 +1,54 @@
 import { describe, expect, test } from "bun:test";
 import {
+  listRegisteredAgents,
   normalizeAgentName,
   resolveAgentLaunch,
 } from "../src/acp/agent-launch";
+import {
+  applyModelToLaunch,
+  getCannedModelsForAgent,
+} from "../src/acp/agent-models";
 
 describe("agent-launch", () => {
-  test("normalizeAgentName", () => {
-    expect(normalizeAgentName("grok")).toBe("grok-build");
-    expect(normalizeAgentName("Grok-Build")).toBe("grok-build");
+  test("claude-code normalizes to claude adapter", () => {
+    expect(normalizeAgentName("claude-code")).toBe("claude");
+    const launch = resolveAgentLaunch("claude");
+    expect(launch.command).toBe("npx");
+    expect(launch.args.join(" ")).toContain("claude-agent-acp");
   });
 
-  test("resolveAgentLaunch builtins", () => {
-    expect(resolveAgentLaunch("grok-build")).toEqual({
-      command: "grok",
-      args: ["agent", "stdio"],
-    });
+  test("codex uses codex-acp adapter not codex acp", () => {
+    const launch = resolveAgentLaunch("codex");
+    expect(launch.command).toBe("npx");
+    expect(launch.args.join(" ")).toContain("codex-acp");
+    expect(launch.args).not.toContain("acp");
   });
 
-  test("resolveAgentLaunch override env", () => {
-    const launch = resolveAgentLaunch("grok-build", {
-      TACP_AGENT_COMMAND_JSON: JSON.stringify({
-        "grok-build": { command: "/bin/echo", args: ["acp"] },
-      }),
-    });
-    expect(launch).toEqual({ command: "/bin/echo", args: ["acp"] });
+  test("grok-build keeps native stdio", () => {
+    const launch = resolveAgentLaunch("grok-build");
+    expect(launch).toEqual({ command: "grok", args: ["agent", "stdio"] });
+  });
+});
+
+describe("agent-models canned", () => {
+  test("grok has canned models", () => {
+    const m = getCannedModelsForAgent("grok-build");
+    expect(m.length).toBeGreaterThan(0);
+    expect(m.some((x) => x.value.includes("grok"))).toBe(true);
+  });
+
+  test("applyModelToLaunch adds -m for grok", () => {
+    const base = { command: "grok", args: ["agent", "stdio"] };
+    const next = applyModelToLaunch("grok-build", base, "grok-3-mini");
+    expect(next.args).toEqual(["agent", "stdio", "-m", "grok-3-mini"]);
+  });
+});
+
+describe("listRegisteredAgents", () => {
+  test("includes grok-build claude codex", () => {
+    const ids = listRegisteredAgents({});
+    expect(ids).toContain("grok-build");
+    expect(ids).toContain("claude");
+    expect(ids).toContain("codex");
   });
 });

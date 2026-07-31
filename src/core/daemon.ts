@@ -1963,10 +1963,12 @@ export function createDaemon(
     }
 
     const modelOpt = findModelConfigOption(options);
-    if (!modelOpt) {
+    if (!modelOpt || modelOpt.options.length === 0) {
       await sendInTopic(
         session,
-        formatModelStatus({ configOptions: options }),
+        formatModelStatus({ configOptions: options }) +
+          "\n\n_Tip: canned models appear for Grok/Codex/Claude when the agent " +
+          "does not advertise ACP model options. Switching model respawns Grok with `-m`._",
         undefined,
         { html: true },
       );
