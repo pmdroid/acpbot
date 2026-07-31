@@ -311,7 +311,7 @@ export type AcpTurnEvent =
   | {
       type: "tool_call";
       toolCallId: string;
-      title?: string;
+      title?: string | undefined;
       /** Tool input when available (used for speak/tts detection). */
       rawInput?: unknown;
     }
