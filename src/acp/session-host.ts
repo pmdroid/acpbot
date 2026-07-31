@@ -21,6 +21,12 @@ import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
+import {
+  findModelConfigOption,
+  modelsStateToConfigOptions,
+  normalizeConfigOptions,
+  type SessionConfigOptionView,
+} from "./session-config";
 import { TerminalManager } from "./terminal-manager";
 import {
   createFileHostSessionStore,
@@ -64,6 +70,7 @@ export type HostSession = {
   agent: string;
   currentModeId?: string | undefined;
   availableModeIds?: string[] | undefined;
+  configOptions?: SessionConfigOptionView[] | undefined;
 };
 
 export type HostModeState = {
@@ -81,6 +88,8 @@ type LiveSession = {
   /** Last known ACP mode id (from new/load/setMode/updates) */
   currentModeId: string | undefined;
   availableModeIds: string[];
+  /** ACP configOptions (model select, etc.) */
+  configOptions: SessionConfigOptionView[];
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
 };
@@ -125,6 +134,14 @@ export type SessionHost = {
   setMode(sessionKey: string, modeId: string): Promise<HostModeState>;
   getModeState(sessionKey: string): HostModeState | undefined;
   getAvailableModes(sessionKey: string): string[];
+  getConfigOptions(sessionKey: string): SessionConfigOptionView[];
+  setConfigOption(
+    sessionKey: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOptionView[]>;
+  /** Kill live process for sessionKey (used before agent binary switch). */
+  disposeSession(sessionKey: string): Promise<void>;
   setHooks(hooks: SessionHostHooks): void;
   dispose(): Promise<void>;
 };
@@ -134,6 +151,42 @@ function contentText(block: unknown): string | undefined {
   const b = block as { type?: string; text?: string };
   if (b.type === "text" && typeof b.text === "string") return b.text;
   return undefined;
+}
+
+/**
+ * ActiveSession only exposes modes/meta getters; configOptions + extension
+ * fields live on `newSessionResponse` (the validated session/new|load body).
+ */
+function sessionNewPayload(session: acp.ActiveSession): {
+  configOptions?: unknown;
+  models?: unknown;
+  meta?: Record<string, unknown> | null;
+} {
+  const resp = (
+    session as {
+      newSessionResponse?: {
+        configOptions?: unknown;
+        models?: unknown;
+        _meta?: Record<string, unknown> | null;
+      };
+    }
+  ).newSessionResponse;
+  const meta =
+    session.meta ??
+    resp?._meta ??
+    (session as { _meta?: Record<string, unknown> | null })._meta ??
+    null;
+  return {
+    configOptions:
+      resp?.configOptions ??
+      (session as { configOptions?: unknown }).configOptions,
+    models:
+      resp?.models ??
+      (session as { models?: unknown }).models ??
+      meta?.models ??
+      meta?.modelState,
+    meta,
+  };
 }
 
 export function createSessionHost(options: SessionHostOptions): SessionHost {
@@ -152,6 +205,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     cwd: process.cwd(),
     log,
   });
+  /**
+   * Model catalog notifications can arrive before live.set during session/new.
+   * Buffer by tacp sessionKey until the LiveSession entry exists.
+   */
+  const pendingModelConfig = new Map<string, SessionConfigOptionView[]>();
 
   async function persistRecord(
     partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
@@ -310,8 +368,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return terminals.releaseTerminal(params);
   }
 
-  function buildClientApp(): acp.ClientApp {
+  function buildClientApp(sessionKey: string): acp.ClientApp {
     const askParser = (p: unknown) =>
+      (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
+    const modelsParser = (p: unknown) =>
       (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
 
     return acp
@@ -348,7 +408,25 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       )
       .onRequest("x.ai/ask_user_question", askParser, (ctx) =>
         handleAskUserQuestion(ctx.params),
-      );
+      )
+      // Grok Build pushes model catalog here (not only on session/new).
+      // https://github.com/xai-org/grok-build — SessionModelState
+      .onNotification("_x.ai/models/update", modelsParser, (ctx) => {
+        const opts = modelsStateToConfigOptions(ctx.params);
+        if (opts.length === 0) return;
+        const entry = live.get(sessionKey);
+        if (entry) {
+          entry.configOptions = opts;
+        } else {
+          pendingModelConfig.set(sessionKey, opts);
+        }
+        log.info("models updated via _x.ai/models/update", {
+          sessionKey,
+          count: opts[0]?.options.length ?? 0,
+          current: opts[0]?.currentValue ?? null,
+          buffered: !entry,
+        });
+      });
   }
 
   async function spawnSession(input: {
@@ -364,9 +442,13 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       cwd: input.cwd,
     });
 
+    const childEnv = {
+      ...process.env,
+    };
+
     const child = spawn(launch.command, launch.args, {
       cwd: input.cwd,
-      env: process.env,
+      env: childEnv,
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams;
 
@@ -375,15 +457,22 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const s = c.toString("utf8");
       stderrChunks.push(s);
       if (stderrChunks.join("").length < 8000) {
-        log.debug("agent stderr", { sessionKey: input.sessionKey, text: s.slice(0, 400) });
+        log.debug("agent stderr", {
+          sessionKey: input.sessionKey,
+          text: s.slice(0, 400),
+        });
       }
     });
 
+    let earlyExit: { code: number | null; signal: NodeJS.Signals | null } | null =
+      null;
     child.on("exit", (code, signal) => {
+      earlyExit = { code, signal };
       log.warn("agent process exit", {
         sessionKey: input.sessionKey,
         code,
         signal,
+        stderr: stderrChunks.join("").slice(0, 500),
       });
       live.delete(input.sessionKey);
     });
@@ -392,11 +481,43 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       throw new Error("agent spawn failed: missing stdio pipes");
     }
 
+    // Fail fast if process dies before initialize (bad command / missing adapter)
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => resolve(), 80);
+      child.once("exit", (code, signal) => {
+        clearTimeout(t);
+        const errText = stderrChunks.join("").trim().slice(0, 800);
+        reject(
+          new Error(
+            `agent process exited immediately (code=${code}, signal=${signal})` +
+              (errText ? `:\n${errText}` : "") +
+              `\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+          ),
+        );
+      });
+      child.once("error", (err) => {
+        clearTimeout(t);
+        reject(
+          new Error(
+            `agent spawn error: ${err.message}\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+          ),
+        );
+      });
+    });
+    if (earlyExit) {
+      const errText = stderrChunks.join("").trim().slice(0, 800);
+      throw new Error(
+        `agent process exited immediately (code=${earlyExit.code})` +
+          (errText ? `:\n${errText}` : "") +
+          `\ncommand: ${launch.command} ${launch.args.join(" ")}`,
+      );
+    }
+
     const output = Writable.toWeb(child.stdin);
     const inputStream = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
     const stream = acp.ndJsonStream(output, inputStream);
 
-    const app = buildClientApp();
+    const app = buildClientApp(input.sessionKey);
     const connection = app.connect(stream);
 
     // Initialize
@@ -539,6 +660,40 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       }
     }
 
+    // Model sources (ACP only — no canned lists):
+    // 1) Grok-style session.models / SessionModelState (session/set_model)
+    // 2) configOptions select with category/id model (OpenCode, etc.)
+    // 3) buffered _x.ai/models/update that arrived during session/new
+    const boot = sessionNewPayload(session);
+    let configOptions = modelsStateToConfigOptions(boot.models);
+    let modelSource:
+      | "session.models"
+      | "configOptions"
+      | "models-update"
+      | "none" = "none";
+    if (findModelConfigOption(configOptions)) {
+      modelSource = "session.models";
+    } else {
+      configOptions = normalizeConfigOptions(boot.configOptions);
+      if (findModelConfigOption(configOptions)) {
+        modelSource = "configOptions";
+      }
+    }
+    const buffered = pendingModelConfig.get(input.sessionKey);
+    if (buffered && findModelConfigOption(buffered)) {
+      if (!findModelConfigOption(configOptions)) {
+        configOptions = buffered;
+        modelSource = "models-update";
+      }
+      pendingModelConfig.delete(input.sessionKey);
+    }
+    log.info("session models/config", {
+      sessionKey: input.sessionKey,
+      modelCount: findModelConfigOption(configOptions)?.options.length ?? 0,
+      current: findModelConfigOption(configOptions)?.currentValue ?? null,
+      source: modelSource,
+    });
+
     await persistRecord({
       sessionKey: input.sessionKey,
       agentSessionId: session.sessionId,
@@ -557,10 +712,34 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       session,
       currentModeId: modeId,
       availableModeIds: available,
+      configOptions,
       turnAbort: undefined,
     };
     live.set(input.sessionKey, entry);
     return entry;
+  }
+
+  async function killLiveSession(sessionKey: string): Promise<void> {
+    const entry = live.get(sessionKey);
+    if (!entry) return;
+    entry.turnAbort?.abort();
+    try {
+      await entry.connection.agent.notify(acp.methods.agent.session.cancel, {
+        sessionId: entry.session.sessionId,
+      });
+    } catch {
+      /* */
+    }
+    try {
+      entry.child.kill("SIGTERM");
+    } catch {
+      /* */
+    }
+    agentIdToKey.delete(entry.session.sessionId);
+    agentIdToKey.delete(sessionKey);
+    live.delete(sessionKey);
+    pendingModelConfig.delete(sessionKey);
+    log.info("disposed live session", { sessionKey, agent: entry.agent });
   }
 
   return {
@@ -571,14 +750,28 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     async ensureSession(input) {
       const existing = live.get(input.sessionKey);
       if (existing) {
-        return {
-          sessionKey: input.sessionKey,
-          agentSessionId: existing.session.sessionId,
-          cwd: existing.cwd,
-          agent: existing.agent,
-          currentModeId: existing.currentModeId,
-          availableModeIds: existing.availableModeIds,
-        };
+        // Agent or cwd change → kill and respawn (e.g. /agent switch).
+        if (
+          existing.agent !== input.agent ||
+          existing.cwd !== input.cwd
+        ) {
+          log.info("ensureSession: agent/cwd changed; respawning", {
+            sessionKey: input.sessionKey,
+            fromAgent: existing.agent,
+            toAgent: input.agent,
+          });
+          await killLiveSession(input.sessionKey);
+        } else {
+          return {
+            sessionKey: input.sessionKey,
+            agentSessionId: existing.session.sessionId,
+            cwd: existing.cwd,
+            agent: existing.agent,
+            currentModeId: existing.currentModeId,
+            availableModeIds: existing.availableModeIds,
+            configOptions: existing.configOptions,
+          };
+        }
       }
       const entry = await spawnSession(input);
       return {
@@ -588,6 +781,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         agent: entry.agent,
         currentModeId: entry.currentModeId,
         availableModeIds: entry.availableModeIds,
+        configOptions: entry.configOptions,
       };
     },
 
@@ -836,6 +1030,107 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           ?.available?.map((m) => m.id) ??
         []
       );
+    },
+
+    getConfigOptions(sessionKey) {
+      const entry = live.get(sessionKey);
+      if (!entry) return [];
+      // Prefer latest from session/new payload when it includes a model select.
+      const boot = sessionNewPayload(entry.session);
+      const fromAgent = normalizeConfigOptions(boot.configOptions);
+      if (findModelConfigOption(fromAgent)) {
+        entry.configOptions = fromAgent;
+      } else {
+        const fromModels = modelsStateToConfigOptions(boot.models);
+        if (findModelConfigOption(fromModels)) {
+          entry.configOptions = fromModels;
+        }
+      }
+      // Otherwise keep entry.configOptions (session.models / _x.ai/models/update).
+      return [...entry.configOptions];
+    },
+
+    async setConfigOption(sessionKey, configId, value) {
+      const entry = live.get(sessionKey);
+      if (!entry) {
+        throw new Error(`no live session for ${sessionKey}`);
+      }
+
+      // Grok Build uses dedicated session/set_model (not set_config_option).
+      // https://github.com/xai-org/grok-build — SetSessionModelRequest
+      if (
+        typeof value === "string" &&
+        (configId === "model" || /model/i.test(configId))
+      ) {
+        try {
+          const resp = await entry.connection.agent.request(
+            "session/set_model" as never,
+            {
+              sessionId: entry.session.sessionId,
+              modelId: value,
+            } as never,
+          );
+          // Response may include updated model state
+          const respModels =
+            (resp as { models?: unknown })?.models ??
+            (resp as { _meta?: { modelState?: unknown } })?._meta?.modelState;
+          const fromResp = modelsStateToConfigOptions(respModels);
+          if (fromResp.length > 0) {
+            entry.configOptions = fromResp;
+          } else {
+            const hit = findModelConfigOption(entry.configOptions);
+            if (hit) hit.currentValue = value;
+          }
+          log.info("set_model ok (Grok/ACP session model)", {
+            sessionKey,
+            modelId: value,
+          });
+          return [...entry.configOptions];
+        } catch (setModelErr) {
+          log.debug("session/set_model failed; trying set_config_option", {
+            sessionKey,
+            error:
+              setModelErr instanceof Error
+                ? setModelErr.message
+                : String(setModelErr),
+          });
+        }
+      }
+
+      // Native ACP configOptions path
+      const params =
+        typeof value === "boolean"
+          ? {
+              sessionId: entry.session.sessionId,
+              configId,
+              type: "boolean" as const,
+              value,
+            }
+          : {
+              sessionId: entry.session.sessionId,
+              configId,
+              value,
+            };
+      const resp = await entry.connection.agent.request(
+        acp.methods.agent.session.setConfigOption,
+        params as never,
+      );
+      const nextRaw =
+        (resp as { configOptions?: unknown })?.configOptions ??
+        sessionNewPayload(entry.session).configOptions;
+      entry.configOptions = normalizeConfigOptions(nextRaw);
+      const hit = entry.configOptions.find((o) => o.id === configId);
+      if (hit) hit.currentValue = value;
+      log.info("setConfigOption ok (ACP)", {
+        sessionKey,
+        configId,
+        value: String(value),
+      });
+      return [...entry.configOptions];
+    },
+
+    async disposeSession(sessionKey) {
+      await killLiveSession(sessionKey);
     },
 
     async dispose() {

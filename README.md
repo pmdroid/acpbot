@@ -15,8 +15,8 @@ With a provisioned bot you can:
 1. Start the daemon (syncs the Telegram **/** menu from the command registry)
 2. **Lobby:** `/ping`, `/new`, `/sessions`, `/help`
 3. `/new` → pick a repo (or `/new <repo> <name>`) → topic appears
-4. **Topic:** type to prompt; send photos/files/voice; `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
-5. **Media:** images/docs → `.tacp-inbox/` (or ACP attach when enabled); voice → STT; agent-controlled **TTS** via host MCP tool `speak` (or `<<<speak>>>` marker) when a speech provider is configured
+4. **Topic:** type to prompt; send photos/files/voice; `/status`, `/model`, `/agent`, `/plan`/`/build`/`/mode`, `/skills`, `/cancel`, `/help`
+5. **Media:** images/docs → `.tacp-inbox/` (or ACP attach when enabled); voice → STT; agent-controlled **TTS** / **photo** / **file** via host MCP tools calling the worker Unix API (`worker-api.sock`) when a speech provider is configured for TTS
 
 On startup tacp **wipes** stale `setMyCommands` scopes (default + private, en)
 and registers the short menu (`ping`, `new`, `sessions`, `cancel`, `help`).
@@ -82,7 +82,11 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
-| Host MCP `update` / `telegram_send` (mid-turn text) | **Yes** (queue → topic; progress pings) |
+| Host MCP `update` / `telegram_send` (mid-turn text) | **Yes** (worker Unix API → topic) |
+| Host MCP `telegram_send_photo` / `telegram_send_file` | **Yes** (worker Unix API; path under session repo) |
+| Host MCP `speak` (TTS voice) | **Yes** (worker Unix API → sendVoice) |
+| Worker outbound API | **Yes** (`$TACP_ACPX_STATE_DIR/worker-api.sock`) |
+| Topic `/model` `/agent` (LLM / process switch) | **Yes** (ACP `session.models` / configOptions + `session/set_model`; agent respawn via ACP adapters) |
 | Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD + host auto-fire via acp-host) |
 | Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse; OAuth Bearer from host store) |
 | Remote MCP OAuth (`/mcp auth`, host callback) | **Yes** (PKCE; tokens under `TACP_ACPX_STATE_DIR`) |

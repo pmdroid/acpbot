@@ -1,10 +1,9 @@
 /**
  * tacp MCP server (stdio) — tools the agent can call during a Telegram session.
  *
- * speak: enqueue TTS for the tacp daemon, which sendVoice to Telegram.
- * update / telegram_send: mid-turn text to the operator's Telegram topic.
+ * Outbound Telegram (text / photo / file / speak) goes to the **worker API**
+ * (HTTP over Unix socket). The daemon owns the bot token and topic map.
  * schedule_*: durable jobs under <repo>/.tacp/schedules/ (prompt + optional script).
- * The MCP process cannot call Telegram itself (it is a child of the agent).
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -15,15 +14,17 @@ import {
   markJobDue,
 } from "../schedules/store";
 import {
-  enqueueSpeakJob,
-  speakQueueDir,
-  waitForSpeakAck,
-} from "./speak-queue";
+  basenameOf,
+  resolvePathUnderRepo,
+  TELEGRAM_DOCUMENT_MAX_BYTES,
+  TELEGRAM_PHOTO_MAX_BYTES,
+} from "./repo-path";
 import {
-  enqueueTelegramJob,
-  telegramQueueDir,
-  waitForTelegramAck,
-} from "./telegram-queue";
+  workerSendDocument,
+  workerSendMessage,
+  workerSendPhoto,
+  workerSpeak,
+} from "./worker-api";
 
 const server = new FastMCP({
   name: "tacp",
@@ -81,23 +82,15 @@ server.tool(
         "(tacp must inject session key via mcpServers env)."
       );
     }
-    const queueDir = speakQueueDir();
     try {
-      const job = await enqueueSpeakJob({
-        sessionKey,
-        text: cleaned,
-        queueDir,
-      });
-      const ack = await waitForSpeakAck(job.id, {
-        queueDir,
-        timeoutMs: 90_000,
-      });
-      if (!ack.ok) {
-        return `speak failed: ${ack.error}`;
-      }
-      return `Sent Telegram voice note (${cleaned.length} chars${
-        ack.bytes != null ? `, ${ack.bytes} bytes` : ""
-      }).`;
+      const ack = await workerSpeak({ sessionKey, text: cleaned });
+      if (!ack.ok) return `speak failed: ${ack.error}`;
+      return (
+        ack.message ??
+        `Sent Telegram voice note (${cleaned.length} chars${
+          ack.bytes != null ? `, ${ack.bytes} bytes` : ""
+        }).`
+      );
     } catch (err) {
       return `speak failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -130,20 +123,14 @@ server.tool(
         "(tacp must inject session key via mcpServers env)."
       );
     }
-    const queueDir = telegramQueueDir();
     try {
-      const job = await enqueueTelegramJob({
+      const ack = await workerSendMessage({
         sessionKey,
         text: cleaned,
         kind: "update",
-        queueDir,
-      });
-      const ack = await waitForTelegramAck(job.id, {
-        queueDir,
-        timeoutMs: 30_000,
       });
       if (!ack.ok) return `update failed: ${ack.error}`;
-      return `Sent Telegram update (${cleaned.length} chars).`;
+      return ack.message ?? `Sent Telegram update (${cleaned.length} chars).`;
     } catch (err) {
       return `update failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -175,22 +162,125 @@ server.tool(
         "(tacp must inject session key via mcpServers env)."
       );
     }
-    const queueDir = telegramQueueDir();
     try {
-      const job = await enqueueTelegramJob({
+      const ack = await workerSendMessage({
         sessionKey,
         text: cleaned,
         kind: "message",
-        queueDir,
-      });
-      const ack = await waitForTelegramAck(job.id, {
-        queueDir,
-        timeoutMs: 30_000,
       });
       if (!ack.ok) return `telegram_send failed: ${ack.error}`;
-      return `Sent Telegram message (${cleaned.length} chars).`;
+      return ack.message ?? `Sent Telegram message (${cleaned.length} chars).`;
     } catch (err) {
       return `telegram_send failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "telegram_send_photo",
+    description:
+      "Send a photo to the operator on Telegram in this topic. " +
+      "Path must be a file inside the session repo (relative to repo root or absolute under it). " +
+      "Use for screenshots, plots, UI captures, design previews. Max ~10MB. " +
+      "Prefer JPG/PNG/WebP. For PDFs, zips, logs, or other non-image files use telegram_send_file.",
+    input: z.object({
+      path: z
+        .string()
+        .min(1)
+        .describe("Image path relative to repo root (or absolute under the repo)"),
+      caption: z
+        .string()
+        .optional()
+        .describe("Optional caption shown under the photo"),
+    }),
+  },
+  async ({ path, caption }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `telegram_send_photo failed: ${env.error}`;
+    const resolved = resolvePathUnderRepo(env.repoRoot, path);
+    if (!resolved.ok) return `telegram_send_photo failed: ${resolved.error}`;
+    if (resolved.size > TELEGRAM_PHOTO_MAX_BYTES) {
+      return (
+        `telegram_send_photo failed: file too large (${resolved.size} bytes; ` +
+        `max ${TELEGRAM_PHOTO_MAX_BYTES}). Use telegram_send_file for larger files ` +
+        `or compress the image.`
+      );
+    }
+    try {
+      const ack = await workerSendPhoto({
+        sessionKey: env.sessionKey,
+        path: resolved.abs,
+        filename: basenameOf(resolved.abs),
+        ...(caption?.trim() ? { caption: caption.trim() } : {}),
+      });
+      if (!ack.ok) return `telegram_send_photo failed: ${ack.error}`;
+      return (
+        ack.message ??
+        `Sent Telegram photo \`${resolved.rel}\` (${resolved.size} bytes).`
+      );
+    } catch (err) {
+      return `telegram_send_photo failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "telegram_send_file",
+    description:
+      "Send a file/document to the operator on Telegram in this topic. " +
+      "Path must be a file inside the session repo (relative to repo root or absolute under it). " +
+      "Use for patches, logs, PDFs, archives, generated artifacts. Max ~50MB. " +
+      "For images meant to be viewed inline, prefer telegram_send_photo.",
+    input: z.object({
+      path: z
+        .string()
+        .min(1)
+        .describe("File path relative to repo root (or absolute under the repo)"),
+      caption: z
+        .string()
+        .optional()
+        .describe("Optional caption for the document"),
+      filename: z
+        .string()
+        .optional()
+        .describe("Optional download filename override (default: basename of path)"),
+    }),
+  },
+  async ({ path, caption, filename }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `telegram_send_file failed: ${env.error}`;
+    const resolved = resolvePathUnderRepo(env.repoRoot, path);
+    if (!resolved.ok) return `telegram_send_file failed: ${resolved.error}`;
+    if (resolved.size > TELEGRAM_DOCUMENT_MAX_BYTES) {
+      return (
+        `telegram_send_file failed: file too large (${resolved.size} bytes; ` +
+        `max ${TELEGRAM_DOCUMENT_MAX_BYTES}).`
+      );
+    }
+    if (resolved.size === 0) {
+      return `telegram_send_file failed: file is empty: ${path}`;
+    }
+    const name = filename?.trim() || basenameOf(resolved.abs);
+    try {
+      const ack = await workerSendDocument({
+        sessionKey: env.sessionKey,
+        path: resolved.abs,
+        filename: name,
+        ...(caption?.trim() ? { caption: caption.trim() } : {}),
+      });
+      if (!ack.ok) return `telegram_send_file failed: ${ack.error}`;
+      return (
+        ack.message ??
+        `Sent Telegram file \`${name}\` from \`${resolved.rel}\` (${resolved.size} bytes).`
+      );
+    } catch (err) {
+      return `telegram_send_file failed: ${
         err instanceof Error ? err.message : String(err)
       }`;
     }
