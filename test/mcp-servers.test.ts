@@ -519,6 +519,8 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           cwd: repo,
           enabled: true,
           sessionKey: "demo/main",
+          // Public remote without OAuth — do not fail-closed.
+          oauthFailClosed: false,
         });
         expect(servers[0]).toMatchObject({
           type: "http",

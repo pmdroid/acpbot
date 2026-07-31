@@ -31,6 +31,7 @@ describe("acp-host server", () => {
       sockPath,
       stateDir: dir,
       sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
     });
 
     const reply = await new Promise<string>((resolve, reject) => {
@@ -71,6 +72,7 @@ describe("acp-host server", () => {
       sockPath,
       stateDir: dir,
       sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
     });
 
     const client: SessionHost = createAcpHostClient({ sockPath });

@@ -55,6 +55,7 @@ describe("command registry", () => {
       "/build",
       "/cancel",
       "/help",
+      "/mcp",
       "/mode",
       "/new",
       "/ping",
@@ -104,6 +105,7 @@ describe("command registry", () => {
     expect(topic).toContain("/plan");
     expect(topic).toContain("/build");
     expect(topic).toContain("/mode");
+    expect(topic).toContain("/mcp");
     expect(topic).not.toContain("/new —");
   });
 

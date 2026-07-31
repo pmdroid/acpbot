@@ -58,6 +58,12 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Switch agent to build/code mode (tools on)",
   },
   {
+    name: "/mcp",
+    scope: "topic",
+    summary:
+      "MCP gateways: status|add|remove|auth|code (tokens on host, not in repo)",
+  },
+  {
     name: "/help",
     scope: "both",
     summary: "Show commands for this surface",
