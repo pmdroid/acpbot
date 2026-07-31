@@ -162,6 +162,21 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       abortBySession.delete(sessionKey);
     },
 
+    async setSessionMode(sessionKey, modeId) {
+      modes.set(sessionKey, modeId);
+      return {
+        currentModeId: modeId,
+        availableModeIds: ["plan", "build", "default"],
+      };
+    },
+
+    async getSessionMode(sessionKey) {
+      return {
+        currentModeId: modes.get(sessionKey) ?? "build",
+        availableModeIds: ["plan", "build", "default"],
+      };
+    },
+
     async ensureSession(identity) {
       ensureCalls.push({ ...identity });
       const key = sessionKeyOf(identity);

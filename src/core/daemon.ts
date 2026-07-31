@@ -72,6 +72,11 @@ import {
   type SpeakRequest,
 } from "./speak";
 import {
+  completeSpeakJob,
+  listPendingSpeakJobs,
+  speakQueueDir,
+} from "../mcp/speak-queue";
+import {
   buildSkillsKeyboard,
   clampSkillPage,
   composeSkillAgentPrompt,
@@ -86,6 +91,13 @@ import {
   type SkillInfo,
 } from "./skills";
 import { initialTopicName, reduceStatus, topicName } from "./status";
+import {
+  formatModeStatus,
+  resolveBuildModeId,
+  resolveModeToken,
+  resolvePlanModeId,
+  togglePlanBuildModeId,
+} from "../acp/session-mode";
 import type { AcpTurnEvent, PromptAttachment } from "../env/types";
 
 export type DaemonOptions = {
@@ -1119,13 +1131,13 @@ export function createDaemon(
               title: event.title,
               hasText: Boolean(text),
             });
-            // Prefer speaking as soon as the MCP/tool call arrives (with text),
-            // so voice is not delayed until the full turn ends.
+            // MCP speak enqueues a job and waits for ack — drain now so the
+            // MCP tool can complete (do not rely on <<<speak>>> markers).
             const ttsMode = env.config.ttsMode ?? "agent";
-            if (ttsMode !== "off" && text?.trim()) {
-              const ok = await maybeSendTts(session, text, "tool");
-              // Mark delivered only on success so end-of-turn can retry.
-              if (ok) {
+            if (ttsMode !== "off") {
+              await drainSpeakQueue();
+              // If queue already delivered this tool's text, skip end-of-turn TTS.
+              if (text?.trim()) {
                 speakFromTool = { source: "tool", text: "" };
               }
             }
@@ -1194,7 +1206,7 @@ export function createDaemon(
       }
 
       if (speakReq) {
-        // Empty text after mid-turn tool TTS means already delivered.
+        // Empty text after mid-turn MCP delivery means already spoken.
         const alreadySpokenViaTool =
           speakReq.source === "tool" && speakReq.text === "";
         if (!alreadySpokenViaTool) {
@@ -1205,6 +1217,8 @@ export function createDaemon(
           await maybeSendTts(session, toSpeak, speakReq.source);
         }
       }
+      // Catch MCP speak jobs that finished enqueue after the tool_call event.
+      await drainSpeakQueue();
     } catch (err) {
       try {
         await renameTopic(session, "failed");
@@ -1219,7 +1233,68 @@ export function createDaemon(
   }
 
 
-  /** @returns true when a voice note was sent */
+  /**
+   * MCP speak tool enqueues jobs; deliver TTS to the matching Telegram topic.
+   */
+  async function drainSpeakQueue(): Promise<void> {
+    const stateDir =
+      process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state";
+    let jobs;
+    try {
+      jobs = await listPendingSpeakJobs(speakQueueDir(stateDir));
+    } catch {
+      return;
+    }
+    for (const job of jobs) {
+      const session = sessionIndex.byKey[job.sessionKey];
+      if (!session) {
+        await completeSpeakJob(job, {
+          ok: false,
+          error: `unknown sessionKey: ${job.sessionKey}`,
+        }, speakQueueDir(stateDir));
+        log.warn("speak queue: unknown session", {
+          sessionKey: job.sessionKey,
+          id: job.id,
+        });
+        continue;
+      }
+      try {
+        const ok = await maybeSendTts(session, job.text, "mcp-speak");
+        if (ok) {
+          await completeSpeakJob(
+            job,
+            { ok: true },
+            speakQueueDir(stateDir),
+          );
+          log.info("speak queue: delivered", {
+            sessionKey: job.sessionKey,
+            id: job.id,
+            textLen: job.text.length,
+          });
+        } else {
+          await completeSpeakJob(
+            job,
+            {
+              ok: false,
+              error: "TTS unavailable or empty text",
+            },
+            speakQueueDir(stateDir),
+          );
+        }
+      } catch (err) {
+        await completeSpeakJob(
+          job,
+          {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          speakQueueDir(stateDir),
+        );
+      }
+    }
+  }
+
+    /** @returns true when a voice note was sent */
   async function maybeSendTts(
     session: PersistedSession,
     replyText: string,
@@ -1255,6 +1330,139 @@ export function createDaemon(
         error: err instanceof Error ? err.message : String(err),
       });
       return false;
+    }
+  }
+
+
+  /**
+   * /plan /build /mode — ACP session/set_mode control (like acpx session modes).
+   */
+  async function handleSessionModeCommand(
+    session: PersistedSession,
+    name: string,
+    args: string[],
+  ): Promise<void> {
+    try {
+      await env.agents.ensureSession(session.identity);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Could not attach agent: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    if (!env.agents.getSessionMode || !env.agents.setSessionMode) {
+      await sendInTopic(
+        session,
+        "This agent backend does not support session modes.",
+      );
+      return;
+    }
+
+    const state = await env.agents.getSessionMode(session.sessionKey);
+    const available = state.availableModeIds ?? [];
+
+    if (name === "/mode" && args.length === 0) {
+      const target = togglePlanBuildModeId(state.currentModeId, available);
+      if (!target || target === state.currentModeId) {
+        await sendInTopic(
+          session,
+          formatModeStatus({
+            current: state.currentModeId,
+            available,
+          }),
+          undefined,
+          { html: true },
+        );
+        return;
+      }
+      try {
+        const next = await env.agents.setSessionMode(
+          session.sessionKey,
+          target,
+        );
+        const cur = next.currentModeId ?? target;
+        const avail =
+          next.availableModeIds?.length ? next.availableModeIds : available;
+        await sendInTopic(
+          session,
+          `Mode → **\`${cur}\`** (toggled)\n\n` +
+            formatModeStatus({ current: cur, available: avail }),
+          undefined,
+          { html: true },
+        );
+      } catch (err) {
+        await sendInTopic(
+          session,
+          `Failed to set mode \`${target}\`: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return;
+    }
+
+    let modeId: string | undefined;
+    if (name === "/plan") {
+      modeId = resolvePlanModeId(available);
+    } else if (name === "/build") {
+      modeId = resolveBuildModeId(available);
+    } else {
+      const token = args[0] ?? "";
+      modeId = resolveModeToken(token, available);
+      if (!modeId && available.length === 0 && token) {
+        modeId = token;
+      }
+    }
+
+    if (!modeId) {
+      await sendInTopic(
+        session,
+        `No matching mode.\n\n` +
+          formatModeStatus({
+            current: state.currentModeId,
+            available,
+          }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    if (modeId === state.currentModeId) {
+      await sendInTopic(
+        session,
+        formatModeStatus({
+          current: state.currentModeId,
+          available,
+        }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    try {
+      const next = await env.agents.setSessionMode(session.sessionKey, modeId);
+      const cur = next.currentModeId ?? modeId;
+      const avail =
+        next.availableModeIds?.length ? next.availableModeIds : available;
+      await sendInTopic(
+        session,
+        `Mode → **\`${cur}\`**\n\n` +
+          formatModeStatus({ current: cur, available: avail }),
+        undefined,
+        { html: true },
+      );
+      log.info("session mode set", {
+        sessionKey: session.sessionKey,
+        modeId: cur,
+        via: name,
+      });
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Failed to set mode \`${modeId}\`: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -1305,6 +1513,14 @@ export function createDaemon(
       if (slash.name === "/skills") {
         clearSkillFlow(session.sessionKey, "new /skills");
         await offerSkillPicker(session, slash.args[0]);
+        return;
+      }
+      if (
+        slash.name === "/mode" ||
+        slash.name === "/plan" ||
+        slash.name === "/build"
+      ) {
+        await handleSessionModeCommand(session, slash.name, slash.args);
         return;
       }
       if (slash.name === "/help") {
@@ -1850,6 +2066,8 @@ export function createDaemon(
         await saveUpdateOffset(env.store, offset);
         log.debug("acked update offset", { offset });
       }
+        // Deliver MCP speak jobs even when Telegram is idle.
+        await drainSpeakQueue();
     }
   }
 
