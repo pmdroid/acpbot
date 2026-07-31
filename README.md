@@ -188,13 +188,16 @@ work. Anyone who can hit the port can *attempt* a callback; protection is
 high-entropy `state` + PKCE (`code_verifier` never leaves the host). Prefer
 Serve/tailnet over public Funnel/IP without understanding that model.
 
-Some gateways need endpoint overrides (no AS metadata):
+**Discovery (no env client_id / auth URL):** on `/mcp auth`, tacp:
 
-```bash
-TACP_MCP_OAUTH_LINEAR_AUTH_URL=…
-TACP_MCP_OAUTH_LINEAR_TOKEN_URL=…
-TACP_MCP_OAUTH_LINEAR_CLIENT_ID=tacp
-```
+1. Probes the MCP URL for `WWW-Authenticate` `resource_metadata` (RFC 9728), else
+   fetches `/.well-known/oauth-protected-resource…`
+2. Loads authorization-server metadata (RFC 8414)
+3. Dynamically registers a public PKCE client (`registration_endpoint`, RFC 7591)
+4. Opens authorize with the registered `client_id` + `resource` indicator
+
+The gateway must publish AS metadata with a registration endpoint. There are no
+`TACP_MCP_OAUTH_*_AUTH_URL` / `_CLIENT_ID` overrides.
 
 ### MCP profiles (one profile per repo)
 
