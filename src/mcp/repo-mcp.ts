@@ -11,9 +11,9 @@
  * - `~` / `~/…` expands to the process home directory (then treated as absolute).
  * - Built-in server name `tacp` is reserved; repo entries with that name are skipped.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import type { McpServer } from "@agentclientprotocol/sdk";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
@@ -426,3 +426,223 @@ export async function buildSessionMcpServers(
   // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).
   return merged as McpServer[];
 }
+
+// ── Registry read/write (id + url only for remotes; never tokens) ────────────
+
+/** On-disk shape of `<repo>/.tacp/mcp.json` (raw entries preserved for stdio). */
+export type McpConfigFile = {
+  mcpServers: Array<Record<string, unknown>>;
+};
+
+export type McpConfigPathOptions = {
+  /** Override path to mcp.json (tests). Default: `<repoRoot>/.tacp/mcp.json`. */
+  configPath?: string;
+};
+
+export type RemoteMcpWriteInput = {
+  name: string;
+  url: string;
+  /** Default `"http"`. */
+  type?: "http" | "sse";
+};
+
+/** Default path: `<repoRoot>/.tacp/mcp.json`. */
+export function mcpConfigPath(
+  repoRoot: string,
+  options: McpConfigPathOptions = {},
+): string {
+  if (options.configPath) return options.configPath;
+  return join(resolve(repoRoot), ".tacp", "mcp.json");
+}
+
+/**
+ * Read raw mcp.json for registry edits.
+ * Missing file → `{ mcpServers: [] }`. Invalid JSON / shape → throws.
+ */
+export async function readMcpConfig(
+  repoRoot: string,
+  options: McpConfigPathOptions = {},
+): Promise<McpConfigFile> {
+  const configPath = mcpConfigPath(repoRoot, options);
+  let text: string;
+  try {
+    text = await readFile(configPath, "utf8");
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === "ENOENT") return { mcpServers: [] };
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch (err) {
+    throw new Error(
+      `invalid JSON in mcp.json: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("mcp.json root must be an object");
+  }
+
+  const list = (parsed as { mcpServers?: unknown }).mcpServers;
+  if (list == null) return { mcpServers: [] };
+  if (!Array.isArray(list)) {
+    throw new Error("mcpServers must be an array");
+  }
+
+  const mcpServers: Array<Record<string, unknown>> = [];
+  for (const entry of list) {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      mcpServers.push({ ...(entry as Record<string, unknown>) });
+    }
+  }
+  return { mcpServers };
+}
+
+/** Atomic write of mcp.json (temp file + rename). */
+export async function writeMcpConfig(
+  repoRoot: string,
+  config: McpConfigFile,
+  options: McpConfigPathOptions = {},
+): Promise<void> {
+  const configPath = mcpConfigPath(repoRoot, options);
+  await mkdir(dirname(configPath), { recursive: true });
+  const payload = `${JSON.stringify({ mcpServers: config.mcpServers }, null, 2)}\n`;
+  const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmp, payload, "utf8");
+  await rename(tmp, configPath);
+}
+
+const REMOTE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function validateRemoteName(name: string): string {
+  const n = name.trim();
+  if (!n) throw new Error("MCP id is required");
+  if (n === TACP_BUILTIN_MCP_NAME) {
+    throw new Error(`MCP id "${TACP_BUILTIN_MCP_NAME}" is reserved`);
+  }
+  if (!REMOTE_NAME_RE.test(n)) {
+    throw new Error(
+      `invalid MCP id "${n}" (use letters, digits, . _ -; start with alphanumeric)`,
+    );
+  }
+  return n;
+}
+
+function validateRemoteUrl(url: string): string {
+  const u = url.trim();
+  if (!u) throw new Error("MCP url is required");
+  let parsed: URL;
+  try {
+    parsed = new URL(u);
+  } catch {
+    throw new Error(`invalid MCP url: ${u}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`MCP url must be http(s): ${u}`);
+  }
+  return u;
+}
+
+/**
+ * Add or replace a remote (http/sse) MCP entry. Writes **only** `name`, `type`, `url`
+ * — never tokens, headers, env, or other secret fields.
+ */
+export async function writeRemoteMcpServer(
+  repoRoot: string,
+  entry: RemoteMcpWriteInput,
+  options: McpConfigPathOptions = {},
+): Promise<{ name: string; type: "http" | "sse"; url: string }> {
+  const name = validateRemoteName(entry.name);
+  const url = validateRemoteUrl(entry.url);
+  const type: "http" | "sse" = entry.type === "sse" ? "sse" : "http";
+
+  // Intentionally only these three keys — no headers/tokens/env.
+  const clean: { name: string; type: "http" | "sse"; url: string } = {
+    name,
+    type,
+    url,
+  };
+
+  const config = await readMcpConfig(repoRoot, options);
+  const idx = config.mcpServers.findIndex(
+    (s) => typeof s.name === "string" && s.name.trim() === name,
+  );
+  if (idx >= 0) {
+    config.mcpServers[idx] = { ...clean };
+  } else {
+    config.mcpServers.push({ ...clean });
+  }
+  await writeMcpConfig(repoRoot, config, options);
+  return clean;
+}
+
+/**
+ * Remove a server entry by name from mcp.json.
+ * @returns true if an entry was removed.
+ */
+export async function removeMcpServer(
+  repoRoot: string,
+  name: string,
+  options: McpConfigPathOptions = {},
+): Promise<boolean> {
+  const id = name.trim();
+  if (!id) throw new Error("MCP id is required");
+
+  const config = await readMcpConfig(repoRoot, options);
+  const before = config.mcpServers.length;
+  config.mcpServers = config.mcpServers.filter(
+    (s) => !(typeof s.name === "string" && s.name.trim() === id),
+  );
+  if (config.mcpServers.length === before) return false;
+  await writeMcpConfig(repoRoot, config, options);
+  return true;
+}
+
+/** Human-readable status for `/mcp` / `/mcp status`. */
+export function formatMcpRegistryStatus(
+  config: McpConfigFile,
+  repoRoot?: string,
+): string {
+  const rootNote = repoRoot ? `\nRepo: \`${resolve(repoRoot)}\`` : "";
+  if (config.mcpServers.length === 0) {
+    return (
+      `No MCP servers in \`.tacp/mcp.json\`.${rootNote}\n\n` +
+      `Add a remote gateway:\n\`/mcp add <id> <url>\``
+    );
+  }
+
+  const lines = config.mcpServers.map((s) => {
+    const name = typeof s.name === "string" ? s.name : "?";
+    if (typeof s.url === "string") {
+      const type =
+        typeof s.type === "string" && s.type.trim()
+          ? s.type.trim()
+          : "http";
+      return `• **${name}** (${type}) ${s.url}`;
+    }
+    if (typeof s.command === "string") {
+      return `• **${name}** (stdio) \`${s.command}\``;
+    }
+    return `• **${name}**`;
+  });
+
+  return (
+    `MCP gateways for this repo (${config.mcpServers.length}):${rootNote}\n\n` +
+    lines.join("\n") +
+    `\n\n\`/mcp add <id> <url>\` · \`/mcp remove <id>\``
+  );
+}
+
+export const MCP_COMMAND_USAGE =
+  "Usage:\n" +
+  "`/mcp` or `/mcp status` — list gateways\n" +
+  "`/mcp add <id> <url>` — register remote http MCP (id + url only)\n" +
+  "`/mcp remove <id>` — remove entry\n\n" +
+  "Tokens are never written to the repo.";
+
