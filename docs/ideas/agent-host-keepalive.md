@@ -1,6 +1,8 @@
 # Idea (later): keep ACP agent alive across tacp restarts
 
-**Status:** deferred idea — not scheduled  
+**Status:** implemented (MVP) — `bun run acp-host` + `TACP_ACP_HOST=1`
+
+See `src/acp-host/` and README “ACP host”. Remaining polish: auto-start host from worker, richer lease/ping, multi-worker.  
 **Context:** thin ACP host (`@agentclientprotocol/sdk`); today each topic session spawns `grok agent stdio` (etc.) as a **child of the tacp daemon**. Restarting tacp tears down (or orphans) that process and requires re-spawn + optional `session/load`.  
 **Related PR:** thin host / durable store / modes on `feat/acp-typescript-sdk-host`.
 
