@@ -1,16 +1,20 @@
 /**
  * Atomic schedule job store under `<repoRoot>/.tacp/schedules/<id>.json`.
  *
- * - write: temp file + rename
- * - cancel: soft-disable (`enabled: false`)
- * - script paths must stay inside the repo (reject `..` escapes)
+ * - write: temp file + rename; create uses exclusive dest (no silent overwrite)
+ * - cancel: soft-disable (`enabled: false`), scoped to sessionKey by default
+ * - script paths must stay inside the repo (reject `..` escapes; realpath when exists)
  */
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
+  copyFile,
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -49,9 +53,13 @@ export function assertSafeId(id: string): string {
 
 /**
  * Validate script stays inside repo. Returns a normalized relative path for storage.
- * Rejects absolute paths and `..` escapes.
+ * Rejects absolute paths and `..` escapes. When the path already exists, also
+ * resolves symlinks via realpath and re-checks containment.
  */
-export function normalizeScriptPath(repoRoot: string, script: string): string {
+export async function normalizeScriptPath(
+  repoRoot: string,
+  script: string,
+): Promise<string> {
   const raw = script.trim();
   if (!raw) throw new Error("script path is empty");
   if (raw.includes("\0")) throw new Error("script path contains NUL");
@@ -60,7 +68,6 @@ export function normalizeScriptPath(repoRoot: string, script: string): string {
       `script must be a path relative to repo root (got absolute: ${raw})`,
     );
   }
-  // Normalize and resolve; reject escape.
   const root = resolve(repoRoot);
   const abs = resolve(root, raw);
   if (!isWithinRepo(root, abs)) {
@@ -68,7 +75,28 @@ export function normalizeScriptPath(repoRoot: string, script: string): string {
       `script path escapes repo root: ${raw} → ${abs} (repo: ${root})`,
     );
   }
-  // Store POSIX-ish relative (no leading ./)
+
+  // If the path exists, follow symlinks and re-check (A3 should re-validate at fire).
+  try {
+    const real = await realpath(abs);
+    const realRoot = await realpath(root).catch(() => root);
+    if (!isWithinRepo(realRoot, real)) {
+      throw new Error(
+        `script path resolves outside repo (symlink?): ${raw} → ${real}`,
+      );
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Not created yet — lexical check only; re-validate at fire time.
+    } else if (
+      err instanceof Error &&
+      err.message.includes("resolves outside repo")
+    ) {
+      throw err;
+    }
+    // Other realpath errors: keep lexical relative path.
+  }
+
   let rel = relative(root, abs);
   rel = rel.split(sep).join("/");
   if (!rel || rel === ".") {
@@ -84,9 +112,16 @@ function newJobId(): string {
   return randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
+/**
+ * Write job JSON: temp file then publish to dest.
+ * - exclusive: COPYFILE_EXCL so create never overwrites an existing id (EEXIST → retry).
+ * - non-exclusive (cancel update): rename overwrites in place.
+ * No fsync (MVP); same-dir publish is the durability bar for A2.
+ */
 async function writeJobAtomic(
   repoRoot: string,
   job: ScheduleJob,
+  opts?: { exclusive?: boolean },
 ): Promise<void> {
   const dir = schedulesDir(repoRoot);
   await mkdir(dir, { recursive: true });
@@ -98,7 +133,17 @@ async function writeJobAtomic(
   );
   const body = `${JSON.stringify(job, null, 2)}\n`;
   await writeFile(tmp, body, "utf8");
-  await rename(tmp, dest);
+  try {
+    if (opts?.exclusive) {
+      await copyFile(tmp, dest, constants.COPYFILE_EXCL);
+      await unlink(tmp).catch(() => {});
+    } else {
+      await rename(tmp, dest);
+    }
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 export async function readJob(
@@ -117,6 +162,8 @@ export async function readJob(
   }
 }
 
+const MAX_ID_ATTEMPTS = 8;
+
 export async function createJob(
   repoRoot: string,
   input: CreateScheduleInput,
@@ -133,7 +180,7 @@ export async function createJob(
 
   let script: string | undefined;
   if (input.script != null && input.script.trim() !== "") {
-    script = normalizeScriptPath(root, input.script);
+    script = await normalizeScriptPath(root, input.script);
   }
 
   const nextRunAt = computeNextRunAt({
@@ -143,46 +190,57 @@ export async function createJob(
     ...(input.cronExpr != null ? { cronExpr: input.cronExpr } : {}),
   });
 
-  const id = newJobId();
-  const job: ScheduleJob = {
-    id,
-    sessionKey,
-    prompt,
-    kind: input.kind,
-    nextRunAt,
-    enabled: true,
-    lastRunAt: null,
-    lastStatus: null,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  };
-
-  if (input.name != null && input.name.trim() !== "") {
-    job.name = input.name.trim();
-  }
-  if (script != null) {
-    job.script = script;
-  }
-  if (input.kind === "cron" && input.cronExpr?.trim()) {
-    job.cronExpr = input.cronExpr.trim();
-  }
-  if (input.kind === "once" && input.runAt?.trim()) {
-    job.runAt = new Date(input.runAt.trim()).toISOString();
-  }
+  let timezone = "UTC";
   if (input.timezone != null && input.timezone.trim() !== "") {
-    job.timezone = input.timezone.trim();
-  } else {
-    job.timezone = "UTC";
+    timezone = input.timezone.trim();
   }
 
-  // Re-validate full record before write
-  const validated = scheduleJobSchema.parse(job);
-  await writeJobAtomic(root, validated);
-  return validated;
+  for (let attempt = 0; attempt < MAX_ID_ATTEMPTS; attempt++) {
+    const id = newJobId();
+    const job: ScheduleJob = {
+      id,
+      sessionKey,
+      prompt,
+      kind: input.kind,
+      nextRunAt,
+      enabled: true,
+      lastRunAt: null,
+      lastStatus: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      timezone,
+    };
+
+    if (input.name != null && input.name.trim() !== "") {
+      job.name = input.name.trim();
+    }
+    if (script != null) {
+      job.script = script;
+    }
+    if (input.kind === "cron" && input.cronExpr?.trim()) {
+      job.cronExpr = input.cronExpr.trim();
+    }
+    if (input.kind === "once" && input.runAt?.trim()) {
+      job.runAt = new Date(input.runAt.trim()).toISOString();
+    }
+
+    const validated = scheduleJobSchema.parse(job);
+    try {
+      await writeJobAtomic(root, validated, { exclusive: true });
+      return validated;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error("failed to allocate unique schedule id");
 }
 
 export type ListJobsOptions = {
-  /** When set and `all` is not true, only jobs for this session. */
+  /** When set and `all` is not true, only jobs for this session. Required unless all. */
   sessionKey?: string;
   /** List every job in the repo (ignore session filter). */
   all?: boolean;
@@ -192,6 +250,12 @@ export async function listJobs(
   repoRoot: string,
   opts: ListJobsOptions = {},
 ): Promise<ScheduleJob[]> {
+  if (!opts.all && !opts.sessionKey?.trim()) {
+    throw new Error(
+      "listJobs requires sessionKey unless all=true (refuse unscoped list)",
+    );
+  }
+
   const dir = schedulesDir(repoRoot);
   let names: string[];
   try {
@@ -214,7 +278,7 @@ export async function listJobs(
     try {
       const raw = await readFile(join(dir, name), "utf8");
       const job = scheduleJobSchema.parse(JSON.parse(raw));
-      if (!opts.all && opts.sessionKey) {
+      if (!opts.all) {
         if (job.sessionKey !== opts.sessionKey) continue;
       }
       out.push(job);
@@ -228,18 +292,45 @@ export async function listJobs(
   return out;
 }
 
+export type CancelJobOptions = {
+  /**
+   * Session that may cancel. When set and `all` is not true, only jobs owned by
+   * this sessionKey can be cancelled.
+   */
+  sessionKey?: string;
+  /** Allow cancelling any job in the repo (operator / cross-session). */
+  all?: boolean;
+};
+
 /**
  * Soft-cancel: set enabled=false. History and script path remain on disk.
+ * Scoped to sessionKey by default (pass all:true to cancel any job in repo).
  */
 export async function cancelJob(
   repoRoot: string,
   id: string,
+  opts: CancelJobOptions = {},
 ): Promise<ScheduleJob> {
   const root = resolve(repoRoot);
   const existing = await readJob(root, id);
   if (!existing) {
     throw new Error(`schedule not found: ${id}`);
   }
+
+  if (!opts.all) {
+    const sk = opts.sessionKey?.trim();
+    if (!sk) {
+      throw new Error(
+        "cancelJob requires sessionKey unless all=true (refuse unscoped cancel)",
+      );
+    }
+    if (existing.sessionKey !== sk) {
+      throw new Error(
+        `schedule ${id} belongs to session ${existing.sessionKey}, not ${sk}`,
+      );
+    }
+  }
+
   if (!existing.enabled) {
     return existing;
   }

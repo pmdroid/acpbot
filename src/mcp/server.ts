@@ -104,7 +104,9 @@ server.tool(
       "Create a durable scheduled job in this repo under .tacp/schedules/. " +
       "Requires a prompt (what the agent should do at fire time). " +
       "Optional script: path relative to repo root (must stay inside the repo). " +
-      "kind=once needs runAt (ISO); kind=cron needs cronExpr (5-field m h dom mon dow, UTC). " +
+      "kind=once needs runAt (ISO); kind=cron needs cronExpr (5-field m h dom mon dow). " +
+      "Next-run is computed in UTC only (timezone is stored for later; prefer UTC). " +
+      "When both day-of-month and day-of-week are restricted, either may match (classic cron OR). " +
       "Host fire is separate — this only persists the job.",
     input: z.object({
       name: z.string().min(1).optional().describe("Short label for the job"),
@@ -122,7 +124,7 @@ server.tool(
         .string()
         .min(1)
         .optional()
-        .describe('5-field cron for kind=cron, e.g. "0 8 * * 1-5" (UTC)'),
+        .describe('5-field cron for kind=cron, e.g. "0 8 * * 1-5" (interpreted in UTC)'),
       runAt: z
         .string()
         .min(1)
@@ -132,7 +134,9 @@ server.tool(
         .string()
         .min(1)
         .optional()
-        .describe("IANA timezone stored on the job (MVP next-run uses UTC)"),
+        .describe(
+          "Stored on the job; MVP next-run ignores this and always uses UTC — prefer \"UTC\"",
+        ),
     }),
   },
   async (args) => {
@@ -149,7 +153,14 @@ server.tool(
         ...(args.runAt != null ? { runAt: args.runAt } : {}),
         ...(args.timezone != null ? { timezone: args.timezone } : {}),
       });
-      return `Created schedule ${job.id}\n${JSON.stringify(job, null, 2)}`;
+      let msg = `Created schedule ${job.id}\n${JSON.stringify(job, null, 2)}`;
+      const tz = job.timezone ?? "UTC";
+      if (tz !== "UTC" && tz !== "utc") {
+        msg +=
+          `\n\nWarning: timezone "${tz}" is stored but next-run is computed in UTC only for MVP. ` +
+          `Use cron/runAt in UTC, or set timezone to "UTC".`;
+      }
+      return msg;
     } catch (err) {
       return `schedule_create failed: ${
         err instanceof Error ? err.message : String(err)
@@ -192,16 +203,24 @@ server.tool(
   {
     name: "schedule_cancel",
     description:
-      "Soft-cancel a schedule by id: sets enabled=false (file and prompt remain).",
+      "Soft-cancel a schedule by id for this session: sets enabled=false (file remains). " +
+      "Only jobs owned by TACP_SESSION_KEY can be cancelled (pass all=true to cancel any in-repo job).",
     input: z.object({
       id: z.string().min(1).describe("Schedule job id"),
+      all: z
+        .boolean()
+        .optional()
+        .describe("If true, allow cancelling a job owned by another session in this repo"),
     }),
   },
-  async ({ id }) => {
+  async ({ id, all }) => {
     const env = requireSessionEnv();
     if (!env.ok) return `schedule_cancel failed: ${env.error}`;
     try {
-      const job = await cancelJob(env.repoRoot, id);
+      const job = await cancelJob(env.repoRoot, id, {
+        sessionKey: env.sessionKey,
+        all: all === true,
+      });
       return `Cancelled schedule ${job.id} (enabled=false)\n${JSON.stringify(job, null, 2)}`;
     } catch (err) {
       return `schedule_cancel failed: ${

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,36 @@ describe("schedules next-run", () => {
     expect(next.toISOString()).toBe("2026-08-03T08:30:00.000Z");
   });
 
+  test("cron DOM+DOW both restricted uses OR (classic Vixie)", () => {
+    // 0 9 15 * 1 = 09:00 on the 15th OR on Mondays
+    // from Sat 2026-08-01 → next Monday 2026-08-03 09:00 (not next 15th that is Monday)
+    const from = new Date("2026-08-01T00:00:00.000Z");
+    const next = nextCronOccurrence("0 9 15 * 1", from);
+    expect(next.toISOString()).toBe("2026-08-03T09:00:00.000Z");
+    expect(next.getUTCDay()).toBe(1); // Monday
+  });
+
+  test("cron DOM-only still requires that day-of-month", () => {
+    // 0 9 15 * * — next 15th at 09:00 from Aug 1 → Aug 15
+    const from = new Date("2026-08-01T00:00:00.000Z");
+    const next = nextCronOccurrence("0 9 15 * *", from);
+    expect(next.toISOString()).toBe("2026-08-15T09:00:00.000Z");
+  });
+
+  test("cron exclusive lower bound skips exact match minute", () => {
+    const from = new Date("2026-08-01T11:00:00.000Z");
+    const next = nextCronOccurrence("0 * * * *", from);
+    expect(next.toISOString()).toBe("2026-08-01T12:00:00.000Z");
+  });
+
+  test("cron Sunday 7 synonym", () => {
+    // 2026-08-01 is Saturday; next Sunday is 2026-08-02
+    const from = new Date("2026-08-01T00:00:00.000Z");
+    const next = nextCronOccurrence("0 10 * * 7", from);
+    expect(next.toISOString()).toBe("2026-08-02T10:00:00.000Z");
+    expect(next.getUTCDay()).toBe(0);
+  });
+
   test("parseCronExpr rejects wrong field count", () => {
     expect(() => parseCronExpr("* * *")).toThrow(/5 fields/);
   });
@@ -82,6 +112,8 @@ describe("schedules store CRUD", () => {
       );
       expect(scheduleJobSchema.parse(onDisk).prompt).toBe("Do the thing once.");
       expect(onDisk.script).toBeUndefined();
+      // final path is .json not .tmp
+      expect(jobPath(repo, job.id).endsWith(`${job.id}.json`)).toBe(true);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -131,9 +163,9 @@ describe("schedules store CRUD", () => {
   test("script path with .. is rejected", async () => {
     const repo = await tempRepo();
     try {
-      expect(() =>
+      await expect(
         normalizeScriptPath(repo, "../../etc/passwd"),
-      ).toThrow(/escapes/);
+      ).rejects.toThrow(/escapes/);
 
       await expect(
         createJob(repo, {
@@ -152,9 +184,29 @@ describe("schedules store CRUD", () => {
   test("absolute script path is rejected", async () => {
     const repo = await tempRepo();
     try {
-      expect(() => normalizeScriptPath(repo, "/tmp/x.sh")).toThrow(/relative/);
+      await expect(normalizeScriptPath(repo, "/tmp/x.sh")).rejects.toThrow(
+        /relative/,
+      );
     } finally {
       await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("script symlink outside repo is rejected when target exists", async () => {
+    const repo = await tempRepo();
+    const outside = await tempRepo();
+    try {
+      const secret = join(outside, "secret.sh");
+      await writeFile(secret, "#!/bin/sh\n", "utf8");
+      await mkdir(join(repo, "scripts"), { recursive: true });
+      const link = join(repo, "scripts", "evil.sh");
+      await symlink(secret, link);
+      await expect(
+        normalizeScriptPath(repo, "scripts/evil.sh"),
+      ).rejects.toThrow(/outside|symlink/i);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 
@@ -168,7 +220,9 @@ describe("schedules store CRUD", () => {
         runAt: "2026-10-01T00:00:00.000Z",
       });
 
-      const cancelled = await cancelJob(repo, job.id);
+      const cancelled = await cancelJob(repo, job.id, {
+        sessionKey: "life/main",
+      });
       expect(cancelled.enabled).toBe(false);
       expect(cancelled.prompt).toBe("will cancel");
 
@@ -179,8 +233,62 @@ describe("schedules store CRUD", () => {
       expect(JSON.parse(raw).enabled).toBe(false);
 
       // idempotent
-      const second = await cancelJob(repo, job.id);
+      const second = await cancelJob(repo, job.id, {
+        sessionKey: "life/main",
+      });
       expect(second.enabled).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("cancel is scoped to sessionKey by default", async () => {
+    const repo = await tempRepo();
+    try {
+      const other = await createJob(repo, {
+        sessionKey: "life/other",
+        prompt: "other session job",
+        kind: "once",
+        runAt: "2026-12-01T00:00:00.000Z",
+      });
+
+      await expect(
+        cancelJob(repo, other.id, { sessionKey: "life/main" }),
+      ).rejects.toThrow(/belongs to session|not life\/main/);
+
+      // still enabled
+      expect((await readJob(repo, other.id))?.enabled).toBe(true);
+
+      // own session can cancel
+      const mine = await createJob(repo, {
+        sessionKey: "life/main",
+        prompt: "mine",
+        kind: "once",
+        runAt: "2026-12-02T00:00:00.000Z",
+      });
+      const cancelled = await cancelJob(repo, mine.id, {
+        sessionKey: "life/main",
+      });
+      expect(cancelled.enabled).toBe(false);
+
+      // all=true can cancel other session's job
+      const forced = await cancelJob(repo, other.id, { all: true });
+      expect(forced.enabled).toBe(false);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("cancel without sessionKey or all throws", async () => {
+    const repo = await tempRepo();
+    try {
+      const job = await createJob(repo, {
+        sessionKey: "life/main",
+        prompt: "x",
+        kind: "once",
+        runAt: "2026-12-03T00:00:00.000Z",
+      });
+      await expect(cancelJob(repo, job.id)).rejects.toThrow(/sessionKey/);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -208,6 +316,8 @@ describe("schedules store CRUD", () => {
 
       const all = await listJobs(repo, { all: true });
       expect(all).toHaveLength(2);
+
+      await expect(listJobs(repo, {})).rejects.toThrow(/sessionKey/);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -216,9 +326,9 @@ describe("schedules store CRUD", () => {
   test("cancel missing id throws", async () => {
     const repo = await tempRepo();
     try {
-      await expect(cancelJob(repo, "deadbeefcafe")).rejects.toThrow(
-        /not found/,
-      );
+      await expect(
+        cancelJob(repo, "deadbeefcafe", { sessionKey: "life/main" }),
+      ).rejects.toThrow(/not found/);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -258,7 +368,9 @@ describe("schedule MCP env + store path", () => {
       const listed = await listJobs(envRoot, { sessionKey: envSession });
       expect(listed.some((j) => j.id === created.id)).toBe(true);
 
-      const cancelled = await cancelJob(envRoot, created.id);
+      const cancelled = await cancelJob(envRoot, created.id, {
+        sessionKey: envSession,
+      });
       expect(cancelled.enabled).toBe(false);
     } finally {
       if (prevKey === undefined) delete process.env.TACP_SESSION_KEY;

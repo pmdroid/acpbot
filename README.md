@@ -126,12 +126,15 @@ Agents can create **durable jobs** via built-in MCP tools on server **`tacp`**:
 |------|--------|
 | `schedule_create` | `prompt` (required) + optional `script` path + `once`/`cron` → `.tacp/schedules/<id>.json` |
 | `schedule_list` | jobs for `TACP_SESSION_KEY` (or whole repo with `all: true`) |
-| `schedule_cancel` | soft-disable (`enabled: false`); file stays for git history |
+| `schedule_cancel` | soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
 
 `script` must be **relative to the repo root** (no `..` escapes). Prefer
-`.tacp/schedules/scripts/<name>`. Cron is 5-field (`m h dom mon dow`); next-run
-is computed in **UTC** for MVP (`timezone` is stored). **Host fire** (waking the
-session when due) is a separate step — creating a job only persists intent.
+`.tacp/schedules/scripts/<name>`. Cron is 5-field (`m h dom mon dow`). **Next-run
+is always computed in UTC** for MVP — the `timezone` field is stored (and non-UTC
+values get a create warning) but does **not** shift the schedule yet. When both
+day-of-month and day-of-week are restricted, classic cron **OR** applies (either
+may match). **Host fire** (waking the session when due) is a separate step —
+creating a job only persists intent.
 
 Skill: `demo/.agents/skills/schedule/`.
 
