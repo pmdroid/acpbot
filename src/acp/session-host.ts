@@ -21,6 +21,7 @@ import { decisionToPermissionResponse } from "./permission-map";
 import { buildTacpMcpServers } from "../mcp/servers";
 import type { TacpConfig } from "../env/types";
 import { pickSessionModeId } from "./session-mode";
+import { TerminalManager } from "./terminal-manager";
 import {
   createFileHostSessionStore,
   type HostSessionRecord,
@@ -128,14 +129,6 @@ export type SessionHost = {
   dispose(): Promise<void>;
 };
 
-type TerminalRec = {
-  id: string;
-  child: ChildProcessWithoutNullStreams;
-  output: string;
-  exitCode: number | null;
-  exited: Promise<void>;
-};
-
 function contentText(block: unknown): string | undefined {
   if (!block || typeof block !== "object") return undefined;
   const b = block as { type?: string; text?: string };
@@ -149,12 +142,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   /** agent session id → tacp sessionKey */
   const agentIdToKey = new Map<string, string>();
   let hooks: SessionHostHooks = { ...options.hooks };
-  const terminals = new Map<string, TerminalRec>();
   const sessionStore: HostSessionStore | undefined =
     options.sessionStore ??
     (options.stateDir
       ? createFileHostSessionStore(options.stateDir)
       : undefined);
+  /** Shared ACP client terminal/* manager (acpx-grade). */
+  const terminals = new TerminalManager({
+    cwd: process.cwd(),
+    log,
+  });
 
   async function persistRecord(
     partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
@@ -286,82 +283,31 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   async function handleCreateTerminal(
     params: acp.CreateTerminalRequest,
   ): Promise<acp.CreateTerminalResponse> {
-    const id = randomUUID();
-    const cwd = params.cwd ?? process.cwd();
-    const child = spawn(params.command, params.args ?? [], {
-      cwd,
-      env: { ...process.env, ...(params.env as NodeJS.ProcessEnv | undefined) },
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const rec: TerminalRec = {
-      id,
-      child,
-      output: "",
-      exitCode: null,
-      exited: new Promise((resolve) => {
-        child.on("close", (code) => {
-          rec.exitCode = code ?? 0;
-          resolve();
-        });
-      }),
-    };
-    child.stdout.on("data", (c: Buffer) => {
-      rec.output += c.toString("utf8");
-    });
-    child.stderr.on("data", (c: Buffer) => {
-      rec.output += c.toString("utf8");
-    });
-    if (params.outputByteLimit != null) {
-      // soft cap later in output handler
-    }
-    terminals.set(id, rec);
-    return { terminalId: id };
+    return terminals.createTerminal(params);
   }
 
-  function handleTerminalOutput(
+  async function handleTerminalOutput(
     params: acp.TerminalOutputRequest,
-  ): acp.TerminalOutputResponse {
-    const rec = terminals.get(params.terminalId);
-    if (!rec) {
-      return { output: "", truncated: false, exitStatus: null };
-    }
-    return {
-      output: rec.output,
-      truncated: false,
-      exitStatus:
-        rec.exitCode === null
-          ? null
-          : { exitCode: rec.exitCode, signal: null },
-    };
+  ): Promise<acp.TerminalOutputResponse> {
+    return terminals.terminalOutput(params);
   }
 
   async function handleWaitForTerminalExit(
     params: acp.WaitForTerminalExitRequest,
   ): Promise<acp.WaitForTerminalExitResponse> {
-    const rec = terminals.get(params.terminalId);
-    if (!rec) return { exitCode: 1, signal: null };
-    await rec.exited;
-    return { exitCode: rec.exitCode ?? 1, signal: null };
+    return terminals.waitForTerminalExit(params);
   }
 
   async function handleKillTerminal(
     params: acp.KillTerminalRequest,
   ): Promise<acp.KillTerminalResponse> {
-    const rec = terminals.get(params.terminalId);
-    rec?.child.kill("SIGTERM");
-    return {};
+    return terminals.killTerminal(params);
   }
 
   async function handleReleaseTerminal(
     params: acp.ReleaseTerminalRequest,
   ): Promise<acp.ReleaseTerminalResponse> {
-    const rec = terminals.get(params.terminalId);
-    if (rec) {
-      rec.child.kill("SIGTERM");
-      terminals.delete(params.terminalId);
-    }
-    return {};
+    return terminals.releaseTerminal(params);
   }
 
   function buildClientApp(): acp.ClientApp {
@@ -491,7 +437,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const supportsLoad =
       initResult.agentCapabilities?.loadSession === true;
 
-    let session: acp.ActiveSession;
+    let session!: acp.ActiveSession;
     let resumed = false;
 
     // Resume path: re-spawned process + session/load when agent advertises it.
@@ -510,7 +456,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           },
         );
         // attachSession is public at runtime; typed private on ClientContext.
-        const agentCtx = connection.agent as acp.ClientContext & {
+        const agentCtx = connection.agent as unknown as {
           attachSession(response: {
             sessionId: string;
             modes?: acp.SessionModeState | null;
@@ -589,7 +535,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       agent: input.agent,
       cwd: input.cwd,
       ...(modeId ? { modeId } : {}),
-      createdAt: prior?.createdAt,
+      ...(prior?.createdAt ? { createdAt: prior.createdAt } : {}),
     });
 
     const entry: LiveSession = {
@@ -893,10 +839,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         entry.child.kill("SIGTERM");
       }
       live.clear();
-      for (const t of terminals.values()) {
-        t.child.kill("SIGTERM");
-      }
-      terminals.clear();
+      await terminals.shutdown();
     },
   };
 }

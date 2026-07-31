@@ -80,7 +80,7 @@ run through Grok over ACP.
 | `_x.ai/ask_user_question` → Telegram multi-choice | **Yes** |
 | `elicitation/create` → buttons | **Yes** |
 | `session/request_permission` → buttons | **Yes** |
-| Client `fs/*` + `terminal/*` | **Yes** (host-side) |
+| Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
