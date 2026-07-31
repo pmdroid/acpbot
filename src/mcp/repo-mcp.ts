@@ -60,23 +60,20 @@ export function isWithinRepo(repoRoot: string, candidate: string): boolean {
 
 /**
  * Resolve a path-like token against repo root.
- * Relative tokens resolve from repo root; absolute kept as-is.
- * Throws if the result escapes outside the repo.
- *
- * Bare tokens (no path separators / not path-like) are returned unchanged
- * and are not subject to escape checks (PATH binaries like `bun`, `npx`).
+ * - Bare tokens (PATH binaries like `bun`, `npx`) are returned unchanged.
+ * - Absolute paths are normalized and allowed (system tools / shared scripts).
+ * - Relative paths resolve from repo root; throws if result escapes outside the repo
+ *   (blocks `..` escapes).
  */
 export function resolveRepoPathToken(repoRoot: string, token: string): string {
   if (!isPathLikeToken(token)) return token;
 
   const root = resolve(repoRoot);
-  let abs: string;
   if (isAbsolute(token)) {
-    abs = resolve(normalize(token));
-  } else {
-    abs = resolve(root, token);
+    return resolve(normalize(token));
   }
 
+  const abs = resolve(root, token);
   if (!isWithinRepo(root, abs)) {
     throw new Error(
       `path escapes repo root: ${token} → ${abs} (repo: ${root})`,
