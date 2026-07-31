@@ -1,0 +1,10 @@
+{
+  "mcpServers": [
+    {
+      "name": "local-tools",
+      "command": "bun",
+      "args": ["run", ".tacp/tools/server.ts"],
+      "env": { "FOO": "bar" }
+    }
+  ]
+}

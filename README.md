@@ -82,9 +82,40 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
+| Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse pass-through) |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
 | Telegram slash menu sync | **Yes** |
 
+### Per-repo MCP (`.tacp/mcp.json`)
+
+Each session’s **cwd** (repo root) may declare MCP servers at
+`<repo>/.tacp/mcp.json`. On `session/new` / ensure, tacp loads that file,
+resolves **relative path-like** tokens from the repo root (write them as
+`./path` or `.tacp/…`; rejects `..` escapes outside the repo), injects
+`TACP_SESSION_KEY` / `TACP_REPO_ROOT` / `TACP_STATE_DIR`, then **merges repo
+servers first** and built-in host tools (`speak`, name `tacp`) after.
+
+**Absolute** command/arg paths are allowed (system/shared tools). Only relative
+path-like tokens are constrained to the repo. Containment is lexical (no
+symlink follow). npm package specs (`@scope/pkg`), CLI flags, and bare binaries
+are left unchanged. The name `tacp` is reserved for the built-in server.
+
+Missing or invalid JSON → built-in only (warn on invalid). Example:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "local-tools",
+      "command": "bun",
+      "args": ["run", ".tacp/tools/server.ts"],
+      "env": { "FOO": "bar" }
+    }
+  ]
+}
+```
+
+See also `demo/.tacp/mcp.json.example`.
 
 ## ACP host (keep agents alive across worker restarts)
 
