@@ -82,6 +82,7 @@ run through Grok over ACP.
 | `session/request_permission` → buttons | **Yes** |
 | Client `fs/*` + `terminal/*` | **Yes** (acpx-grade TerminalManager: limits, process-group kill) |
 | Host MCP `speak` via `mcpServers` | **Yes** |
+| Host MCP `schedule_*` (in-repo jobs) | **Yes** (CRUD + host auto-fire via acp-host) |
 | Per-repo MCP from `.tacp/mcp.json` | **Yes** (stdio + http/sse; OAuth Bearer from host store) |
 | Remote MCP OAuth (`/mcp auth`, host callback) | **Yes** (PKCE; tokens under `TACP_ACPX_STATE_DIR`) |
 | Durable session store (`TACP_ACPX_STATE_DIR/sessions`) | **Yes** (session/load when agent supports it) |
@@ -120,6 +121,36 @@ Topic commands: `/mcp status|add|remove` (registry id+url only) and
 `/mcp auth <id>` / `/mcp code …` (OAuth — see below).
 
 See also `demo/.tacp/mcp.json.example`.
+
+### In-repo schedules (`.tacp/schedules/`)
+
+Agents can create **durable jobs** via built-in MCP tools on server **`tacp`**:
+
+| Tool | Action |
+|------|--------|
+| `schedule_create` | `prompt` (required) + optional `script` path + `once`/`cron` → `.tacp/schedules/<id>.json` |
+| `schedule_list` | jobs for `TACP_SESSION_KEY` (or whole repo with `all: true`) |
+| `schedule_cancel` | soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
+| `schedule_run_now` | set `nextRunAt=now` so the host fires on the next tick |
+
+`script` must be **relative to the repo root** (no `..` escapes). Prefer
+`.tacp/schedules/scripts/<name>`. Cron is 5-field (`m h dom mon dow`). **Next-run
+is always computed in UTC** for MVP — the `timezone` field is stored (and non-UTC
+values get a create warning) but does **not** shift the schedule yet. When both
+day-of-month and day-of-week are restricted, classic cron **OR** applies (either
+may match).
+
+**Host fire:** `bun run acp-host` scans each catalog repo (`TACP_REPOS_JSON`) under
+`.tacp/schedules/` every `TACP_SCHEDULE_TICK_MS` (default 20s). Due jobs
+(`enabled && nextRunAt <= now`) are **claimed on disk before** the agent turn
+(`once` → `enabled: false`; `cron` → next `nextRunAt` from now) so a crash mid-fire
+cannot double-run the same occurrence. Then the host ensures the job’s `sessionKey`
+slot and prompts with an envelope (prompt + optional script path). Busy slots roll
+the claim back, set `lastStatus: busy`, and retry next tick. Fire `error` leaves the
+claim in place (no hot-loop; re-due once jobs via `schedule_run_now`). Works even if
+the Telegram worker is down.
+
+Skill: `demo/.agents/skills/schedule/`.
 
 ### Remote MCP OAuth
 
@@ -165,13 +196,15 @@ TACP_MCP_OAUTH_LINEAR_TOKEN_URL=…
 TACP_MCP_OAUTH_LINEAR_CLIENT_ID=tacp
 ```
 
+
 ## ACP host (keep agents alive across worker restarts)
 
 Like Ursula’s `acp-host`: a long-lived process owns agent stdio for **any** ACP agent
 (not Grok-leader-specific). The Telegram worker can restart and reattach.
+Also fires in-repo schedules into the right session slots.
 
 ```bash
-# Terminal 1 — agent owner
+# Terminal 1 — agent owner (+ schedule ticker when TACP_REPOS_JSON is set)
 bun run acp-host
 
 # Terminal 2 — Telegram worker
