@@ -96,7 +96,7 @@ Pick a skill, then send a prompt that includes it for the agent. Full write-up: 
 
 ## acp-host notes
 
-With acp-host (default; opt out via `TACP_ACP_HOST=0`):
+acp-host is **required** (worker fails boot without a live host socket):
 
 - Agent stdio lives in the host process
 - Worker restart does not kill agents

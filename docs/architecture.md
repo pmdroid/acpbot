@@ -21,13 +21,13 @@
 │  · lobby + topic command routing                            │
 │  · session store (TACP_STORE_PATH)                          │
 │  · worker-api.sock  (HTTP over Unix — outbound media)       │
-│  · either embeds ACP host  OR  talks to acp-host.sock       │
+│  · always talks to acp-host.sock (required)                 │
 └───────────────┬─────────────────────────────┬───────────────┘
                 │                             │
-                │  worker → acp-host (default)│  MCP tools POST
+                │  worker → acp-host          │  MCP tools POST
                 ▼                             ▼
 ┌──────────────────────────────┐   ┌──────────────────────────┐
-│  acp-host (optional)         │   │  Host MCP (stdio child)  │
+│  acp-host (required)         │   │  Host MCP (stdio child)  │
 │  · owns agent stdio slots    │   │  speak / telegram_* /    │
 │  · schedule ticker           │   │  schedule_*              │
 │  · GET /oauth/callback       │   │  → worker-api.sock       │
@@ -58,9 +58,9 @@ Thin client over `@agentclientprotocol/sdk`:
 - Injects MCP servers (repo + built-in `tacp`)
 - Model / config options for `/model`
 
-### acp-host (`src/acp-host/`, optional)
+### acp-host (`src/acp-host/`, required)
 
-Long-lived process that **owns agent stdio** so the Telegram worker can restart without killing agents. Also:
+Long-lived process that **owns agent stdio** so the Telegram worker can restart without killing agents. The worker fails boot if the host socket is missing. Also:
 
 - Scans each `TACP_REPOS_JSON` repo for due schedules
 - Serves OAuth callback HTTP when `TACP_OAUTH_CALLBACK_BASE` is set

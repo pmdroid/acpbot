@@ -50,9 +50,9 @@ TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
 
 Full reference: [configuration.md](configuration.md).
 
-## 3. Start worker + host (real ACP)
+## 3. Start host + worker (real ACP)
 
-Recommended layout:
+**acp-host is required.** The worker fails at boot if the host socket is missing or does not answer ping.
 
 ```bash
 set -a && source .env && set +a
@@ -60,14 +60,8 @@ set -a && source .env && set +a
 # Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
 bun run acp-host
 
-# Terminal 2 — Telegram worker + worker API (uses acp-host by default)
+# Terminal 2 — Telegram worker + worker API
 bun run start
-```
-
-To spawn agents inside the worker instead of acp-host (not recommended):
-
-```bash
-TACP_ACP_HOST=0 bun run start
 ```
 
 In the private chat with the bot:
@@ -80,7 +74,7 @@ In the private chat with the bot:
 
 On startup tacp **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
 
-The worker **always** attaches to acp-host unless `TACP_ACP_HOST=0`. Start `bun run acp-host` first (or together) so the socket is available.
+Start `bun run acp-host` first so `acp-host.sock` exists; then `bun run start`.
 
 In a topic:
 

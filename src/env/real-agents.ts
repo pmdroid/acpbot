@@ -16,14 +16,10 @@ import type {
   TacpConfig,
 } from "./types";
 import { silentLogger } from "./logger";
-import {
-  createSessionHost,
-  type SessionHost,
-  type HostTurnEvent,
-} from "../acp/session-host";
+import type { SessionHost, HostTurnEvent } from "../acp/session-host";
 import {
   createAcpHostClient,
-  shouldUseAcpHost,
+  resolveAcpHostSockPath,
 } from "../acp-host/client";
 import {
   pickSessionModeId,
@@ -48,7 +44,7 @@ export type RealAgentsOptions = {
 
 /**
  * @deprecated acpx option builder — kept as a thin shim for older tests.
- * Prefer createSessionHost / realAgents.
+ * Prefer realAgents (always acp-host client; inject `host` in tests).
  */
 export function buildAcpRuntimeOptions(input: {
   config: TacpConfig;
@@ -186,25 +182,14 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     },
   };
 
-  // Ursula-style: long-lived acp-host owns agent processes when enabled/socket up.
-  const useHost = !options.host && shouldUseAcpHost();
-  if (useHost) {
-    log.info("using acp-host client (agent processes outlive worker)");
-  }
-
+  // Agents always live in acp-host (Unix client). Inject `host` only in tests.
+  const hostSockPath = resolveAcpHostSockPath(options.acpxStateDir);
   const host: SessionHost =
     options.host ??
-    (useHost
-      ? createAcpHostClient({ log, hooks })
-      : createSessionHost({
-          config: options.config,
-          stateDir: options.acpxStateDir,
-          ...(options.config.mcpEnabled !== undefined
-            ? { mcpEnabled: options.config.mcpEnabled }
-            : {}),
-          log,
-          hooks,
-        }));
+    (() => {
+      log.info("using acp-host client", { sockPath: hostSockPath });
+      return createAcpHostClient({ log, hooks, sockPath: hostSockPath });
+    })();
 
   // Keep hooks live when handlers are set after construction.
   const refreshHooks = () => {

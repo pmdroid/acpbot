@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import {
+  AcpHostRequiredError,
+  assertAcpHostReady,
+} from "./acp-host/client";
 import { loadConfig } from "./config";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
 import { systemClock } from "./env/clock";
@@ -14,6 +18,22 @@ async function main(): Promise<void> {
   // loadConfig already resolves acpxStateDir to absolute.
   const acpxStateDirAbs = cfg.acpxStateDir;
   const log = createLogger({ level: cfg.logLevel, name: "tacp" });
+
+  // acp-host is mandatory — fail before Telegram / agents wire-up.
+  try {
+    const host = await assertAcpHostReady({ stateDir: acpxStateDirAbs });
+    log.info("acp-host ready", { sockPath: host.sockPath });
+    console.error(`tacp acp-host: ok (${host.sockPath})`);
+  } catch (err) {
+    if (err instanceof AcpHostRequiredError) {
+      log.error(err.message);
+      console.error(err.message);
+      process.exitCode = 2;
+      return;
+    }
+    throw err;
+  }
+
   const store = await createJsonFileStore(cfg.storePath);
 
   const tacpConfig: import("./env/types").TacpConfig = {
@@ -98,9 +118,9 @@ async function main(): Promise<void> {
 
   try {
     console.error(
-      `tacp starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel})…`,
+      `tacp starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel}, acp-host)…`,
     );
-    console.error(`tacp acpx state dir: ${acpxStateDirAbs}`);
+    console.error(`tacp state dir: ${acpxStateDirAbs}`);
     if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {
       console.error(
         `tacp oauth: worker shares state with acp-host at ${acpxStateDirAbs}/mcp-oauth ` +
