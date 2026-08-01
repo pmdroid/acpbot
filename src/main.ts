@@ -16,13 +16,13 @@ import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
-  // loadConfig already resolves acpxStateDir to absolute.
-  const acpxStateDirAbs = cfg.acpxStateDir;
+  // loadConfig already resolves stateDir to absolute.
+  const stateDirAbs = cfg.stateDir;
   const log = createLogger({ level: cfg.logLevel, name: "tacp" });
 
   // acp-host is mandatory — fail before Telegram / agents wire-up.
   try {
-    const host = await assertAcpHostReady({ stateDir: acpxStateDirAbs });
+    const host = await assertAcpHostReady({ stateDir: stateDirAbs });
     log.info("acp-host ready", { sockPath: host.sockPath });
     console.error(`tacp acp-host: ok (${host.sockPath})`);
   } catch (err) {
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   }
 
   // Drop pre-worker-API disk queues (no longer drained).
-  const legacy = await cleanupLegacyOutboundQueues(acpxStateDirAbs, { log });
+  const legacy = await cleanupLegacyOutboundQueues(stateDirAbs, { log });
   if (legacy.removed.length > 0) {
     console.error(
       `tacp cleanup: removed legacy queue dir(s): ${legacy.removed.join(", ")}`,
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 
   const agents = realAgents({
     config: tacpConfig,
-    acpxStateDir: acpxStateDirAbs,
+    stateDir: stateDirAbs,
     verbose: cfg.verbose,
     log,
   });
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
 
   // Skills: install once with `bun run skills:install` (not on every boot).
 
-  const daemon = createDaemon(env, { acpxStateDir: acpxStateDirAbs });
+  const daemon = createDaemon(env, { stateDir: stateDirAbs });
   const ac = new AbortController();
 
   const stop = () => {
@@ -108,11 +108,11 @@ async function main(): Promise<void> {
     console.error(
       `tacp starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel}, acp-host)…`,
     );
-    console.error(`tacp state dir: ${acpxStateDirAbs}`);
+    console.error(`tacp state dir: ${stateDirAbs}`);
     if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {
       console.error(
-        `tacp oauth: worker shares state with acp-host at ${acpxStateDirAbs}/mcp-oauth ` +
-          `(set the same absolute TACP_ACPX_STATE_DIR on both processes)`,
+        `tacp oauth: worker shares state with acp-host at ${stateDirAbs}/mcp-oauth ` +
+          `(set the same absolute TACP_STATE_DIR on both processes)`,
       );
     }
     await daemon.run(ac.signal);

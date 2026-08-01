@@ -31,7 +31,7 @@ describe("worker API", () => {
     );
     expect(env.TACP_SESSION_KEY).toBe("demo/a");
     expect(env.TACP_WORKER_API_SOCK).toBe("/tmp/tacp-state/worker-api.sock");
-    expect(env.TACP_ACPX_STATE_DIR).toBe("/tmp/tacp-state");
+    expect(env.TACP_STATE_DIR).toBe("/tmp/tacp-state");
   });
 
   test("message/photo/document/speak over unix socket", async () => {

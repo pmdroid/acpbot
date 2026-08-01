@@ -81,8 +81,8 @@ export async function startAcpHostServer(
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
     options.stateDir ??
-    process.env.TACP_ACPX_STATE_DIR?.trim() ??
-    "./data/acpx-state";
+    process.env.TACP_STATE_DIR?.trim() ??
+    "./data/tacp-state";
   const sockPath = options.sockPath ?? defaultAcpHostSock(stateDir);
   const baseConfig: TacpConfig = options.config ?? {
     operatorUserId: 0,

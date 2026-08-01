@@ -1,7 +1,7 @@
 /**
  * MCP OAuth token + pending PKCE store.
  *
- * Layout (under absolute `$TACP_ACPX_STATE_DIR` — same path for worker + acp-host):
+ * Layout (under absolute `$TACP_STATE_DIR` — same path for worker + acp-host):
  *   mcp-oauth/by-repo/<repoKey>/<id>.json   — access/refresh tokens (mode 0600)
  *   mcp-oauth/pending/<state>.json         — in-flight PKCE (mode 0600, TTL 15m)
  *
@@ -20,6 +20,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { resolveStateDir } from "../env/state-dir";
 
 /** Pending PKCE lifetime (code_verifier retention). */
 export const PENDING_OAUTH_TTL_MS = 15 * 60 * 1000;
@@ -78,17 +79,15 @@ export type OAuthStorePaths = {
 };
 
 /**
- * Resolve OAuth / acpx state directory to an **absolute** path.
+ * Resolve OAuth / runtime state directory to an **absolute** path.
  * Worker and acp-host must share the same absolute path for pending PKCE + tokens.
  */
 export function defaultOAuthStateDir(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const raw =
-    env.TACP_ACPX_STATE_DIR?.trim() ||
-    env.TACP_OAUTH_STATE_DIR?.trim() ||
-    "./data/acpx-state";
-  return resolve(raw);
+  const oauthOnly = env.TACP_OAUTH_STATE_DIR?.trim();
+  if (oauthOnly) return resolve(oauthOnly);
+  return resolveStateDir(undefined, env);
 }
 
 /**
@@ -204,7 +203,7 @@ export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
       process.env.TACP_OAUTH_ALLOW_IN_REPO_STATE !== "true"
     ) {
       // Soft policy: only refuse if clearly under .tacp (already handled).
-      // Document that absolute TACP_ACPX_STATE_DIR outside the worktree is preferred.
+      // Document that absolute TACP_STATE_DIR outside the worktree is preferred.
       void 0;
     }
   }
@@ -452,7 +451,4 @@ export async function bearerForMcp(
   };
 }
 
-/** @deprecated Use resolveOAuthStateDir */
-export function resolveStateDir(stateDir?: string): string {
-  return resolveOAuthStateDir(stateDir);
-}
+

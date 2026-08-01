@@ -14,7 +14,7 @@ describe("buildAcpRuntimeOptions (compat shim)", () => {
         operatorUserId: 1,
         repos: { tacp: "/r/tacp" },
       },
-      acpxStateDir: "/state",
+      stateDir: "/state",
       onPermissionRequest: async () => ({ outcome: "reject_once" }),
       onElicitationRequest: async () => ({ action: "decline" }),
     });
@@ -29,7 +29,7 @@ describe("buildAcpRuntimeOptions (compat shim)", () => {
     });
     const opts = buildAcpRuntimeOptions({
       config: { operatorUserId: 1, repos: { tacp: "/r/tacp" } },
-      acpxStateDir: "/state",
+      stateDir: "/state",
       onPermissionRequest: async () => ({ outcome: "reject_once" }),
       onElicitationRequest: async () => ({ action: "decline" }),
       onAskUserQuestion: ask,
@@ -114,7 +114,7 @@ describe("realAgents with injected host", () => {
         repos: { tacp: "/configured/repos/tacp" },
         defaultAgent: "grok-build",
       },
-      acpxStateDir: "/state",
+      stateDir: "/state",
       host,
     });
 

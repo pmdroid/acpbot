@@ -27,7 +27,7 @@ export type BuildTacpMcpServersOptions = {
   env?: Array<{ name: string; value: string }>;
   /** tacp sessionKey so outbound tools target the right Telegram topic. */
   sessionKey?: string;
-  /** State dir for worker-api sock (defaults to TACP_ACPX_STATE_DIR). */
+  /** State dir for worker-api sock (defaults to TACP_STATE_DIR). */
   stateDir?: string;
 };
 
@@ -72,12 +72,12 @@ export function buildTacpMcpServers(
   const command = options.command ?? process.execPath;
   const stateDir =
     options.stateDir?.trim() ||
-    process.env.TACP_ACPX_STATE_DIR?.trim() ||
-    "./data/acpx-state";
+    process.env.TACP_STATE_DIR?.trim() ||
+    "./data/tacp-state";
   const sockPath = workerApiSockPath(stateDir);
 
   const env: Array<{ name: string; value: string }> = [
-    { name: "TACP_ACPX_STATE_DIR", value: stateDir },
+    { name: "TACP_STATE_DIR", value: stateDir },
     { name: "TACP_WORKER_API_SOCK", value: sockPath },
     ...speechEnvFromProcess(),
     ...(options.sessionKey

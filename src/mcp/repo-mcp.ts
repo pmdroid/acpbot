@@ -91,7 +91,7 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
    */
   mcpProfile?: string;
   /**
-   * OAuth token store root (`TACP_ACPX_STATE_DIR`). When set (or defaulted from
+   * OAuth token store root (`TACP_STATE_DIR`). When set (or defaulted from
    * env), remote http/sse entries get `Authorization: Bearer` from the store.
    */
   oauthStateDir?: string;
@@ -582,7 +582,8 @@ export function injectSessionEnv(
     envMap.set("TACP_SESSION_KEY", input.sessionKey);
   }
   envMap.set("TACP_REPO_ROOT", resolve(input.repoRoot));
-  envMap.set("TACP_STATE_DIR", resolve(input.repoStateDir));
+  // Per-repo `.tacp` tree (schedules, mcp.json, …) — not the host TACP_STATE_DIR.
+  envMap.set("TACP_REPO_STATE_DIR", resolve(input.repoStateDir));
 
   return {
     name: server.name,
@@ -592,7 +593,6 @@ export function injectSessionEnv(
   };
 }
 
-/**
 /**
  * Attach OAuth Bearer tokens from the host token store onto remote http/sse
  * MCP entries. Never reads or writes the git repo for tokens.
@@ -659,7 +659,7 @@ function oauthFailClosedDefault(
 /**
  * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in tacp** (speak).
  * Missing/invalid repo config → built-in only.
- * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_STATE_DIR into every stdio child.
+ * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_REPO_STATE_DIR into every stdio child.
  * Merges OAuth Bearer headers for remote http/sse from the host token store.
  *
  * Profile filter (when `.tacp/config.json` has `mcpProfile` and profiles file exists):

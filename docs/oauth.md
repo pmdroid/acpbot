@@ -3,8 +3,8 @@
 Tokens are **never** written to the repo. They live under:
 
 ```text
-$TACP_ACPX_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json   # mode 0600
-$TACP_ACPX_STATE_DIR/mcp-oauth/pending/                      # PKCE in flight
+$TACP_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json   # mode 0600
+$TACP_STATE_DIR/mcp-oauth/pending/                      # PKCE in flight
 ```
 
 ## Shared absolute state dir
@@ -12,7 +12,7 @@ $TACP_ACPX_STATE_DIR/mcp-oauth/pending/                      # PKCE in flight
 `/mcp auth` runs in the **Telegram worker** and writes pending PKCE.  
 `GET /oauth/callback` and session ensure run on **acp-host**.
 
-Both processes **must** use the **same absolute** `TACP_ACPX_STATE_DIR`. Prefer an absolute path in `.env` so different CWDs cannot diverge. Boot logs print the resolved path on both processes.
+Both processes **must** use the **same absolute** `TACP_STATE_DIR`. Prefer an absolute path in `.env` so different CWDs cannot diverge. Boot logs print the resolved path on both processes.
 
 ## Setup
 
@@ -30,7 +30,7 @@ Run:
 
 ```bash
 bun run acp-host   # serves GET /oauth/callback when base is set
-# worker with same TACP_ACPX_STATE_DIR
+# worker with same TACP_STATE_DIR
 ```
 
 If bind fails (port in use), **acp-host exits** with a clear error when the callback base is set. Free the port or use the paste fallback below.

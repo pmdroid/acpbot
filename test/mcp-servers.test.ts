@@ -48,7 +48,7 @@ describe("buildTacpMcpServers", () => {
     );
     expect(env.TACP_SESSION_KEY).toBe("demo/topic");
     expect(env.TACP_WORKER_API_SOCK).toBe("/tmp/tacp-state/worker-api.sock");
-    expect(env.TACP_ACPX_STATE_DIR).toBe("/tmp/tacp-state");
+    expect(env.TACP_STATE_DIR).toBe("/tmp/tacp-state");
   });
 });
 
@@ -445,7 +445,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           const env = Object.fromEntries(s.env.map((e) => [e.name, e.value]));
           expect(env.TACP_SESSION_KEY).toBe("life/main");
           expect(env.TACP_REPO_ROOT).toBe(resolve(repo));
-          expect(env.TACP_STATE_DIR).toBe(resolve(repo, ".tacp"));
+          expect(env.TACP_REPO_STATE_DIR).toBe(resolve(repo, ".tacp"));
         }
 
         const local = servers[0] as {
@@ -465,7 +465,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         expect(tacpEnv.TACP_WORKER_API_SOCK).toBe(
           "/tmp/host-state/worker-api.sock",
         );
-        expect(tacpEnv.TACP_ACPX_STATE_DIR).toBe("/tmp/host-state");
+        expect(tacpEnv.TACP_STATE_DIR).toBe("/tmp/host-state");
       },
     );
   });

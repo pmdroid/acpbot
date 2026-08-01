@@ -12,7 +12,7 @@
  * When TACP_OAUTH_CALLBACK_BASE is set, also listens for GET /oauth/callback
  * so remote MCP OAuth can complete without paste-code as the primary UX.
  *
- * Worker and acp-host **must** use the same absolute TACP_ACPX_STATE_DIR
+ * Worker and acp-host **must** use the same absolute TACP_STATE_DIR
  * (pending PKCE is written by the worker; callback + ensure run on the host).
  */
 import { createLogger } from "../env/logger";
@@ -29,10 +29,10 @@ async function main(): Promise<void> {
   });
   // Absolute — matches worker after loadConfig / createDaemon resolve.
   const stateDir = resolveOAuthStateDir(
-    process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state",
+    process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
   );
   // Keep process.env in sync so nested helpers see the same absolute path.
-  process.env.TACP_ACPX_STATE_DIR = stateDir;
+  process.env.TACP_STATE_DIR = stateDir;
   const repos = parseReposFromEnv(process.env);
   const tickMs = scheduleTickMs(process.env);
   const { sockPath, close } = await startAcpHostServer({
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   if (oauthBase) {
     console.error(
       `tacp oauth: callback base ${oauthBase} → state ${stateDir}/mcp-oauth ` +
-        `(worker must use the same absolute TACP_ACPX_STATE_DIR)`,
+        `(worker must use the same absolute TACP_STATE_DIR)`,
     );
     try {
       const oauth = await maybeStartOauthHttpServer({ stateDir, log });

@@ -38,7 +38,7 @@ Commands are registered in `src/core/commands.ts`.
 | `/mcp code <callback-url>` | Paste-code fallback (full URL preferred) |
 | `/mcp code <code> <id>` | Bare code last resort |
 
-Tokens are stored under `TACP_ACPX_STATE_DIR`, never in the repo. Full flow: [oauth.md](oauth.md).
+Tokens are stored under `TACP_STATE_DIR`, never in the repo. Full flow: [oauth.md](oauth.md).
 
 ## Telegram menu
 

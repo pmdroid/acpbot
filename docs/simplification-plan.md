@@ -36,7 +36,7 @@ Living checklist from the architecture review (2026-08-01).
 | 2 | Skill install: not every boot | **done** (2026-08-01) |
 | 3 | Working bubble durability | **open — explain first, no decision yet** |
 | 4 | One-time outbound queue cleanup | **done** (2026-08-01) |
-| 5 | Rename acpx → state (naming debt) | pending |
+| 5 | Rename acpx → state (naming debt) | **done** (hard cut, no alias) |
 | 6 | Delete dead shims / aliases | pending |
 | 7 | Extract turn runner from daemon | pending |
 | 8 | Unify three wait-for-operator UIs | pending |
@@ -208,20 +208,20 @@ No options chosen. Do not implement until you decide.
 
 ## Step 5 — Rename acpx → state (naming debt)
 
-**Problem:** Fork is gone; env and fields still say `TACP_ACPX_STATE_DIR` / `acpxStateDir`.
+**Problem:** Fork is gone; env and fields still say `TACP_STATE_DIR` / `stateDir`.
 
 **Options:**
 
 | Id | How |
 |----|-----|
-| 5a | New primary `TACP_STATE_DIR`; accept old `TACP_ACPX_STATE_DIR` as alias (warn once) |
+| 5a | New primary `TACP_STATE_DIR`; accept old `TACP_STATE_DIR` as alias (warn once) |
 | 5b | Rename in code comments/types only; keep env var string forever |
 | 5c | Hard rename env only (breaking) |
 
 **Touch:** `config.ts`, main, acp-host, mcp, docs, `.env.example`  
 **Verify:** loadConfig tests for alias  
 
-**Status:** pending — ask if/how
+**Status:** **done** — `TACP_STATE_DIR` / `stateDir` only; no `TACP_ACPX_*` alias.
 
 ---
 
@@ -359,6 +359,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `TACP_ACP_HOST=0`. |
 | 2026-08-01 | Step 2 done: no skill install on boot; safe installer (no clobber of real skill dirs). |
 | 2026-08-01 | Step 4 done: boot removes legacy `telegram-queue` / `speak-queue` under state dir. |
+| 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no ACPX alias; repo inject → `TACP_REPO_STATE_DIR`. |
 
 ---
 

@@ -6,7 +6,7 @@ MCP tools run inside (or beside) the agent process and **must not** hold the Tel
 
 | | |
 |---|---|
-| Default path | `$TACP_ACPX_STATE_DIR/worker-api.sock` |
+| Default path | `$TACP_STATE_DIR/worker-api.sock` |
 | Override | `TACP_WORKER_API_SOCK` (absolute path preferred) |
 | Server | Worker daemon (`src/core/worker-api-server.ts`) |
 | Client | Host MCP (`src/mcp/worker-api.ts`) |

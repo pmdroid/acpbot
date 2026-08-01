@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 
-/** Historical queue directory names under TACP_ACPX_STATE_DIR. */
+/** Historical queue directory names under TACP_STATE_DIR. */
 export const LEGACY_OUTBOUND_QUEUE_DIRS = [
   "telegram-queue",
   "speak-queue",

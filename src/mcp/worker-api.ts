@@ -4,7 +4,7 @@
  * The MCP server (agent child) cannot hold the Telegram bot token.
  * It POSTs to the tacp worker/daemon, which owns token + session topics.
  *
- * Socket path: `$TACP_ACPX_STATE_DIR/worker-api.sock`
+ * Socket path: `$TACP_STATE_DIR/worker-api.sock`
  * Env: `TACP_WORKER_API_SOCK` (absolute path, preferred).
  */
 import { request as httpRequest } from "node:http";
@@ -13,7 +13,7 @@ import { join } from "node:path";
 export const WORKER_API_SOCK_NAME = "worker-api.sock";
 
 export function workerApiSockPath(
-  stateDir = process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state",
+  stateDir = process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
 ): string {
   const fromEnv = process.env.TACP_WORKER_API_SOCK?.trim();
   if (fromEnv) return fromEnv;

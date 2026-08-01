@@ -93,7 +93,7 @@ describe("bundled skills", () => {
         TACP_BOT_TOKEN: "t",
         TACP_OPERATOR_USER_ID: "1",
         TACP_STORE_PATH: "/tmp/tacp-store.json",
-        TACP_ACPX_STATE_DIR: "/tmp/tacp-state",
+        TACP_STATE_DIR: "/tmp/tacp-state",
         TACP_REPOS_JSON: "{}",
         HOME: "/tmp/home-no-skills",
       },

@@ -10,9 +10,9 @@ Nothing assumes a fixed host path or TTY. Source of truth for comments: `.env.ex
 | `TACP_BOT_TOKEN` | Bot token from @BotFather (alias: `BOT_TOKEN`) |
 | `TACP_OPERATOR_USER_ID` | Allowlisted Telegram user id (alias: `OPERATOR_USER_ID`) |
 | `TACP_STORE_PATH` | Durable tacp JSON store file path |
-| `TACP_ACPX_STATE_DIR` | Host state directory — **prefer absolute** |
+| `TACP_STATE_DIR` | Host state directory — **prefer absolute** |
 
-`TACP_ACPX_STATE_DIR` holds:
+`TACP_STATE_DIR` holds:
 
 - ACP session records: `sessions/<sessionKey>.json`
 - OAuth tokens / pending PKCE: `mcp-oauth/`
@@ -44,7 +44,7 @@ Agent processes always run in **acp-host**. The worker has no in-process agent p
 
 | Variable | Purpose |
 |---|---|
-| `TACP_ACP_HOST_SOCK` | Optional override of host Unix socket (default `$TACP_ACPX_STATE_DIR/acp-host.sock`) |
+| `TACP_ACP_HOST_SOCK` | Optional override of host Unix socket (default `$TACP_STATE_DIR/acp-host.sock`) |
 
 Worker boot **fails** if the socket is missing or does not answer `ping`.
 
@@ -130,7 +130,7 @@ No per-gateway `CLIENT_ID` / `AUTH_URL` env vars — discovery + DCR only. See [
 TACP_BOT_TOKEN=…
 TACP_OPERATOR_USER_ID=…
 TACP_STORE_PATH=./data/tacp-store.json
-TACP_ACPX_STATE_DIR=/abs/path/data/acpx-state
+TACP_STATE_DIR=/abs/path/data/tacp-state
 TACP_REPOS_JSON='{"tacp":"/abs/path/to/tacp"}'
 TACP_DEFAULT_AGENT=grok-build
 ```

@@ -1,7 +1,8 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { LogLevel, TacpConfig } from "./env/types";
 import { parseLogLevel } from "./env/logger";
+import { resolveStateDir, stateDirFromEnv } from "./env/state-dir";
 
 /**
  * Load configuration from process env / a JSON blob.
@@ -11,8 +12,11 @@ export type ProcessConfig = TacpConfig & {
   botToken: string;
   /** Durable tacp store file path — caller chooses location. */
   storePath: string;
-  /** Directory for acpx session records — caller chooses location. */
-  acpxStateDir: string;
+  /**
+   * Shared runtime state dir (sockets, ACP sessions, OAuth).
+   * Env: `TACP_STATE_DIR`.
+   */
+  stateDir: string;
   verbose?: boolean;
   /** debug | info | warn | error | silent — TACP_LOG_LEVEL (default info; TACP_VERBOSE=1 → debug). */
   logLevel: LogLevel;
@@ -27,7 +31,7 @@ export type LoadConfigOptions = {
   };
 };
 
-/** Map friendly names onto acpx built-in registry ids. */
+/** Map friendly agent names onto registry ids. */
 export function normalizeAgentName(name: string): string {
   const n = name.trim().toLowerCase();
   if (n === "grok" || n === "xai" || n === "grok-build") return "grok-build";
@@ -66,14 +70,14 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     );
   }
 
-  const acpxStateDirRaw = file.acpxStateDir ?? env.TACP_ACPX_STATE_DIR;
-  if (!acpxStateDirRaw) {
+  const stateDirRaw = file.stateDir ?? stateDirFromEnv(env);
+  if (!stateDirRaw) {
     throw new Error(
-      "Missing acpx state dir. Set TACP_ACPX_STATE_DIR to a writable directory.",
+      "Missing state dir. Set TACP_STATE_DIR to a writable directory.",
     );
   }
   // Always absolute so worker + acp-host share OAuth pending/tokens regardless of CWD.
-  const acpxStateDir = resolve(acpxStateDirRaw.trim());
+  const stateDir = resolveStateDir(stateDirRaw, env);
 
   let repos = file.repos;
   if (!repos && env.TACP_REPOS_JSON) {
@@ -97,7 +101,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   const config: ProcessConfig = {
     botToken,
     storePath,
-    acpxStateDir,
+    stateDir,
     operatorUserId,
     defaultAgent: normalizeAgentName(
       file.defaultAgent ?? env.TACP_DEFAULT_AGENT ?? "grok-build",
