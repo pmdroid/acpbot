@@ -118,9 +118,21 @@ While a turn is in flight the worker posts **one** message in the topic and keep
 - `telegram_send` / photo / file / speak still create **separate** permanent messages
 - Session status is still tracked in the store for `/status` and steer vs prompt; only the **Telegram topic name** stays fixed
 
+## Operator prompt queue
+
+Per-session FIFO in the **worker** (not host-only):
+
+| Input while turn busy | Behavior |
+|---|---|
+| Free-text / media | Enqueued; ack with **Remove**; runs after turn end |
+| `/steer <text>` | Abort in-flight turn (queue kept), start steer turn immediately |
+| `/cancel` | Abort + **clear** queue |
+
+Host `promptQueue` (acp-host) remains a separate serialization for concurrent host clients. Operator UX is owned by the worker queue. Details: [commands.md](commands.md#queue-vs-steer-while-a-turn-is-busy).
+
 ## Message volume policy
 
-**Buffer agent text during the turn, flush once at the end**, chunked to Telegram limits. Mid-turn pings use explicit MCP tools (`update` → edit working bubble; `telegram_send`, photo, file, speak → new messages) via the worker API instead of streaming every token.
+**Buffer agent text during the turn, flush once at the end**, chunked to Telegram limits. Mid-turn pings use explicit MCP tools (`update` → edit working bubble — **preferred progress channel**; `telegram_send`, photo, file, speak → new messages) via the worker API instead of streaming every token.
 
 ## Security notes
 

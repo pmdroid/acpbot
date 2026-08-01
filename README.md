@@ -97,6 +97,7 @@ bun run start            # terminal 2 — worker
 /new demo hello
 # open the topic → prompt
 # /status  /model  /agent  /mode  /skills  /mcp  /cancel
+# while busy: free-text is queued; /steer <text> interrupts; /queue · /unqueue
 ```
 
 ---

@@ -100,16 +100,20 @@ server.tool(
   {
     name: "update",
     description:
-      "Update the live “working…” status bubble in this Telegram topic (edits one message; does not spam). " +
-      "Use while you are still working when a step takes a while, something important happened, " +
-      "or the user should know you are making progress. Do not spam every tiny step. " +
-      "Do not use this for the final answer — put that in your normal assistant reply. " +
-      "The bubble is removed automatically when the turn finishes. Prefer 1–3 short sentences.",
+      "PRIMARY way to keep the operator informed mid-turn. " +
+      "Edits the single live “⏳ Working…” status bubble in this Telegram topic (not a new spam message). " +
+      "Call this whenever a step takes more than a few seconds, you finish a major step, hit a snag, " +
+      "or change plans — so the human sees progress without waiting for the final reply. " +
+      "Prefer 1–3 short plain-text sentences (what happened / what next). " +
+      "Do not use for the final answer (use your normal assistant reply). " +
+      "Do not call on every tiny tool step. The bubble is removed when the turn ends.",
     input: z.object({
       text: z
         .string()
         .min(1)
-        .describe("Progress update for the operator (plain text)."),
+        .describe(
+          "Progress update the operator sees in the working bubble (plain text).",
+        ),
     }),
   },
   async ({ text }) => {

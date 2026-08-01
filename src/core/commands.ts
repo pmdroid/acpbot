@@ -35,7 +35,23 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/cancel",
     scope: "topic",
-    summary: "Stop the current turn (keeps the session)",
+    summary: "Stop the current turn and clear the prompt queue",
+  },
+  {
+    name: "/steer",
+    scope: "topic",
+    summary:
+      "Interrupt the current turn and send guidance now (/steer <text>)",
+  },
+  {
+    name: "/queue",
+    scope: "topic",
+    summary: "List messages waiting until the current turn ends",
+  },
+  {
+    name: "/unqueue",
+    scope: "topic",
+    summary: "Remove queued msgs: /unqueue | /unqueue <n> | /unqueue all",
   },
   {
     name: "/skills",
@@ -165,6 +181,10 @@ export function topicHelpText(): string {
     ...COMMANDS.filter((c) => c.scope === "topic" || c.scope === "both").map(
       (c) => `${c.name} — ${c.summary}`,
     ),
+    "",
+    "While a turn is running, free-text is **queued** (runs after the turn).",
+    "`/steer <text>` **interrupts** the current turn and injects guidance now.",
+    "Telegram does not notify deletes — use **Remove** on the queue ack or `/unqueue`.",
     "",
     "Lobby commands (/new, /sessions, /ping) only work in the main chat.",
   ].join("\n");

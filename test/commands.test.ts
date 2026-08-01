@@ -62,9 +62,12 @@ describe("command registry", () => {
       "/new",
       "/ping",
       "/plan",
+      "/queue",
       "/sessions",
       "/skills",
       "/status",
+      "/steer",
+      "/unqueue",
     ]);
   });
 
@@ -84,6 +87,9 @@ describe("command registry", () => {
     expect(commandAllowedIn("/ping", "topic")).toBe(false);
     expect(commandAllowedIn("/cancel", "topic")).toBe(true);
     expect(commandAllowedIn("/cancel", "lobby")).toBe(false);
+    expect(commandAllowedIn("/steer", "topic")).toBe(true);
+    expect(commandAllowedIn("/queue", "topic")).toBe(true);
+    expect(commandAllowedIn("/unqueue", "topic")).toBe(true);
     expect(commandAllowedIn("/plan", "topic")).toBe(true);
     expect(commandAllowedIn("/build", "topic")).toBe(true);
     expect(commandAllowedIn("/mode", "lobby")).toBe(false);
@@ -103,12 +109,17 @@ describe("command registry", () => {
 
     const topic = topicHelpText();
     expect(topic).toContain("/cancel");
+    expect(topic).toContain("/steer");
+    expect(topic).toContain("/queue");
+    expect(topic).toContain("/unqueue");
     expect(topic).toContain("/help");
     expect(topic).toContain("/skills");
     expect(topic).toContain("/plan");
     expect(topic).toContain("/build");
     expect(topic).toContain("/mode");
     expect(topic).toContain("/mcp");
+    expect(topic).toMatch(/queued/i);
+    expect(topic).toMatch(/interrupt/i);
     expect(topic).not.toContain("/new —");
   });
 
