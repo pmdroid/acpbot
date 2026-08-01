@@ -2,8 +2,8 @@
  * tacp ships operator skills under `<package>/skills/{telegram,schedules}/`.
  *
  * - Always listed for `/skills` via skillRoots (bundled root).
- * - On worker start, installed into global agent skill dirs so Grok/Claude/etc.
- *   see them in every workspace.
+ * - Install into global agent dirs only via explicit `bun run skills:install`
+ *   (never on worker boot).
  */
 import { cp, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -33,13 +33,16 @@ export function defaultGlobalSkillParents(
 
 export type InstallBundledSkillsResult = {
   source: string;
-  installed: Array<{ target: string; mode: "symlink" | "copy" | "skip" }>;
+  installed: Array<{
+    target: string;
+    mode: "symlink" | "copy" | "skip" | "conflict";
+  }>;
   errors: string[];
 };
 
 /**
  * Symlink (or copy) each bundled skill into global agent skill roots.
- * Idempotent: replaces existing same-name entries that are ours or broken.
+ * Idempotent for our links. Never deletes a real directory or foreign tree.
  */
 export async function installBundledSkills(options?: {
   sourceRoot?: string;
@@ -102,12 +105,25 @@ export async function installBundledSkills(options?: {
       const srcSkill = join(source, id);
       const dest = join(parent, id);
       try {
-        await installOneSkillLink(srcSkill, dest);
-        result.installed.push({ target: dest, mode: "symlink" });
-        log.info("bundled skill installed", { id, dest, mode: "symlink" });
+        const mode = await installOneSkillLink(srcSkill, dest);
+        result.installed.push({ target: dest, mode });
+        if (mode === "conflict") {
+          const msg = `skipped ${dest}: exists and is not a tacp skill symlink (will not overwrite)`;
+          result.errors.push(msg);
+          log.warn("bundled skill conflict", { id, dest });
+        } else if (mode !== "skip") {
+          log.info("bundled skill installed", { id, dest, mode });
+        }
       } catch (symlinkErr) {
+        // Symlink unsupported (rare) — copy only if dest is free.
         try {
-          await rm(dest, { recursive: true, force: true });
+          if (await pathExists(dest)) {
+            const msg = `skipped ${dest}: cannot symlink and path already exists`;
+            result.errors.push(msg);
+            result.installed.push({ target: dest, mode: "conflict" });
+            log.warn("bundled skill conflict", { id, dest });
+            continue;
+          }
           await cp(srcSkill, dest, { recursive: true });
           result.installed.push({ target: dest, mode: "copy" });
           log.info("bundled skill installed", { id, dest, mode: "copy" });
@@ -115,7 +131,9 @@ export async function installBundledSkills(options?: {
           const msg = `install ${id} → ${dest}: ${
             copyErr instanceof Error ? copyErr.message : String(copyErr)
           } (symlink: ${
-            symlinkErr instanceof Error ? symlinkErr.message : String(symlinkErr)
+            symlinkErr instanceof Error
+              ? symlinkErr.message
+              : String(symlinkErr)
           })`;
           result.errors.push(msg);
           log.warn("bundled skill install failed", { id, dest, error: msg });
@@ -127,23 +145,49 @@ export async function installBundledSkills(options?: {
   return result;
 }
 
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await lstat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function linkPointsTo(cur: string, dest: string, srcSkill: string): boolean {
+  if (cur === srcSkill) return true;
+  try {
+    return join(dirname(dest), cur) === srcSkill;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Install or refresh a single skill link.
+ * - Correct symlink → skip
+ * - Wrong symlink → replace link only (never recursive)
+ * - Real file/dir → conflict (no delete)
+ */
 async function installOneSkillLink(
   srcSkill: string,
   dest: string,
-): Promise<void> {
-  // If already a correct symlink, keep it.
+): Promise<"symlink" | "skip" | "conflict"> {
   try {
     const st = await lstat(dest);
     if (st.isSymbolicLink()) {
       const cur = await readlink(dest);
-      // Absolute or relative that resolves — compare string loosely
-      if (cur === srcSkill || join(dirname(dest), cur) === srcSkill) {
-        return;
+      if (linkPointsTo(cur, dest, srcSkill)) {
+        return "skip";
       }
+      // Only remove the symlink itself — never a directory tree.
+      await rm(dest);
+    } else {
+      return "conflict";
     }
-    await rm(dest, { recursive: true, force: true });
   } catch {
     /* dest missing */
   }
   await symlink(srcSkill, dest, "dir");
+  return "symlink";
 }

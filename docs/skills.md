@@ -15,13 +15,9 @@ The package tree is the source of truth; install puts them in global agent skill
 bun run skills:install
 ```
 
-Also runs automatically when the **worker** starts (`bun run start`), unless:
+Run after clone or skill upgrades. The **worker does not** install skills on boot.
 
-```bash
-TACP_SKIP_SKILL_INSTALL=1
-```
-
-Install targets (symlink preferred, copy fallback):
+Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already a tacp skill symlink:
 
 - `~/.agents/skills/{telegram,schedules}`
 - `~/.grok/skills/{telegram,schedules}`

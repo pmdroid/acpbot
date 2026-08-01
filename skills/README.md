@@ -11,12 +11,10 @@ Operator skills shipped with tacp and installed **globally** for coding agents
 ## Install
 
 ```bash
-# one-shot
 bun run skills:install
-
-# also runs automatically when the worker starts (bun run start)
-# skip with: TACP_SKIP_SKILL_INSTALL=1
 ```
+
+Run after clone or skill upgrades. Worker boot does **not** install skills.
 
 Installs (symlink preferred, copy fallback) into:
 

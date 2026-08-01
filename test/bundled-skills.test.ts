@@ -47,6 +47,46 @@ describe("bundled skills", () => {
     await rm(source, { recursive: true, force: true });
   });
 
+  test("installBundledSkills does not delete a real skill directory", async () => {
+    const home = await mkdtemp(join(tmpdir(), "tacp-skills-safe-"));
+    const source = await mkdtemp(join(tmpdir(), "tacp-skills-src-"));
+    await mkdir(join(source, "telegram"), { recursive: true });
+    await writeFile(
+      join(source, "telegram", "SKILL.md"),
+      `---\nname: telegram\ndescription: bundled\n---\n`,
+    );
+
+    const parent = join(home, ".agents", "skills");
+    const userSkill = join(parent, "telegram");
+    await mkdir(userSkill, { recursive: true });
+    await writeFile(join(userSkill, "SKILL.md"), "user owned skill\n");
+    await writeFile(join(userSkill, "keep-me.txt"), "do not delete\n");
+
+    const result = await installBundledSkills({
+      sourceRoot: source,
+      globalParents: [parent],
+    });
+
+    expect(result.installed.some((i) => i.mode === "conflict")).toBe(true);
+    expect(result.errors.some((e) => e.includes("will not overwrite"))).toBe(
+      true,
+    );
+    // User files still present
+    const keep = await Bun.file(join(userSkill, "keep-me.txt")).text();
+    expect(keep).toBe("do not delete\n");
+
+    await rm(home, { recursive: true, force: true });
+    await rm(source, { recursive: true, force: true });
+  });
+
+  test("main.ts does not auto-install skills on boot", async () => {
+    const src = await Bun.file(
+      join(import.meta.dir, "../src/main.ts"),
+    ).text();
+    expect(src).not.toContain("installBundledSkills");
+    expect(src).not.toContain("TACP_SKIP_SKILL_INSTALL");
+  });
+
   test("loadConfig includes package skills root", () => {
     const cfg = loadConfig({
       env: {
