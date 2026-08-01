@@ -18,13 +18,13 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   // loadConfig already resolves stateDir to absolute.
   const stateDirAbs = cfg.stateDir;
-  const log = createLogger({ level: cfg.logLevel, name: "tacp" });
+  const log = createLogger({ level: cfg.logLevel, name: "acpbot" });
 
   // acp-host is mandatory — fail before Telegram / agents wire-up.
   try {
     const host = await assertAcpHostReady({ stateDir: stateDirAbs });
     log.info("acp-host ready", { sockPath: host.sockPath });
-    console.error(`tacp acp-host: ok (${host.sockPath})`);
+    console.error(`acpbot acp-host: ok (${host.sockPath})`);
   } catch (err) {
     if (err instanceof AcpHostRequiredError) {
       log.error(err.message);
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   const legacy = await cleanupLegacyOutboundQueues(stateDirAbs, { log });
   if (legacy.removed.length > 0) {
     console.error(
-      `tacp cleanup: removed legacy queue dir(s): ${legacy.removed.join(", ")}`,
+      `acpbot cleanup: removed legacy queue dir(s): ${legacy.removed.join(", ")}`,
     );
   }
 
@@ -106,17 +106,17 @@ async function main(): Promise<void> {
 
   try {
     console.error(
-      `tacp starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel}, acp-host)…`,
+      `acpbot starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel}, acp-host)…`,
     );
-    console.error(`tacp state dir: ${stateDirAbs}`);
+    console.error(`acpbot state dir: ${stateDirAbs}`);
     if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {
       console.error(
-        `tacp oauth: worker shares state with acp-host at ${stateDirAbs}/mcp-oauth ` +
+        `acpbot oauth: worker shares state with acp-host at ${stateDirAbs}/mcp-oauth ` +
           `(set the same absolute TACP_STATE_DIR on both processes)`,
       );
     }
     await daemon.run(ac.signal);
-    console.error("tacp stopped.");
+    console.error("acpbot stopped.");
   } catch (err) {
     if (err instanceof TopicsDisabledError) {
       log.error(err.message);

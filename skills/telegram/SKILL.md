@@ -1,17 +1,17 @@
 ---
 name: telegram
 description: >
-  Operator messaging on tacp (Telegram topics): progress updates, mid-turn text,
+  Operator messaging on acpbot (Telegram topics): progress updates, mid-turn text,
   photos, files, and voice. Use whenever you need to reach the human on Telegram
   beyond the final reply — status pings, attachments, or spoken notes.
 ---
 
-# Telegram (tacp)
+# Telegram (acpbot)
 
-You are in a **tacp** Telegram topic. The operator only sees what you send on Telegram
+You are in a **acpbot** Telegram topic. The operator only sees what you send on Telegram
 (normal reply text, plus the tools below). They do not see your thinking.
 
-Host MCP server: **`tacp`**. Call tools by name (clients may show them as `tacp__…`).
+Host MCP server: **`acpbot`**. Call tools by name (clients may show them as `tacp__…`).
 
 ## Tool map
 
@@ -63,7 +63,7 @@ speak({ text: "Short natural line for the voice note." })
 
 ## Worker requirement
 
-Outbound tools need the **tacp worker** running (Telegram bot + worker API).
+Outbound tools need the **acpbot worker** running (Telegram bot + worker API).
 If a tool says the worker API is unreachable, tell the operator the worker is down;
 do not invent a fake “sent” status.
 

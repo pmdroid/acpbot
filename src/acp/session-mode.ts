@@ -2,6 +2,103 @@
  * Session mode helpers: pick interactive modes at create, resolve plan/build toggles.
  */
 
+/** Normalized mode list + current id from ACP (or agent extensions). */
+export type SessionModeView = {
+  currentModeId?: string | undefined;
+  availableModeIds: string[];
+  /** Where the modes were found (for logs/tests). */
+  source: "acp.modes" | "x.ai/sessionConfig" | "none";
+};
+
+/**
+ * Extract session modes from ACP session/new|load payloads.
+ *
+ * Sources (in order):
+ * 1. Standard ACP `modes: { availableModes, currentModeId }` (Codex, etc.)
+ * 2. Grok Build `_meta["x.ai/sessionConfig"].options` with `category: "mode"`
+ *    (high / medium / low effort — not ACP session modes)
+ */
+export function extractSessionModes(input: {
+  modes?: unknown;
+  meta?: Record<string, unknown> | null | undefined;
+}): SessionModeView {
+  const fromAcp = extractAcpModes(input.modes);
+  if (fromAcp.availableModeIds.length > 0) {
+    return { ...fromAcp, source: "acp.modes" };
+  }
+  const fromGrok = extractGrokSessionConfigModes(input.meta);
+  if (fromGrok.availableModeIds.length > 0) {
+    return { ...fromGrok, source: "x.ai/sessionConfig" };
+  }
+  return { availableModeIds: [], source: "none" };
+}
+
+function extractAcpModes(modes: unknown): Omit<SessionModeView, "source"> {
+  if (!modes || typeof modes !== "object") {
+    return { availableModeIds: [] };
+  }
+  const m = modes as Record<string, unknown>;
+  const availableRaw = m.availableModes ?? m.available;
+  const availableModeIds: string[] = [];
+  if (Array.isArray(availableRaw)) {
+    for (const item of availableRaw) {
+      if (typeof item === "string" && item) {
+        availableModeIds.push(item);
+        continue;
+      }
+      if (item && typeof item === "object") {
+        const id = (item as { id?: unknown }).id;
+        if (typeof id === "string" && id) availableModeIds.push(id);
+      }
+    }
+  }
+  let currentModeId: string | undefined;
+  if (typeof m.currentModeId === "string" && m.currentModeId) {
+    currentModeId = m.currentModeId;
+  } else if (typeof m.current_mode_id === "string" && m.current_mode_id) {
+    currentModeId = m.current_mode_id;
+  }
+  return {
+    availableModeIds,
+    ...(currentModeId !== undefined ? { currentModeId } : {}),
+  };
+}
+
+/** Grok: effort modes under x.ai/sessionConfig (category "mode"). */
+function extractGrokSessionConfigModes(
+  meta: Record<string, unknown> | null | undefined,
+): Omit<SessionModeView, "source"> {
+  if (!meta || typeof meta !== "object") return { availableModeIds: [] };
+  const sc =
+    meta["x.ai/sessionConfig"] ??
+    meta.sessionConfig ??
+    (meta["x.ai"] as { sessionConfig?: unknown } | undefined)?.sessionConfig;
+  if (!sc || typeof sc !== "object") return { availableModeIds: [] };
+  const options = (sc as { options?: unknown }).options;
+  if (!Array.isArray(options)) return { availableModeIds: [] };
+
+  const modeOpts: Array<{ id: string; selected?: boolean }> = [];
+  for (const item of options) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (o.category !== "mode") continue;
+    const id = typeof o.id === "string" ? o.id : "";
+    if (!id) continue;
+    modeOpts.push({
+      id,
+      ...(o.selected === true ? { selected: true } : {}),
+    });
+  }
+  if (modeOpts.length === 0) return { availableModeIds: [] };
+  const selected = modeOpts.find((o) => o.selected)?.id;
+  return {
+    availableModeIds: modeOpts.map((o) => o.id),
+    ...(selected
+      ? { currentModeId: selected }
+      : { currentModeId: modeOpts[0]!.id }),
+  };
+}
+
 export function pickSessionModeId(
   available: string[],
   opts?: { forceReadOnly?: boolean },
@@ -16,7 +113,19 @@ export function pickSessionModeId(
     }
     return available[0];
   }
-  const prefer = ["default", "ask", "code", "agent", "full", "edit", "build"];
+  // Default: permission-ask / cautious modes before full agent/build.
+  const prefer = [
+    "ask",
+    "default",
+    "read-only",
+    "read_only",
+    "plan",
+    "code",
+    "agent",
+    "full",
+    "edit",
+    "build",
+  ];
   for (const id of prefer) {
     if (available.includes(id)) return id;
   }
@@ -128,7 +237,7 @@ export function formatModeStatus(input: {
 }): string {
   const { current, available } = input;
   const lines = [
-    `**Session mode:** \`${current ?? "unknown"}\``,
+    `**Session mode:** \`${current ?? "not advertised"}\``,
     "",
   ];
   if (available.length === 0) {
@@ -186,7 +295,9 @@ export function formatSessionStatus(input: {
     `Status: \`${input.status}\``,
     agentLine,
     `Launch: \`${launch}\``,
-    `Mode: \`${input.mode ?? "unknown"}\``,
+    input.mode
+      ? `Mode: \`${input.mode}\``
+      : `Mode: _(not advertised — try /mode or agent CLI)_`,
   ];
   if (input.model) {
     lines.push(`Model: \`${input.model}\``);

@@ -1087,6 +1087,17 @@ export function createDaemon(
     });
   }
 
+  /** Resolve session for worker-api / MCP tools or throw. */
+  function requireSession(sessionKey: string): PersistedSession {
+    const session = sessionIndex.byKey[sessionKey];
+    if (!session) {
+      throw new Error(
+        `unknown session "${sessionKey}" — no topic mapped (is the worker hydrated?)`,
+      );
+    }
+    return session;
+  }
+
   /** MCP → worker Unix API (token + topics stay on the daemon). */
   const workerApi = createWorkerApiServer({
     stateDir: stateDir,
@@ -1583,6 +1594,8 @@ export function createDaemon(
       "grok-build";
     const launch = resolveAgentLaunch(agent);
 
+    // Ensure via acp-host (host spawns/loads if cold; reattaches if live), then
+    // always re-query mode/model from the host — never a one-shot worker cache.
     let mode: string | undefined;
     let availableModes: string[] = [];
     let model: string | undefined;
@@ -1615,7 +1628,7 @@ export function createDaemon(
           cwd: session.cwd,
           sessionKey: session.sessionKey,
           stateDir:
-            process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
+            process.env.TACP_STATE_DIR?.trim() || "./data/acpbot-state",
           enabled: true,
         });
         mcpCount = servers.length;
@@ -2755,7 +2768,7 @@ export function createDaemon(
       log.info("startup: worker API listening", {
         sockPath: workerApi.sockPath,
       });
-      console.error(`tacp worker API: unix://${workerApi.sockPath}`);
+      console.error(`acpbot worker API: unix://${workerApi.sockPath}`);
     } catch (err) {
       log.error("startup: worker API failed to listen", {
         sockPath: workerApi.sockPath,

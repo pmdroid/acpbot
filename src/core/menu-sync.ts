@@ -1,5 +1,5 @@
 /**
- * Push tacp slash commands to Telegram’s “/” menu.
+ * Push acpbot slash commands to Telegram’s “/” menu.
  * Mirrors Ursula/Kyoto: wipe default + private (lang-agnostic + en), then set.
  */
 

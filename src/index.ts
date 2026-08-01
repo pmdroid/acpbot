@@ -5,6 +5,7 @@ export type {
   SessionIdentity,
   SessionStatus,
   Store,
+  AcpbotConfig,
   TacpConfig,
   TelegramPort,
   TelegramUpdate,

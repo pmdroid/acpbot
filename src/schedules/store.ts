@@ -18,6 +18,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { resolveRepoConfigDir } from "../env/repo-config-dir";
 import { computeNextRunAt } from "./next-run";
 import {
   scheduleJobSchema,
@@ -35,8 +36,9 @@ export function isWithinRepo(repoRoot: string, candidate: string): boolean {
   return abs.startsWith(prefix);
 }
 
+/** `<repo>/.acpbot/schedules` (or legacy `.tacp/schedules`). */
 export function schedulesDir(repoRoot: string): string {
-  return join(resolve(repoRoot), ".tacp", "schedules");
+  return join(resolveRepoConfigDir(repoRoot), "schedules");
 }
 
 export function jobPath(repoRoot: string, id: string): string {

@@ -2,7 +2,7 @@
  * Worker outbound API client (HTTP over Unix socket).
  *
  * The MCP server (agent child) cannot hold the Telegram bot token.
- * It POSTs to the tacp worker/daemon, which owns token + session topics.
+ * It POSTs to the acpbot worker/daemon, which owns token + session topics.
  *
  * Socket path: `$TACP_STATE_DIR/worker-api.sock`
  * Env: `TACP_WORKER_API_SOCK` (absolute path, preferred).
@@ -13,7 +13,7 @@ import { join } from "node:path";
 export const WORKER_API_SOCK_NAME = "worker-api.sock";
 
 export function workerApiSockPath(
-  stateDir = process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
+  stateDir = process.env.ACPBOT_STATE_DIR?.trim() || process.env.TACP_STATE_DIR?.trim() || "./data/acpbot-state",
 ): string {
   const fromEnv = process.env.TACP_WORKER_API_SOCK?.trim();
   if (fromEnv) return fromEnv;
@@ -117,7 +117,7 @@ export async function workerApiRequest(
         ok: false,
         error:
           `worker API unreachable at ${sockPath}: ${err.message}. ` +
-          `Is the tacp daemon running?`,
+          `Is the acpbot daemon running?`,
       });
     });
     if (payload) req.write(payload);

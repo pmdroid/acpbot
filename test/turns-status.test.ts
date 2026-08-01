@@ -75,14 +75,14 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const session = (await daemon.listSessions())[0]!;
 
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [
         { type: "turn_started" },
         { type: "turn_ended", stopReason: "end_turn" },
@@ -102,15 +102,15 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const session = (await daemon.listSessions())[0]!;
 
     env.telegram.clearOutbound();
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [
         { type: "turn_started" },
         { type: "turn_ended", stopReason: "end_turn" },
@@ -137,15 +137,15 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const session = (await daemon.listSessions())[0]!;
 
     env.telegram.clearOutbound();
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [{ type: "turn_started" }, { type: "process_died", error: "boom" }],
       die: "boom",
     });
@@ -156,10 +156,10 @@ describe("03 — live turns with status projection", () => {
     const names = env.telegram.outbound
       .filter((c) => c.method === "editForumTopic")
       .map((c) => (c.method === "editForumTopic" ? c.params.name : undefined));
-    expect(names).not.toContain(topicName("tacp", "work"));
+    expect(names).not.toContain(topicName("acpbot", "work"));
     // Status still tracked; failure is messaged in-topic.
     const after = (await daemon.listSessions()).find(
-      (s) => s.sessionKey === "tacp/work",
+      (s) => s.sessionKey === "acpbot/work",
     );
     expect(after?.status).toBe("failed");
   });
@@ -169,14 +169,14 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const session = (await daemon.listSessions())[0]!;
 
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [{ type: "turn_started" }, { type: "turn_ended" }],
     });
     await daemon.handleUpdate(topicMsg(session.messageThreadId, "go", 2));
@@ -192,14 +192,14 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const session = (await daemon.listSessions())[0]!;
 
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [
         { type: "turn_started" },
         { type: "agent_message_chunk", text: "AGENT REPLY HERE" },
@@ -228,16 +228,16 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
 
-    await daemon.handleUpdate(root("/new tacp loop", 1));
+    await daemon.handleUpdate(root("/new acpbot loop", 1));
     const session = (await daemon.listSessions())[0]!;
     expect(session.messageThreadId).toBeGreaterThan(0);
 
-    env.agents.queueTurn("tacp/loop", {
+    env.agents.queueTurn("acpbot/loop", {
       events: [
         { type: "turn_started" },
         { type: "agent_message_chunk", text: "hello from the agent" },
@@ -270,13 +270,13 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
 
-    expect(env.agents.modes.get("tacp/work")).toBe("read-only");
+    expect(env.agents.modes.get("acpbot/work")).toBe("read-only");
     // ensureSession ran before any turn
     expect(env.agents.ensureCalls).toHaveLength(1);
   });

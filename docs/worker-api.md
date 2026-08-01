@@ -1,6 +1,6 @@
 # Worker outbound API
 
-MCP tools run inside (or beside) the agent process and **must not** hold the Telegram bot token. They call the tacp **worker** over HTTP on a Unix socket; the worker owns the token and session → topic map.
+MCP tools run inside (or beside) the agent process and **must not** hold the Telegram bot token. They call the acpbot **worker** over HTTP on a Unix socket; the worker owns the token and session → topic map.
 
 ## Socket
 
@@ -14,7 +14,7 @@ MCP tools run inside (or beside) the agent process and **must not** hold the Tel
 Boot log includes something like:
 
 ```text
-tacp worker API: unix:///…/worker-api.sock
+acpbot worker API: unix:///…/worker-api.sock
 ```
 
 ## Endpoints (HTTP over Unix)
@@ -54,7 +54,7 @@ Start the API by starting the worker:
 
 ```bash
 bun run start
-# logs: tacp worker API: unix://…/worker-api.sock
+# logs: acpbot worker API: unix://…/worker-api.sock
 ```
 
 Tests: `test/worker-api.test.ts`.

@@ -1,19 +1,27 @@
 {
-  "name": "tacp",
+  "name": "acpbot",
   "version": "0.1.0",
-  "description": "Telegram control surface for ACP coding agents",
+  "description": "acpbot — Telegram control surface for ACP coding agents (acpbot.app)",
   "type": "module",
   "module": "src/main.ts",
   "bin": {
+    "acpbot": "./src/main.ts",
     "tacp": "./src/main.ts"
   },
   "scripts": {
     "start": "bun run src/main.ts",
     "test": "bun test ./test",
     "test:contract": "bun test test/contract",
+    "test:acp": "bun test test/contract/acp-capabilities.test.ts test/contract/acp-host-client-live.test.ts test/contract/acp-permission.test.ts test/session-mode.test.ts test/session-config.test.ts test/acp-live-agents.test.ts test/acp-host.test.ts",
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
     "acp-host": "bun run src/acp-host/main.ts",
-    "skills:install": "bun run src/scripts/install-skills.ts"
+    "skills:install": "bun run src/scripts/install-skills.ts",
+    "build:compile": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts && bun build --compile --outfile=dist/acpbot-host src/acp-host/main.ts",
+    "build:compile:host": "mkdir -p dist && bun build --compile --outfile=dist/acpbot-host src/acp-host/main.ts",
+    "build:compile:worker": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts",
+    "docker:build": "docker build -t acpbot:local .",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down"
   },
   "license": "MIT",
   "dependencies": {

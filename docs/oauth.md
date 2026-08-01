@@ -61,7 +61,7 @@ If the redirect cannot reach the host:
 
 ## Discovery (no env client_id / auth URL)
 
-On `/mcp auth`, tacp:
+On `/mcp auth`, acpbot:
 
 1. Probes the MCP URL for `WWW-Authenticate` `resource_metadata` (RFC 9728), else fetches `/.well-known/oauth-protected-resource…`
 2. Loads authorization-server metadata (RFC 8414)

@@ -1,5 +1,5 @@
 /**
- * Resolve tacp agent names → stdio spawn command.
+ * Resolve acpbot agent names → stdio spawn command.
  * Small built-in registry of ACP agent launches.
  *
  * Claude/Codex need the official ACP adapters (not bare `claude acp` / `codex acp`).
@@ -195,6 +195,51 @@ export function resolveAgentLaunch(
 
   // Last resort: treat the name as a bare binary that speaks ACP on stdio.
   return { command: agentName.trim(), args: [] };
+}
+
+/**
+ * Resolve a launch command to an absolute path for spawn().
+ * Bare names (e.g. `grok`) are looked up via PATH; paths with separators
+ * are returned as-is when they exist.
+ */
+export function resolveLaunchCommandPath(
+  command: string,
+  which: WhichFn = defaultWhich,
+): string | null {
+  const cmd = command?.trim();
+  if (!cmd) return null;
+  if (cmd.includes("/") || cmd.includes("\\")) {
+    try {
+      if (existsSync(cmd)) {
+        accessSync(cmd, constants.X_OK);
+        return cmd;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  return which(cmd);
+}
+
+/** Launch with command resolved to an absolute path (throws if missing). */
+export function resolveAgentLaunchForSpawn(
+  agentName: string,
+  env: NodeJS.ProcessEnv = process.env,
+  which: WhichFn = defaultWhich,
+): AgentLaunch {
+  const launch = resolveAgentLaunch(agentName, env);
+  const abs = resolveLaunchCommandPath(launch.command, which);
+  if (!abs) {
+    throw new Error(
+      `agent binary not found on PATH: "${launch.command}"\n` +
+        `would run: ${launch.command} ${launch.args.join(" ")}\n` +
+        `Install the CLI, start acp-host from a shell where \`which ${launch.command}\` works, ` +
+        `or set TACP_AGENT_COMMAND_JSON with an absolute path ` +
+        `(e.g. {"grok-build":{"command":"/Users/you/.grok/bin/grok","args":["agent","stdio"]}}).`,
+    );
+  }
+  return { command: abs, args: launch.args };
 }
 
 /** Required binaries for a registered id (override → just the command). */

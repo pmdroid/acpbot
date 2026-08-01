@@ -1,0 +1,19 @@
+# Changelog
+
+## [0.1.0] — 2026-08-01
+
+First public release as **acpbot** (formerly tacp).
+
+### Added
+- Telegram worker + required **acp-host** process model
+- ACP agents: Grok Build, Claude, Codex, OpenCode
+- `/status`, `/model`, `/mode`, `/agent`, sessions, MCP, schedules, OAuth
+- Live host-client contract tests; default session mode prefers **ask**
+- Docker Compose (host + worker isolation)
+- GitHub Actions CI + Release (Bun compile multi-platform + GHCR images)
+- Static landing page under `website/` (acpbot.app)
+- MIT license, README disclaimer, SECURITY.md
+
+### Notes
+- Env vars prefer `ACPBOT_*`; `TACP_*` remains a legacy alias
+- Repo config prefers `.acpbot/`; legacy `.tacp/` still loads when present

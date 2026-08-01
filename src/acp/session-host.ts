@@ -1,9 +1,10 @@
 /**
  * Thin ACP host: spawn agent stdio + official @agentclientprotocol/sdk client.
- * Thin ACP session host for tacp's AgentsPort.
+ * Thin ACP session host for acpbot's AgentsPort.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -16,11 +17,11 @@ import type {
 } from "../env/types";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
-import { resolveAgentLaunch } from "./agent-launch";
+import { resolveAgentLaunchForSpawn } from "./agent-launch";
 import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { TacpConfig } from "../env/types";
-import { pickSessionModeId } from "./session-mode";
+import { extractSessionModes, pickSessionModeId } from "./session-mode";
 import {
   findModelConfigOption,
   modelsStateToConfigOptions,
@@ -132,9 +133,17 @@ export type SessionHost = {
   }): HostTurn;
   cancel(sessionKey: string, reason?: string): Promise<void>;
   setMode(sessionKey: string, modeId: string): Promise<HostModeState>;
-  getModeState(sessionKey: string): HostModeState | undefined;
-  getAvailableModes(sessionKey: string): string[];
-  getConfigOptions(sessionKey: string): SessionConfigOptionView[];
+  /**
+   * Current mode state. In-process host reads the live entry; acp-host client
+   * always RPCs `get_mode` so the worker never serves a stale cache.
+   */
+  getModeState(sessionKey: string): Promise<HostModeState | undefined>;
+  getAvailableModes(sessionKey: string): Promise<string[]>;
+  /**
+   * Model/config options. In-process host reads the live entry (including late
+   * `_x.ai/models/update`); acp-host client always RPCs `get_config`.
+   */
+  getConfigOptions(sessionKey: string): Promise<SessionConfigOptionView[]>;
   setConfigOption(
     sessionKey: string,
     configId: string,
@@ -192,7 +201,7 @@ function sessionNewPayload(session: acp.ActiveSession): {
 export function createSessionHost(options: SessionHostOptions): SessionHost {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const live = new Map<string, LiveSession>();
-  /** agent session id → tacp sessionKey */
+  /** agent session id → acpbot sessionKey */
   const agentIdToKey = new Map<string, string>();
   let hooks: SessionHostHooks = { ...options.hooks };
   const sessionStore: HostSessionStore | undefined =
@@ -207,24 +216,28 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   });
   /**
    * Model catalog notifications can arrive before live.set during session/new.
-   * Buffer by tacp sessionKey until the LiveSession entry exists.
+   * Buffer by acpbot sessionKey until the LiveSession entry exists.
    */
   const pendingModelConfig = new Map<string, SessionConfigOptionView[]>();
 
   async function persistRecord(
     partial: Omit<HostSessionRecord, "createdAt" | "updatedAt"> & {
       createdAt?: string;
+      modelId?: string;
     },
   ): Promise<void> {
     if (!sessionStore) return;
     const prev = await sessionStore.load(partial.sessionKey);
     const now = new Date().toISOString();
+    const modeId = partial.modeId ?? prev?.modeId;
+    const modelId = partial.modelId ?? prev?.modelId;
     const record: HostSessionRecord = {
       sessionKey: partial.sessionKey,
       agentSessionId: partial.agentSessionId,
       agent: partial.agent,
       cwd: partial.cwd,
-      ...(partial.modeId ? { modeId: partial.modeId } : prev?.modeId ? { modeId: prev.modeId } : {}),
+      ...(modeId ? { modeId } : {}),
+      ...(modelId ? { modelId } : {}),
       createdAt: partial.createdAt ?? prev?.createdAt ?? now,
       updatedAt: now,
     };
@@ -233,6 +246,51 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       sessionKey: record.sessionKey,
       agentSessionId: record.agentSessionId,
     });
+  }
+
+  function modelIdFromConfig(
+    opts: SessionConfigOptionView[],
+  ): string | undefined {
+    const m = findModelConfigOption(opts);
+    if (!m || m.currentValue == null) return undefined;
+    return String(m.currentValue);
+  }
+
+  /** Seed a single-current model select when the agent has not re-advertised a catalog. */
+  function seedModelConfigFromId(modelId: string): SessionConfigOptionView[] {
+    return [
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        category: "model",
+        currentValue: modelId,
+        options: [{ value: modelId, name: modelId }],
+      },
+    ];
+  }
+
+  /**
+   * Grok often pushes `_x.ai/models/update` slightly after session/new (or load).
+   * Wait briefly so ensure/status can observe the catalog without a full turn.
+   */
+  async function waitForLateModels(
+    sessionKey: string,
+    entry: LiveSession,
+    timeoutMs = 2000,
+  ): Promise<void> {
+    if (findModelConfigOption(entry.configOptions)) return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      if (findModelConfigOption(entry.configOptions)) return;
+      const buffered = pendingModelConfig.get(sessionKey);
+      if (buffered && findModelConfigOption(buffered)) {
+        entry.configOptions = buffered;
+        pendingModelConfig.delete(sessionKey);
+        return;
+      }
+    }
   }
 
   function resolveKey(agentOrTacp: string): string {
@@ -375,7 +433,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       (p && typeof p === "object" ? p : {}) as Record<string, unknown>;
 
     return acp
-      .client({ name: "tacp" })
+      .client({ name: "acpbot" })
       .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
         handlePermission(ctx.params),
       )
@@ -417,6 +475,17 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         const entry = live.get(sessionKey);
         if (entry) {
           entry.configOptions = opts;
+          const mid = modelIdFromConfig(opts);
+          if (mid) {
+            void persistRecord({
+              sessionKey: entry.sessionKey,
+              agentSessionId: entry.session.sessionId,
+              agent: entry.agent,
+              cwd: entry.cwd,
+              ...(entry.currentModeId ? { modeId: entry.currentModeId } : {}),
+              modelId: mid,
+            });
+          }
         } else {
           pendingModelConfig.set(sessionKey, opts);
         }
@@ -434,13 +503,22 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     agent: string;
     cwd: string;
   }): Promise<LiveSession> {
-    const launch = resolveAgentLaunch(input.agent);
+    const launch = resolveAgentLaunchForSpawn(input.agent);
     log.info("spawn agent", {
       sessionKey: input.sessionKey,
       command: launch.command,
       args: launch.args,
       cwd: input.cwd,
     });
+
+    // posix_spawn reports ENOENT on the *binary* when cwd is missing — detect first.
+    if (!input.cwd?.trim() || !existsSync(input.cwd)) {
+      throw new Error(
+        `agent spawn cwd does not exist: ${input.cwd || "(empty)"}\n` +
+          `session: ${input.sessionKey}\n` +
+          `Fix TACP_REPOS_JSON / session cwd, or recreate the repo directory.`,
+      );
+    }
 
     const childEnv = {
       ...process.env,
@@ -533,7 +611,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           },
         },
         clientInfo: {
-          name: "tacp",
+          name: "acpbot",
           version: "0.1.0",
         },
       },
@@ -570,6 +648,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     let session!: acp.ActiveSession;
     let resumed = false;
+    /** Fields from session/load (SDK may not expose them on ActiveSession). */
+    let loadSideModels: unknown;
+    let loadSideConfig: unknown;
+    let loadSideModes: unknown;
+    let loadSideMeta: unknown;
 
     // Resume path: re-spawned process + session/load when agent advertises it.
     if (prior?.agentSessionId && supportsLoad) {
@@ -586,25 +669,54 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             mcpServers: mcpList,
           },
         );
+        const loadRec =
+          loadResp && typeof loadResp === "object"
+            ? (loadResp as Record<string, unknown>)
+            : {};
+        const loadMeta =
+          loadRec._meta && typeof loadRec._meta === "object"
+            ? (loadRec._meta as Record<string, unknown>)
+            : null;
+        // Grok may put SessionModelState on load (models / modelState), not only on new.
+        // Keep out-of-band: ActiveSession.newSessionResponse is readonly.
+        loadSideModels =
+          loadRec.models ??
+          loadMeta?.models ??
+          loadMeta?.modelState ??
+          loadRec.modelState;
+        loadSideConfig = loadRec.configOptions;
+        loadSideModes = loadRec.modes;
+        loadSideMeta = loadMeta;
         // attachSession is public at runtime; typed private on ClientContext.
         const agentCtx = connection.agent as unknown as {
           attachSession(response: {
             sessionId: string;
             modes?: acp.SessionModeState | null;
             configOptions?: unknown;
+            models?: unknown;
             _meta?: Record<string, unknown> | null;
           }): acp.ActiveSession;
         };
         session = agentCtx.attachSession({
           sessionId: prior.agentSessionId,
-          modes: loadResp?.modes ?? null,
-          configOptions: loadResp?.configOptions ?? null,
-          _meta: loadResp?._meta ?? null,
+          modes: (loadRec.modes as acp.SessionModeState | null) ?? null,
+          configOptions: loadRec.configOptions ?? null,
+          ...(loadSideModels !== undefined
+            ? { models: loadSideModels }
+            : {}),
+          _meta: loadMeta,
         });
         resumed = true;
         log.info("session/load ok", {
           sessionKey: input.sessionKey,
           agentSessionId: session.sessionId,
+          loadKeys: Object.keys(loadRec),
+          hasModels: Boolean(
+            findModelConfigOption(
+              modelsStateToConfigOptions(loadSideModels),
+            ),
+          ),
+          hasConfigOptions: Array.isArray(loadRec.configOptions),
         });
       } catch (err) {
         log.warn("session/load failed; falling back to session/new", {
@@ -633,48 +745,72 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     agentIdToKey.set(session.sessionId, input.sessionKey);
     agentIdToKey.set(input.sessionKey, input.sessionKey);
 
-    // Prefer interactive mode when agent advertises modes
-    const modes = session.modes;
-    const available =
-      modes?.availableModes?.map((m) => m.id) ??
-      (modes as { available?: Array<{ id: string }> } | null | undefined)
-        ?.available?.map((m) => m.id) ??
-      [];
-    let modeId: string | undefined = prior?.modeId;
-    if (available.length > 0) {
-      modeId = pickSessionModeId(available) ?? modeId;
-      if (modeId) {
-        try {
-          await connection.agent.request(acp.methods.agent.session.setMode, {
-            sessionId: session.sessionId,
-            modeId,
-          });
-          log.info("setMode", { sessionKey: input.sessionKey, modeId });
-        } catch (err) {
-          log.warn("setMode failed", {
-            sessionKey: input.sessionKey,
-            modeId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-    }
-
-    // Model sources (ACP only — no canned lists):
+    // Model + meta first (Grok modes live under _meta x.ai/sessionConfig).
     // 1) Grok-style session.models / SessionModelState (session/set_model)
     // 2) configOptions select with category/id model (OpenCode, etc.)
-    // 3) buffered _x.ai/models/update that arrived during session/new
+    // 3) session/load side payload (when SDK omits models on ActiveSession)
+    // 4) buffered _x.ai/models/update that arrived during session/new|load
     const boot = sessionNewPayload(session);
-    let configOptions = modelsStateToConfigOptions(boot.models);
+    const bootMeta =
+      boot.meta ??
+      (loadSideMeta && typeof loadSideMeta === "object"
+        ? (loadSideMeta as Record<string, unknown>)
+        : null);
+
+    // Modes: standard ACP session.modes (Codex) or Grok sessionConfig effort.
+    const modeView = extractSessionModes({
+      modes: session.modes ?? loadSideModes,
+      meta: bootMeta,
+    });
+    const available = modeView.availableModeIds;
+    let modeId: string | undefined =
+      (prior?.modeId && available.includes(prior.modeId)
+        ? prior.modeId
+        : undefined) ??
+      modeView.currentModeId ??
+      (available.length > 0 ? pickSessionModeId(available) : undefined);
+    if (available.length > 0 && modeId) {
+      try {
+        await connection.agent.request(acp.methods.agent.session.setMode, {
+          sessionId: session.sessionId,
+          modeId,
+        });
+        log.info("setMode", {
+          sessionKey: input.sessionKey,
+          modeId,
+          source: modeView.source,
+          available,
+        });
+      } catch (err) {
+        log.warn("setMode failed", {
+          sessionKey: input.sessionKey,
+          modeId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else {
+      log.info("session modes", {
+        sessionKey: input.sessionKey,
+        source: modeView.source,
+        available,
+        current: modeId ?? null,
+      });
+    }
+    let configOptions = modelsStateToConfigOptions(
+      boot.models ?? loadSideModels,
+    );
     let modelSource:
       | "session.models"
       | "configOptions"
       | "models-update"
+      | "store"
       | "none" = "none";
     if (findModelConfigOption(configOptions)) {
       modelSource = "session.models";
     } else {
-      configOptions = normalizeConfigOptions(boot.configOptions);
+      configOptions = normalizeConfigOptions(
+        boot.configOptions ?? loadSideConfig,
+      );
       if (findModelConfigOption(configOptions)) {
         modelSource = "configOptions";
       }
@@ -694,15 +830,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       source: modelSource,
     });
 
-    await persistRecord({
-      sessionKey: input.sessionKey,
-      agentSessionId: session.sessionId,
-      agent: input.agent,
-      cwd: input.cwd,
-      ...(modeId ? { modeId } : {}),
-      ...(prior?.createdAt ? { createdAt: prior.createdAt } : {}),
-    });
-
     const entry: LiveSession = {
       sessionKey: input.sessionKey,
       agent: input.agent,
@@ -716,6 +843,44 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       turnAbort: undefined,
     };
     live.set(input.sessionKey, entry);
+
+    // Late `_x.ai/models/update` (common on session/new; rare on load).
+    if (!findModelConfigOption(entry.configOptions)) {
+      await waitForLateModels(input.sessionKey, entry, 2000);
+      if (findModelConfigOption(entry.configOptions)) {
+        modelSource = "models-update";
+        log.info("session models/config (after wait)", {
+          sessionKey: input.sessionKey,
+          modelCount:
+            findModelConfigOption(entry.configOptions)?.options.length ?? 0,
+          current:
+            findModelConfigOption(entry.configOptions)?.currentValue ?? null,
+          source: modelSource,
+        });
+      }
+    }
+
+    // session/load often omits models until a turn; keep last-known for /status.
+    if (!findModelConfigOption(entry.configOptions) && prior?.modelId) {
+      entry.configOptions = seedModelConfigFromId(prior.modelId);
+      modelSource = "store";
+      log.info("session models/config seeded from store", {
+        sessionKey: input.sessionKey,
+        modelId: prior.modelId,
+      });
+    }
+
+    const knownModel = modelIdFromConfig(entry.configOptions);
+    await persistRecord({
+      sessionKey: input.sessionKey,
+      agentSessionId: session.sessionId,
+      agent: input.agent,
+      cwd: input.cwd,
+      ...(modeId ? { modeId } : {}),
+      ...(knownModel ? { modelId: knownModel } : {}),
+      ...(prior?.createdAt ? { createdAt: prior.createdAt } : {}),
+    });
+
     return entry;
   }
 
@@ -1010,7 +1175,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       };
     },
 
-    getModeState(sessionKey) {
+    async getModeState(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return undefined;
       return {
@@ -1019,7 +1184,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       };
     },
 
-    getAvailableModes(sessionKey) {
+    async getAvailableModes(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return [];
       if (entry.availableModeIds.length > 0) return [...entry.availableModeIds];
@@ -1032,7 +1197,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       );
     },
 
-    getConfigOptions(sessionKey) {
+    async getConfigOptions(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return [];
       // Prefer latest from session/new payload when it includes a model select.

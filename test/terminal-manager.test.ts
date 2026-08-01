@@ -30,36 +30,38 @@ describe("TerminalManager", () => {
   test("create + output + wait + release", async () => {
     const tm = new TerminalManager({ cwd: process.cwd() });
     const { terminalId } = await tm.createTerminal({
+      sessionId: "s1",
       command: "echo",
-      args: ["hello-tacp-terminal"],
+      args: ["hello-acpbot-terminal"],
       outputByteLimit: 1024,
     });
     expect(typeof terminalId).toBe("string");
 
-    const exit = await tm.waitForTerminalExit({ terminalId });
+    const exit = await tm.waitForTerminalExit({ sessionId: "s1", terminalId });
     expect(exit.exitCode).toBe(0);
 
-    const out = await tm.terminalOutput({ terminalId });
-    expect(out.output).toContain("hello-tacp-terminal");
+    const out = await tm.terminalOutput({ sessionId: "s1", terminalId });
+    expect(out.output).toContain("hello-acpbot-terminal");
     expect(out.truncated).toBe(false);
     expect(out.exitStatus?.exitCode).toBe(0);
 
-    await tm.releaseTerminal({ terminalId });
-    await expect(tm.terminalOutput({ terminalId })).rejects.toThrow(/Unknown/);
+    await tm.releaseTerminal({ sessionId: "s1", terminalId });
+    await expect(tm.terminalOutput({ sessionId: "s1", terminalId })).rejects.toThrow(/Unknown/);
   });
 
   test("outputByteLimit truncates", async () => {
     const tm = new TerminalManager({ cwd: process.cwd() });
     const { terminalId } = await tm.createTerminal({
+      sessionId: "s1",
       command: "python3",
       args: ["-c", "print('x' * 5000)"],
       outputByteLimit: 100,
     });
-    await tm.waitForTerminalExit({ terminalId });
-    const out = await tm.terminalOutput({ terminalId });
+    await tm.waitForTerminalExit({ sessionId: "s1", terminalId });
+    const out = await tm.terminalOutput({ sessionId: "s1", terminalId });
     expect(out.truncated).toBe(true);
     expect(Buffer.byteLength(out.output, "utf8")).toBeLessThanOrEqual(100);
-    await tm.releaseTerminal({ terminalId });
+    await tm.releaseTerminal({ sessionId: "s1", terminalId });
   });
 
   test("shell spawn command for pipes", () => {
@@ -74,27 +76,29 @@ describe("TerminalManager", () => {
     // Grok sometimes packs: command="/opt/homebrew/bin/bash -lc '…'", args=[]
     const line = `/bin/bash -lc 'echo shell-line-ok'`;
     const { terminalId } = await tm.createTerminal({
+      sessionId: "s1",
       command: line,
       args: [],
       outputByteLimit: 1024,
     });
-    await tm.waitForTerminalExit({ terminalId });
-    const out = await tm.terminalOutput({ terminalId });
+    await tm.waitForTerminalExit({ sessionId: "s1", terminalId });
+    const out = await tm.terminalOutput({ sessionId: "s1", terminalId });
     expect(out.output).toContain("shell-line-ok");
-    await tm.releaseTerminal({ terminalId });
+    await tm.releaseTerminal({ sessionId: "s1", terminalId });
   });
 
   test("kill long-running process", async () => {
     const tm = new TerminalManager({ cwd: process.cwd(), killGraceMs: 200 });
     const { terminalId } = await tm.createTerminal({
+      sessionId: "s1",
       command: "sleep",
       args: ["30"],
     });
-    await tm.killTerminal({ terminalId });
-    const exit = await tm.waitForTerminalExit({ terminalId });
+    await tm.killTerminal({ sessionId: "s1", terminalId });
+    const exit = await tm.waitForTerminalExit({ sessionId: "s1", terminalId });
     expect(
       exit.exitCode !== 0 || exit.signal != null || exit.exitCode === null,
     ).toBe(true);
-    await tm.releaseTerminal({ terminalId });
+    await tm.releaseTerminal({ sessionId: "s1", terminalId });
   });
 });

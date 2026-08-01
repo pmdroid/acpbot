@@ -128,13 +128,13 @@ describe("schedules store CRUD", () => {
       const job = await createJob(repo, {
         sessionKey: "life/main",
         prompt: "Run backup and report.",
-        script: ".tacp/schedules/scripts/backup.sh",
+        script: ".acpbot/schedules/scripts/backup.sh",
         kind: "cron",
         cronExpr: "0 3 * * *",
         now: from,
       });
 
-      expect(job.script).toBe(".tacp/schedules/scripts/backup.sh");
+      expect(job.script).toBe(".acpbot/schedules/scripts/backup.sh");
       expect(job.cronExpr).toBe("0 3 * * *");
       expect(job.nextRunAt).toBe("2026-08-02T03:00:00.000Z");
 
@@ -401,8 +401,14 @@ describe("schedules store CRUD", () => {
     }
   });
 
-  test("schedulesDir is under .tacp/schedules", async () => {
+  test("schedulesDir is under .acpbot/schedules (default)", async () => {
     const repo = await tempRepo();
+    expect(schedulesDir(repo)).toBe(join(repo, ".acpbot", "schedules"));
+  });
+
+  test("schedulesDir falls back to legacy .tacp when present", async () => {
+    const repo = await tempRepo();
+    await mkdir(join(repo, ".tacp", "schedules"), { recursive: true });
     expect(schedulesDir(repo)).toBe(join(repo, ".tacp", "schedules"));
   });
 });

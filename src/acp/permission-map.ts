@@ -1,5 +1,5 @@
 /**
- * Map tacp PermissionDecision → ACP RequestPermissionResponse (selected optionId).
+ * Map acpbot PermissionDecision → ACP RequestPermissionResponse (selected optionId).
  */
 import type { PermissionDecision } from "../env/types";
 

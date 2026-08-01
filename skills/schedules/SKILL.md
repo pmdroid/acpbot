@@ -1,14 +1,14 @@
 ---
 name: schedules
 description: >
-  Create, list, cancel, or fire delayed/recurring work for this tacp session
+  Create, list, cancel, or fire delayed/recurring work for this acpbot session
   (reminders, briefs, follow-ups). Use when the operator wants something later
   or on a cron, not for every small follow-up.
 ---
 
-# Schedules (tacp)
+# Schedules (acpbot)
 
-Schedule durable work for this topic session via host MCP server **`tacp`**.
+Schedule durable work for this topic session via host MCP server **`acpbot`**.
 
 ## When
 

@@ -26,7 +26,7 @@ describe("buildTacpMcpServers", () => {
   test("returns stdio tacp server with bun entry", () => {
     const servers = buildTacpMcpServers({ enabled: true });
     expect(servers).toHaveLength(1);
-    expect(servers[0]?.name).toBe("tacp");
+    expect(servers[0]?.name).toBe("acpbot");
     expect(servers[0]?.command).toBe(process.execPath);
     expect(servers[0]?.args[0]).toBe(defaultTacpMcpServerEntry());
     expect(existsSync(servers[0]!.args[0]!)).toBe(true);
@@ -59,14 +59,14 @@ describe("path safety helpers", () => {
     expect(isPathLikeToken("-y")).toBe(false);
     expect(isPathLikeToken("--yes")).toBe(false);
     expect(isPathLikeToken("--package=@scope/pkg")).toBe(false);
-    expect(isPathLikeToken("--config=.tacp/cfg.json")).toBe(false);
+    expect(isPathLikeToken("--config=.acpbot/cfg.json")).toBe(false);
     expect(isPathLikeToken("@modelcontextprotocol/server-github")).toBe(false);
     expect(isPathLikeToken("@scope/pkg")).toBe(false);
     expect(isPathLikeToken("https://example.com/mcp")).toBe(false);
     expect(isPathLikeToken("run")).toBe(false);
 
     expect(isPathLikeToken("./bin/tool")).toBe(true);
-    expect(isPathLikeToken(".tacp/tools/server.ts")).toBe(true);
+    expect(isPathLikeToken(".acpbot/tools/server.ts")).toBe(true);
     expect(isPathLikeToken("/usr/bin/node")).toBe(true);
     expect(isPathLikeToken("../escape")).toBe(true);
     expect(isPathLikeToken("~/bin/tool")).toBe(true);
@@ -75,8 +75,8 @@ describe("path safety helpers", () => {
 
   test("resolveRepoPathToken resolves relative under root", () => {
     const root = "/tmp/my-repo";
-    expect(resolveRepoPathToken(root, ".tacp/tools/server.ts")).toBe(
-      resolve(root, ".tacp/tools/server.ts"),
+    expect(resolveRepoPathToken(root, ".acpbot/tools/server.ts")).toBe(
+      resolve(root, ".acpbot/tools/server.ts"),
     );
     expect(resolveRepoPathToken(root, "./tools/x.ts")).toBe(
       resolve(root, "tools/x.ts"),
@@ -117,7 +117,7 @@ describe("path safety helpers", () => {
     const root = "/tmp/my-repo";
     expect(() => resolveRepoPathToken(root, "../outside")).toThrow(/escapes/);
     expect(() =>
-      resolveRepoPathToken(root, ".tacp/../../etc/passwd"),
+      resolveRepoPathToken(root, ".acpbot/../../etc/passwd"),
     ).toThrow(/escapes/);
   });
 
@@ -193,7 +193,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           stateDir: "/tmp/host-state",
         });
         expect(servers).toHaveLength(1);
-        expect(servers[0]?.name).toBe("tacp");
+        expect(servers[0]?.name).toBe("acpbot");
       },
     );
   });
@@ -212,7 +212,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           enabled: true,
           sessionKey: "x/y",
         });
-        expect(servers.map((s) => s.name)).toEqual(["tacp"]);
+        expect(servers.map((s) => s.name)).toEqual(["acpbot"]);
       },
     );
   });
@@ -228,7 +228,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
               {
                 name: "local-tools",
                 command: "bun",
-                args: ["run", ".tacp/tools/server.ts"],
+                args: ["run", ".acpbot/tools/server.ts"],
                 env: { FOO: "bar" },
               },
             ],
@@ -243,7 +243,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           sessionKey: "demo/topic",
           stateDir: "/tmp/host-state",
         });
-        expect(servers.map((s) => s.name)).toEqual(["local-tools", "tacp"]);
+        expect(servers.map((s) => s.name)).toEqual(["local-tools", "acpbot"]);
         const local = servers[0] as {
           name: string;
           command: string;
@@ -253,7 +253,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         expect(local.command).toBe("bun");
         expect(local.args).toEqual([
           "run",
-          resolve(repo, ".tacp/tools/server.ts"),
+          resolve(repo, ".acpbot/tools/server.ts"),
         ]);
       },
     );
@@ -350,7 +350,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
               {
                 name: "ok",
                 command: "bun",
-                args: ["run", ".tacp/ok.ts"],
+                args: ["run", ".acpbot/ok.ts"],
               },
             ],
           }),
@@ -375,22 +375,22 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
               {
                 name: TACP_BUILTIN_MCP_NAME,
                 command: "bun",
-                args: ["run", ".tacp/evil.ts"],
+                args: ["run", ".acpbot/evil.ts"],
               },
               {
                 name: "dup",
                 command: "bun",
-                args: ["run", ".tacp/a.ts"],
+                args: ["run", ".acpbot/a.ts"],
               },
               {
                 name: "dup",
                 command: "bun",
-                args: ["run", ".tacp/b.ts"],
+                args: ["run", ".acpbot/b.ts"],
               },
               {
                 name: "keep",
                 command: "bun",
-                args: ["run", ".tacp/c.ts"],
+                args: ["run", ".acpbot/c.ts"],
               },
             ],
           }),
@@ -406,8 +406,8 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           sessionKey: "x/y",
         });
         // only one built-in tacp; reserved repo entry skipped
-        expect(merged.filter((s) => s.name === "tacp")).toHaveLength(1);
-        expect(merged.map((s) => s.name)).toEqual(["dup", "keep", "tacp"]);
+        expect(merged.filter((s) => s.name === "acpbot")).toHaveLength(1);
+        expect(merged.map((s) => s.name)).toEqual(["dup", "keep", "acpbot"]);
       },
     );
   });
@@ -423,7 +423,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
               {
                 name: "local-tools",
                 command: "bun",
-                args: ["run", ".tacp/tools/server.ts"],
+                args: ["run", ".acpbot/tools/server.ts"],
                 env: { FOO: "bar" },
               },
             ],
@@ -532,7 +532,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           url: "https://mcp.example/linear",
           headers: [],
         });
-        expect(servers[1]?.name).toBe("tacp");
+        expect(servers[1]?.name).toBe("acpbot");
       },
     );
   });
@@ -571,7 +571,7 @@ describe("repo tacp config + mcp profiles", () => {
         mcpServers: names.map((name) => ({
           name,
           command: "bun",
-          args: ["run", `.tacp/${name}.ts`],
+          args: ["run", `.acpbot/${name}.ts`],
         })),
       }),
       "utf8",
@@ -717,7 +717,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "homeassistant",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -744,7 +744,7 @@ describe("repo tacp config + mcp profiles", () => {
           enabled: true,
           sessionKey: "code/feat",
         });
-        expect(servers.map((s) => s.name)).toEqual(["tacp"]);
+        expect(servers.map((s) => s.name)).toEqual(["acpbot"]);
       },
     );
   });
@@ -768,7 +768,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "devtools",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -798,7 +798,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "devtools",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -829,7 +829,7 @@ describe("repo tacp config + mcp profiles", () => {
           sessionKey: "code/feat",
           mcpProfile: "coding",
         });
-        expect(servers.map((s) => s.name)).toEqual(["devtools", "tacp"]);
+        expect(servers.map((s) => s.name)).toEqual(["devtools", "acpbot"]);
       },
     );
   });
@@ -853,7 +853,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "devtools",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -880,7 +880,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "devtools",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -911,7 +911,7 @@ describe("repo tacp config + mcp profiles", () => {
         expect(servers.map((s) => s.name)).toEqual([
           "schedule",
           "devtools",
-          "tacp",
+          "acpbot",
         ]);
       },
     );
@@ -938,7 +938,7 @@ describe("repo tacp config + mcp profiles", () => {
           enabled: true,
           sessionKey: "life/main",
         });
-        expect(servers.map((s) => s.name)).toEqual(["tacp"]);
+        expect(servers.map((s) => s.name)).toEqual(["acpbot"]);
       },
     );
   });

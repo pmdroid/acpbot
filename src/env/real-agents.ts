@@ -161,7 +161,8 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     },
 
     async getSessionMode(sessionKey) {
-      const st = host.getModeState(sessionKey);
+      // Always query host (RPC for acp-host client) — never serve a one-shot cache.
+      const st = await host.getModeState(sessionKey);
       if (!st) {
         return { availableModeIds: [] };
       }
@@ -174,6 +175,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     },
 
     async getSessionConfigOptions(sessionKey) {
+      // Live read: picks up late `_x.ai/models/update` on the host slot.
       return host.getConfigOptions(sessionKey);
     },
 
@@ -231,15 +233,8 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       const agent =
         identity.agent ?? options.config.defaultAgent ?? "grok-build";
       const existing = handles.get(key);
-      if (existing && existing.identity.agent === agent) {
-        return {
-          sessionKey: key,
-          identity: existing.identity,
-          cwd: existing.cwd,
-        };
-      }
-      // Agent change with a cached handle — clear and respawn via host.
-      if (existing) {
+      // Agent change — drop worker handle so host can respawn the slot.
+      if (existing && existing.identity.agent !== agent) {
         handles.delete(key);
       }
 
@@ -251,6 +246,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         );
       }
 
+      // Always ask acp-host (reattach if live, spawn/load if cold). Never skip.
       log.info("ensureSession", { sessionKey: key, agent, cwd });
       try {
         const hs = await host.ensureSession({
@@ -259,7 +255,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           cwd,
         });
         if (options.forceReadOnly) {
-          const modes = host.getAvailableModes(key);
+          const modes = await host.getAvailableModes(key);
           const modeId = pickSessionModeId(modes, { forceReadOnly: true });
           if (modeId) await host.setMode(key, modeId);
         }

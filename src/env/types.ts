@@ -6,7 +6,8 @@
 
 // ── Config (no local-path / TTY / cached-credential assumptions) ────────────
 
-export type TacpConfig = {
+/** Runtime config for the acpbot worker / host. */
+export type AcpbotConfig = {
   /** Allowlisted Telegram user id. Every other sender is ignored. */
   operatorUserId: number;
   /**
@@ -41,11 +42,14 @@ export type TacpConfig = {
    */
   ttsMode?: "off" | "always" | "agent";
   /**
-   * When false, do not inject tacp host MCP servers (speak, …) into ACP sessions.
+   * When false, do not inject acpbot host MCP servers (speak, …) into ACP sessions.
    * Default true. Env: TACP_MCP=0.
    */
   mcpEnabled?: boolean;
 };
+
+/** @deprecated Use {@link AcpbotConfig}. */
+export type TacpConfig = AcpbotConfig;
 
 // ── Telegram shapes (subset of Bot API we use) ─────────────────────────────
 

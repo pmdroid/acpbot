@@ -50,7 +50,7 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
 
@@ -70,7 +70,7 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
     };
 
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp drain", 1));
+    await daemon.handleUpdate(root("/new acpbot drain", 1));
     const session = (await daemon.listSessions())[0]!;
 
     // Clear create-session outbound noise.
@@ -86,7 +86,7 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
     ];
 
     let pullCount = 0;
-    env.agents.queueTurn("tacp/drain", {
+    env.agents.queueTurn("acpbot/drain", {
       events: [], // replaced by custom iterator below via monkey patch
     });
 

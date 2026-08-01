@@ -7,9 +7,11 @@ import {
 import type { SessionHost, HostTurn } from "../src/acp/session-host";
 
 describe("pickSessionModeId", () => {
-  test("default prefers interactive modes over read-only", () => {
+  test("default prefers ask / permission-cautious modes", () => {
+    expect(pickSessionModeId(["default", "ask", "full"])).toBe("ask");
     expect(pickSessionModeId(["default", "read-only", "full"])).toBe("default");
     expect(pickSessionModeId(["read-only", "ask"])).toBe("ask");
+    expect(pickSessionModeId(["agent", "read-only"])).toBe("read-only");
     expect(pickSessionModeId(["read-only", "plan"])).toBe("read-only");
   });
 
@@ -54,13 +56,13 @@ describe("realAgents with injected host", () => {
       async setMode() {
         return { currentModeId: "build", availableModeIds: ["build"] };
       },
-      getModeState() {
+      async getModeState() {
         return { currentModeId: "build", availableModeIds: ["build"] };
       },
-      getAvailableModes() {
+      async getAvailableModes() {
         return ["build"];
       },
-      getConfigOptions() {
+      async getConfigOptions() {
         return [];
       },
       async setConfigOption() {
@@ -73,7 +75,7 @@ describe("realAgents with injected host", () => {
     const agents = realAgents({
       config: {
         operatorUserId: 1,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
         defaultAgent: "grok-build",
       },
       stateDir: "/state",
@@ -81,7 +83,7 @@ describe("realAgents with injected host", () => {
     });
 
     const session = await agents.ensureSession({
-      repo: "tacp",
+      repo: "acpbot",
       name: "x",
     });
     expect(session.cwd).toBe("/configured/repos/tacp");
@@ -96,5 +98,78 @@ describe("realAgents with injected host", () => {
     const arg = startInputs[0] as Record<string, unknown>;
     expect("timeoutMs" in arg).toBe(false);
     expect(arg.text).toBe("go");
+  });
+
+  test("getSessionMode/config always query host (no stale local skip)", async () => {
+    let modeCalls = 0;
+    let configCalls = 0;
+    const host: SessionHost = {
+      setHooks() {},
+      async ensureSession(input) {
+        return {
+          sessionKey: input.sessionKey,
+          agentSessionId: "sid-1",
+          cwd: input.cwd,
+          agent: input.agent,
+        };
+      },
+      startTurn() {
+        throw new Error("not used");
+      },
+      async cancel() {},
+      async setMode() {
+        return { currentModeId: "build", availableModeIds: ["build"] };
+      },
+      async getModeState() {
+        modeCalls++;
+        return {
+          currentModeId: "build",
+          availableModeIds: ["build", "plan"],
+        };
+      },
+      async getAvailableModes() {
+        return ["build", "plan"];
+      },
+      async getConfigOptions() {
+        configCalls++;
+        return [
+          {
+            id: "model",
+            name: "Model",
+            type: "select",
+            category: "model",
+            currentValue: "grok-4.5",
+            options: [{ value: "grok-4.5", name: "Grok 4.5" }],
+          },
+        ];
+      },
+      async setConfigOption() {
+        return [];
+      },
+      async disposeSession() {},
+      async dispose() {},
+    };
+
+    const agents = realAgents({
+      config: {
+        operatorUserId: 1,
+        repos: { acpbot: "/tmp/tacp" },
+        defaultAgent: "grok-build",
+      },
+      stateDir: "/state",
+      host,
+    });
+
+    const m1 = await agents.getSessionMode!("demo/x");
+    const m2 = await agents.getSessionMode!("demo/x");
+    expect(modeCalls).toBe(2);
+    expect(m1.currentModeId).toBe("build");
+    expect(m2.availableModeIds).toContain("plan");
+
+    const c1 = await agents.getSessionConfigOptions!("demo/x");
+    const c2 = await agents.getSessionConfigOptions!("demo/x");
+    expect(configCalls).toBe(2);
+    expect(c1[0]?.currentValue).toBe("grok-4.5");
+    expect(c2).toHaveLength(1);
   });
 });

@@ -1,18 +1,20 @@
 /**
  * Durable ACP session records for the thin host.
- * Survives tacp restarts so we can session/load when the agent supports it.
+ * Survives acpbot restarts so we can session/load when the agent supports it.
  */
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type HostSessionRecord = {
-  /** tacp key: repo/name */
+  /** acpbot key: repo/name */
   sessionKey: string;
   /** ACP session id from session/new */
   agentSessionId: string;
   agent: string;
   cwd: string;
   modeId?: string;
+  /** Last known LLM model id from ACP (session.models / _x.ai/models/update). */
+  modelId?: string;
   createdAt: string;
   updatedAt: string;
 };

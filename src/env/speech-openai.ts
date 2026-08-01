@@ -1,5 +1,5 @@
 /**
- * OpenAI Whisper STT + TTS for tacp.
+ * OpenAI Whisper STT + TTS for acpbot.
  * Enabled when OPENAI_API_KEY or TACP_OPENAI_API_KEY is set.
  */
 
