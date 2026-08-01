@@ -84,7 +84,7 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 | `TACP_STORE_PATH` | Durable tacp JSON (sessions registry, offsets, …) |
 | `$TACP_STATE_DIR/sessions/` | ACP session records (for `session/load`) |
 | `$TACP_STATE_DIR/worker-api.sock` | Outbound worker HTTP API |
-| `$TACP_STATE_DIR/acp-host.sock` | Optional host control socket |
+| `$TACP_STATE_DIR/acp-host.sock` | Required host control socket |
 | `$TACP_STATE_DIR/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
 | `<repo>/.tacp/mcp.json` | Per-repo MCP servers |
 | `<repo>/.tacp/config.json` | Optional repo defaults / `mcpProfile` |

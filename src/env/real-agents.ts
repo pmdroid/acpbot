@@ -38,7 +38,10 @@ export type RealAgentsOptions = {
   verbose?: boolean;
   log?: import("./logger").Logger;
   forceReadOnly?: boolean;
-  /** Test seam: inject a pre-built host. */
+  /**
+   * Test-only seam: inject a SessionHost double.
+   * Production always uses createAcpHostClient (acp-host Unix socket).
+   */
   host?: SessionHost;
 };
 
@@ -98,7 +101,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     },
   };
 
-  // Agents always live in acp-host (Unix client). Inject `host` only in tests.
+  // Production: only acp-host client. In-process createSessionHost is host-side only.
   const hostSockPath = resolveAcpHostSockPath(options.stateDir);
   const host: SessionHost =
     options.host ??
