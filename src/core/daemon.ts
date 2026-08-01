@@ -190,6 +190,16 @@ export function createDaemon(
 
   const drainTasks = new Map<string, Promise<void>>();
   const turnAbort = new Map<string, AbortController>();
+  /**
+   * Operator prompts waiting while a turn is in flight for the same session.
+   * Drained FIFO after each turn completes (or cancelled via /cancel).
+   */
+  type QueuedTopicPrompt = {
+    text: string;
+    attachments: PromptAttachment[];
+  };
+  const promptQueues = new Map<string, QueuedTopicPrompt[]>();
+  const MAX_PROMPT_QUEUE = 32;
   const permissions: PermissionBroker = createPermissionBroker();
   const elicitations: ElicitationBroker = createElicitationBroker();
   const askQuestions: AskUserQuestionBroker = createAskUserQuestionBroker();
@@ -1066,9 +1076,38 @@ export function createDaemon(
     }
   }
 
+  function sessionTurnBusy(sessionKey: string): boolean {
+    return drainTasks.has(sessionKey) || turnAbort.has(sessionKey);
+  }
+
+  function clearPromptQueue(sessionKey: string): number {
+    const n = promptQueues.get(sessionKey)?.length ?? 0;
+    promptQueues.delete(sessionKey);
+    return n;
+  }
+
+  function enqueueTopicPrompt(
+    sessionKey: string,
+    item: QueuedTopicPrompt,
+  ): { depth: number; dropped: boolean } {
+    let q = promptQueues.get(sessionKey);
+    if (!q) {
+      q = [];
+      promptQueues.set(sessionKey, q);
+    }
+    let dropped = false;
+    if (q.length >= MAX_PROMPT_QUEUE) {
+      q.shift();
+      dropped = true;
+    }
+    q.push(item);
+    return { depth: q.length, dropped };
+  }
+
   async function cancelSessionTurn(session: PersistedSession): Promise<void> {
     log.info("action: /cancel", { sessionKey: session.sessionKey });
     clearSkillFlow(session.sessionKey, "/cancel");
+    const queued = clearPromptQueue(session.sessionKey);
     permissions.cancelAllForSession(session.sessionKey, {
       outcome: "cancel",
     });
@@ -1082,9 +1121,16 @@ export function createDaemon(
     }
     await working.clear(session);
     await setSessionStatus(session, "idle");
-    await sendInTopic(session, "⏹ turn cancelled — session kept", undefined, {
-      html: true,
-    });
+    const extra =
+      queued > 0
+        ? ` · cleared ${queued} queued message${queued === 1 ? "" : "s"}`
+        : "";
+    await sendInTopic(
+      session,
+      `⏹ turn cancelled — session kept${extra}`,
+      undefined,
+      { html: true },
+    );
   }
 
   /** Resolve session for worker-api / MCP tools or throw. */
@@ -2332,12 +2378,50 @@ export function createDaemon(
       }
     }
 
+    // Serialize turns: if a prompt is already in flight, queue this one.
+    if (sessionTurnBusy(session.sessionKey)) {
+      const { depth, dropped } = enqueueTopicPrompt(session.sessionKey, {
+        text: agentText,
+        attachments,
+      });
+      log.info("action: queue prompt (turn busy)", {
+        sessionKey: session.sessionKey,
+        depth,
+        dropped,
+        textLen: agentText.length,
+        attachments: attachments.length,
+      });
+      const dropNote = dropped
+        ? "\n_(oldest queued message dropped — queue full)_"
+        : "";
+      await sendInTopic(
+        session,
+        `📥 Queued (#${depth}). Will run after the current turn.${dropNote}`,
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    await beginTopicTurn(session, agentText, attachments, pendingSkill?.skill.id);
+  }
+
+  /**
+   * Start an agent turn for a topic session. When it finishes, drains the
+   * per-session prompt queue (FIFO).
+   */
+  async function beginTopicTurn(
+    session: PersistedSession,
+    agentText: string,
+    attachments: PromptAttachment[],
+    skillId?: string,
+  ): Promise<void> {
     log.info("action: start turn", {
       sessionKey: session.sessionKey,
       mode: session.status === "running" ? "steer" : "prompt",
       textLen: agentText.length,
       attachments: attachments.length,
-      skillId: pendingSkill?.skill.id,
+      skillId,
     });
     // One “⏳ Working…” bubble in this topic; MCP update edits it; final clears it.
     await working.ensure(session, "Working…");
@@ -2353,7 +2437,8 @@ export function createDaemon(
         signal: ac.signal,
       });
 
-      const drain = turns.drainTurn(session, turn.events)
+      const drain = turns
+        .drainTurn(session, turn.events)
         .catch(async () => {
           try {
             await setSessionStatus(session, "failed");
@@ -2364,12 +2449,63 @@ export function createDaemon(
         .finally(() => {
           drainTasks.delete(session.sessionKey);
           turnAbort.delete(session.sessionKey);
+          // Kick the next queued operator message (if any).
+          void pumpPromptQueue(session.sessionKey);
         });
       drainTasks.set(session.sessionKey, drain);
       void turn.done.catch(() => {});
     } catch (err) {
       await working.clear(session);
+      drainTasks.delete(session.sessionKey);
+      turnAbort.delete(session.sessionKey);
+      // Still try to run queued work after a failed start.
+      void pumpPromptQueue(session.sessionKey);
       throw err;
+    }
+  }
+
+  async function pumpPromptQueue(sessionKey: string): Promise<void> {
+    if (sessionTurnBusy(sessionKey)) return;
+    const q = promptQueues.get(sessionKey);
+    if (!q || q.length === 0) {
+      promptQueues.delete(sessionKey);
+      return;
+    }
+    const session = sessionIndex.byKey[sessionKey];
+    if (!session) {
+      promptQueues.delete(sessionKey);
+      return;
+    }
+    const next = q.shift()!;
+    if (q.length === 0) promptQueues.delete(sessionKey);
+    const remaining = q.length;
+    log.info("action: dequeue prompt", {
+      sessionKey,
+      remaining,
+      textLen: next.text.length,
+      attachments: next.attachments.length,
+    });
+    if (remaining > 0) {
+      await sendInTopic(
+        session,
+        `▶️ Running next queued message (${remaining} still waiting)…`,
+        undefined,
+        { html: true },
+      ).catch(() => {});
+    }
+    try {
+      await beginTopicTurn(session, next.text, next.attachments);
+    } catch (err) {
+      log.warn("queued turn failed", {
+        sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await sendInTopic(
+        session,
+        `Queued turn failed: ${err instanceof Error ? err.message : String(err)}`,
+      ).catch(() => {});
+      // Continue with remaining queue
+      void pumpPromptQueue(sessionKey);
     }
   }
 
