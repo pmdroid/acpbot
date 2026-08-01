@@ -72,6 +72,7 @@ import {
   prepareAgentMedia,
 } from "./media";
 import { createWorkerApiServer } from "./worker-api-server";
+import { awaitInlineDecision } from "./inline-decision";
 import { createTurnRunner } from "./turn-runner";
 import { createWorkingStatus } from "./working-status";
 
@@ -464,6 +465,13 @@ export function createDaemon(
     setSessionStatus,
     log,
   });
+  const inlineDecisionDeps = {
+    setSessionStatus,
+    working,
+    sendInTopic,
+    telegram: env.telegram,
+    log,
+  };
 
   function wirePermissionHandler(): void {
     if (permissionWired) return;
@@ -487,9 +495,7 @@ export function createDaemon(
   }
 
   /**
-   * Permission UI is allowed to await Telegram — it runs on the acpx host
-   * hook, not inside the event-queue drain consumer.
-   * Status + working bubble updated before the prompt is sent (no topic rename).
+   * Permission UI awaits Telegram on the ACP host hook (not in drainTurn).
    */
   async function handlePermissionRequest(
     req: PermissionRequest,
@@ -502,83 +508,51 @@ export function createDaemon(
       return { outcome: "reject_once" };
     }
 
-    log.info("permission UI: waiting-on-you", {
-      sessionKey,
-      toolCallId: req.toolCallId,
-    });
-    await setSessionStatus(session, "waiting-on-you");
-    await working.set(session, "Waiting for your decision…");
-
     const ui = buildPermissionUi(req);
     log.info("permission UI: send keyboard", {
       sessionKey,
+      toolCallId: req.toolCallId,
       token: ui.token,
       options: ui.options.map((o) => o.name),
     });
-    // Permission prompt is plain-ish; format markdown in the body.
-    const sent = await sendInTopic(session, ui.text, ui.keyboard, {
-      html: true,
-    });
 
-    log.info("permission UI: waiting for operator", {
-      sessionKey,
-      token: ui.token,
-      messageId: sent.message_id,
-    });
-    const decision = await new Promise<PermissionDecision>((resolve, reject) => {
-      if (ctx.signal.aborted) {
-        reject(ctx.signal.reason ?? new Error("aborted"));
-        return;
-      }
-      const onAbort = () => {
-        log.warn("permission aborted (cancel/signal)", { sessionKey });
+    const decision = await awaitInlineDecision(inlineDecisionDeps, {
+      session,
+      signal: ctx.signal,
+      waitingBubbleText: "Waiting for your decision…",
+      text: ui.text,
+      keyboard: ui.keyboard,
+      sendOpts: { html: true },
+      logContext: { kind: "permission", token: ui.token },
+      onAbort: () => {
         permissions.cancelAllForSession(sessionKey, { outcome: "cancel" });
-        reject(ctx.signal.reason ?? new Error("aborted"));
-      };
-      ctx.signal.addEventListener("abort", onAbort, { once: true });
-
-      permissions.register({
-        token: ui.token,
-        sessionKey,
-        chatId: session.chatId,
-        messageThreadId: session.messageThreadId,
-        messageId: sent.message_id,
-        options: ui.options,
-        promptText: ui.text,
-        settled: false,
-        resolve: (d) => {
-          ctx.signal.removeEventListener("abort", onAbort);
-          resolve(d);
-        },
-      });
-    }).catch(() => ({ outcome: "cancel" as const }));
+      },
+      onAbortResult: { outcome: "cancel" as const },
+      register: ({ messageId, resolve }) => {
+        permissions.register({
+          token: ui.token,
+          sessionKey,
+          chatId: session.chatId,
+          messageThreadId: session.messageThreadId,
+          messageId,
+          options: ui.options,
+          promptText: ui.text,
+          settled: false,
+          resolve,
+        });
+      },
+      formatSettled: (d) => {
+        const formatted = formatForTelegram(
+          `${ui.text}\n\n→ **answered:** ${d.outcome}`,
+        );
+        return { text: formatted.text, parseMode: formatted.parseMode };
+      },
+    });
 
     log.info("permission UI: settled", {
       sessionKey,
       decision: decision.outcome,
     });
-
-    // Confirm by editing the message — never rely on answerCallbackQuery.
-    try {
-      const formatted = formatForTelegram(
-        `${ui.text}\n\n→ **answered:** ${decision.outcome}`,
-      );
-      await env.telegram.editMessageText({
-        chatId: session.chatId,
-        messageId: sent.message_id,
-        text: formatted.text,
-        parseMode: formatted.parseMode,
-        replyMarkup: { inline_keyboard: [] },
-      });
-    } catch (err) {
-      log.warn("permission confirm edit failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    await setSessionStatus(session, "running");
-    await working.set(session, "Working…");
-
     return decision;
   }
 
@@ -640,9 +614,6 @@ export function createDaemon(
       return { action: "decline" };
     }
 
-    await setSessionStatus(session, "waiting-on-you");
-    await working.set(session, "Waiting for your answer…");
-
     const ui = buildElicitationUi({ sessionId: sessionKey, raw: req.raw });
     log.info("elicitation UI: send keyboard", {
       sessionKey,
@@ -650,74 +621,48 @@ export function createDaemon(
       options: ui.options.map((o) => o.label),
     });
 
-    const sent = await sendInTopic(session, ui.text, ui.keyboard, {
-      alreadyHtml: true,
-    });
-
-    log.info("elicitation UI: waiting for operator", {
-      sessionKey,
-      token: ui.token,
-      messageId: sent.message_id,
-    });
-
-    const decision = await new Promise<
-      | { action: "accept"; content?: Record<string, unknown> }
-      | { action: "decline" }
-      | { action: "cancel" }
-    >((resolve, reject) => {
-      if (ctx.signal.aborted) {
-        reject(ctx.signal.reason ?? new Error("aborted"));
-        return;
-      }
-      const onAbort = () => {
+    const decision = await awaitInlineDecision(inlineDecisionDeps, {
+      session,
+      signal: ctx.signal,
+      waitingBubbleText: "Waiting for your answer…",
+      text: ui.text,
+      keyboard: ui.keyboard,
+      sendOpts: { alreadyHtml: true },
+      logContext: { kind: "elicitation", token: ui.token },
+      onAbort: () => {
         elicitations.cancelAllForSession(sessionKey);
-        reject(ctx.signal.reason ?? new Error("aborted"));
-      };
-      ctx.signal.addEventListener("abort", onAbort, { once: true });
-      elicitations.register({
-        token: ui.token,
-        sessionKey,
-        chatId: session.chatId,
-        messageThreadId: session.messageThreadId,
-        messageId: sent.message_id,
-        fieldName: ui.fieldName,
-        options: ui.options,
-        promptText: ui.text,
-        settled: false,
-        resolve: (d) => {
-          ctx.signal.removeEventListener("abort", onAbort);
-          resolve(d);
-        },
-      });
-    }).catch(() => ({ action: "cancel" as const }));
+      },
+      onAbortResult: { action: "cancel" as const },
+      register: ({ messageId, resolve }) => {
+        elicitations.register({
+          token: ui.token,
+          sessionKey,
+          chatId: session.chatId,
+          messageThreadId: session.messageThreadId,
+          messageId,
+          fieldName: ui.fieldName,
+          options: ui.options,
+          promptText: ui.text,
+          settled: false,
+          resolve,
+        });
+      },
+      formatSettled: (d) => {
+        const summary =
+          d.action === "accept"
+            ? `→ chose: ${JSON.stringify(d.content)}`
+            : `→ ${d.action}`;
+        return { text: `${ui.text}\n\n${summary}`, parseMode: "HTML" };
+      },
+    });
 
     log.info("elicitation UI: settled", { sessionKey, decision });
-
-    try {
-      const summary =
-        decision.action === "accept"
-          ? `→ chose: ${JSON.stringify(decision.content)}`
-          : `→ ${decision.action}`;
-      await env.telegram.editMessageText({
-        chatId: session.chatId,
-        messageId: sent.message_id,
-        text: `${ui.text}\n\n${summary}`,
-        parseMode: "HTML",
-        replyMarkup: { inline_keyboard: [] },
-      });
-    } catch (err) {
-      log.warn("elicitation confirm edit failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    await setSessionStatus(session, "running");
-    await working.set(session, "Working…");
     return decision;
   }
 
   /**
    * Grok `_x.ai/ask_user_question` → sequential multi-choice Telegram keyboards.
+   * Multi-step progress edits stay in the callback handler; only the wait shell is shared.
    */
   async function handleAskUserQuestion(
     req: { sessionId: string; raw: unknown },
@@ -736,9 +681,6 @@ export function createDaemon(
       return toAskUserQuestionExtResponse({ answers: [] }, { declined: true });
     }
 
-    await setSessionStatus(session, "waiting-on-you");
-    await working.set(session, "Waiting for your answer…");
-
     const token = newAskToken();
     const first = buildAskQuestionUi(token, 0, questions.length, questions[0]!);
     log.info("ask_user_question UI", {
@@ -748,49 +690,62 @@ export function createDaemon(
       first: questions[0]?.question.slice(0, 80),
     });
 
-    const sent = await sendInTopic(session, first.text, first.keyboard, {
-      alreadyHtml: true,
-    });
-
-    const result = await new Promise<{
+    type AskResult = {
       answers: Array<{
         question: string;
         header?: string;
         selectedOptions: string[];
       }>;
-    }>((resolve, reject) => {
-      if (ctx.signal.aborted) {
-        reject(ctx.signal.reason ?? new Error("aborted"));
-        return;
-      }
-      const onAbort = () => {
-        askQuestions.cancelAllForSession(sessionKey);
-        reject(ctx.signal.reason ?? new Error("aborted"));
-      };
-      ctx.signal.addEventListener("abort", onAbort, { once: true });
-      askQuestions.register({
-        token,
-        sessionKey,
-        chatId: session.chatId,
-        messageThreadId: session.messageThreadId,
-        questions,
-        answers: questions.map(() => []),
-        currentIndex: 0,
-        messageId: sent.message_id,
-        selected: new Set(),
-        settled: false,
-        resolve: (r) => {
-          ctx.signal.removeEventListener("abort", onAbort);
-          resolve(r);
-        },
-      });
-    }).catch(() => ({
+    };
+
+    const emptyAnswers: AskResult = {
       answers: questions.map((q) => ({
         question: q.question,
         header: q.header,
         selectedOptions: [] as string[],
       })),
-    }));
+    };
+
+    const result = await awaitInlineDecision(inlineDecisionDeps, {
+      session,
+      signal: ctx.signal,
+      waitingBubbleText: "Waiting for your answer…",
+      text: first.text,
+      keyboard: first.keyboard,
+      sendOpts: { alreadyHtml: true },
+      logContext: { kind: "ask_user_question", token },
+      onAbort: () => {
+        askQuestions.cancelAllForSession(sessionKey);
+      },
+      onAbortResult: emptyAnswers,
+      register: ({ messageId, resolve }) => {
+        askQuestions.register({
+          token,
+          sessionKey,
+          chatId: session.chatId,
+          messageThreadId: session.messageThreadId,
+          questions,
+          answers: questions.map(() => []),
+          currentIndex: 0,
+          messageId,
+          selected: new Set(),
+          settled: false,
+          resolve,
+        });
+      },
+      formatSettled: (r) => {
+        const summary = r.answers
+          .map(
+            (a) =>
+              `• ${a.question.slice(0, 60)} → ${a.selectedOptions.join(", ") || "(skipped)"}`,
+          )
+          .join("\n");
+        return {
+          text: formatForTelegram(`**Answers recorded**\n\n${summary}`).text,
+          parseMode: "HTML",
+        };
+      },
+    });
 
     const wire = toAskUserQuestionExtResponse(result);
     log.info("ask_user_question settled", {
@@ -798,30 +753,6 @@ export function createDaemon(
       answers: result.answers,
       wireOutcome: wire.outcome,
     });
-
-    try {
-      const summary = result.answers
-        .map(
-          (a) =>
-            `• ${a.question.slice(0, 60)} → ${a.selectedOptions.join(", ") || "(skipped)"}`,
-        )
-        .join("\n");
-      await env.telegram.editMessageText({
-        chatId: session.chatId,
-        messageId: sent.message_id,
-        text: formatForTelegram(
-          `**Answers recorded**\n\n${summary}`,
-        ).text,
-        parseMode: "HTML",
-        replyMarkup: { inline_keyboard: [] },
-      });
-    } catch {
-      /* ignore — often races with callback handler's final edit */
-    }
-
-    await setSessionStatus(session, "running");
-    await working.set(session, "Working…");
-
     return wire;
   }
 

@@ -39,7 +39,7 @@ Living checklist from the architecture review (2026-08-01).
 | 5 | Rename acpx → state (naming debt) | **done** (hard cut, no alias) |
 | 6 | Delete dead shims / aliases | **done** (2026-08-01) |
 | 7 | Extract turn runner from daemon | **done** (2026-08-01) |
-| 8 | Unify three wait-for-operator UIs | pending |
+| 8 | Unify three wait-for-operator UIs | **done** (8a, 2026-08-01) |
 | 9 | Collapse dual SessionHost paths | pending (stance leans **host required**) |
 | 10 | Optional boundary for OAuth / heavy MCP | pending |
 | 11 | AgentsPort surface split (optional) | pending |
@@ -281,7 +281,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 
 **Verify:** permission / elicitation / ask-user tests  
 
-**Status:** pending — ask if/how
+**Status:** **done (8a)** — `awaitInlineDecision` in `src/core/inline-decision.ts`; three brokers retained.
 
 ---
 
@@ -356,6 +356,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no ACPX alias; repo inject → `TACP_REPO_STATE_DIR`. |
 | 2026-08-01 | Step 6 done: dead shims removed (renameTopic, Runtime*, extractSpeak, shouldUseAcpHost, …). |
 | 2026-08-01 | Step 7 done: extract turn-runner + working-status from daemon. |
+| 2026-08-01 | Step 8a done: shared awaitInlineDecision for permission/elicit/ask-user. |
 
 ---
 
