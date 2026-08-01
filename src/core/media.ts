@@ -144,7 +144,7 @@ async function saveToInbox(
  *
  * ACP image/audio *content blocks* are only used when `acpMediaAttachments`
  * is true. Grok Build's ACP agent currently does **not** advertise
- * `promptCapabilities.image` / `.audio`, so acpx rejects those blocks with:
+ * `promptCapabilities.image` / `.audio`, so the agent rejects those blocks with:
  *   "prompt[n] image content requires agentCapabilities.promptCapabilities.image"
  * Default is therefore: save to `.tacp-inbox/` + path in text (agent tools).
  */

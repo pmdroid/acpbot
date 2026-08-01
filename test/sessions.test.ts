@@ -150,13 +150,13 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp", acpx: "/configured/repos/acpx" },
+        repos: { tacp: "/configured/repos/tacp", other: "/configured/repos/other" },
       },
       store,
     });
     const d1 = createDaemon(env1);
     await d1.handleUpdate(root("/new tacp one", 1));
-    await d1.handleUpdate(root("/new acpx two", 2));
+    await d1.handleUpdate(root("/new other two", 2));
     const before = await d1.listSessions();
     expect(before).toHaveLength(2);
 
@@ -165,7 +165,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp", acpx: "/configured/repos/acpx" },
+        repos: { tacp: "/configured/repos/tacp", other: "/configured/repos/other" },
       },
       store,
     });
@@ -412,7 +412,7 @@ describe("02 — sessions become topics and survive restart", () => {
     ).toHaveLength(0);
   });
 
-  test("listing sessions returns tacp's own list, not telegram or acpx", async () => {
+  test("listing sessions returns tacp's own list, not telegram or agent host", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,

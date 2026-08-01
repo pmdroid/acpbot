@@ -1,5 +1,5 @@
 /**
- * Elicitation is handled by the thin ACP host (official SDK), not acpx.
+ * Elicitation is handled by the thin ACP host (official SDK).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

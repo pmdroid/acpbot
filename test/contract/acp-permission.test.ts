@@ -1,6 +1,5 @@
 /**
- * Contract: thin ACP host entry points exist.
- * (Replaced acpx/runtime contract after SDK migration.)
+ * Contract: thin ACP host entry points exist (SDK session host + permission map).
  */
 import { describe, expect, test } from "bun:test";
 import { createSessionHost } from "../../src/acp/session-host";

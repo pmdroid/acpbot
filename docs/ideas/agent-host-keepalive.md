@@ -79,12 +79,12 @@ Grok already has leader-style sharing (`--leader`, leader socket): one long-live
 - **Effort:** done / polish only.
 - **Limit:** no warm tools/terminals; history only as good as agent load.
 
-### D. Full acpx-style warm session owner / queue owner
+### D. Full warm session owner / queue owner
 
 - Multi-agent warm pool, leases, multi-client ownership.
 
 - **Effort:** weeks; high complexity.
-- **Only if** we need acpx product parity beyond Grok-first tacp.
+- **Only if** we need multi-agent host product parity beyond Grok-first tacp.
 
 ## What would be hard even with a host
 
@@ -101,7 +101,7 @@ Grok already has leader-style sharing (`--leader`, leader socket): one long-live
 3. Keep durable store as fallback when host is down or agent lacks live reconnect.
 4. Explicit Telegram UX if session was rehydrated vs freshly created.
 
-Non-goals for v1 of this idea: full multi-agent pool, Windows parity, acpx queue-owner clone.
+Non-goals for v1 of this idea: full multi-agent pool, Windows parity, queue-owner clone.
 
 ## Decision (when revisited)
 
@@ -112,6 +112,6 @@ Do **not** invest in C-as-only-path if warm process is a product requirement.
 
 - Thin host: `src/acp/session-host.ts`
 - Durable records: `src/acp/session-store.ts`
-- Terminal (client surface): `src/acp/terminal-manager.ts` (acpx-grade; still dies with agent process)
-- Upstream acpx concepts: warm session owner / queue owner (historical; we intentionally left that stack)
+- Terminal (client surface): `src/acp/terminal-manager.ts` (full process-group support; still dies with agent process)
+- Historical warm session / queue owner designs (intentionally left behind for Grok-first tacp)
 - Grok CLI: `grok agent stdio`, `--leader` / leader socket (verify current flags when implementing)

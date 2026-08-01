@@ -111,7 +111,7 @@ describe("minimal repo picker", () => {
         operatorChatId: CHAT,
         repos: {
           tacp: "/configured/repos/tacp",
-          acpx: "/configured/repos/acpx",
+          other: "/configured/repos/other",
         },
       },
     });
@@ -126,7 +126,7 @@ describe("minimal repo picker", () => {
     };
     const labels = markup.inline_keyboard.flat().map((b) => b.text);
     expect(labels).toContain("tacp");
-    expect(labels).toContain("acpx");
+    expect(labels).toContain("other");
   });
 
   test("repo callback then name creates session topic", async () => {
@@ -136,7 +136,7 @@ describe("minimal repo picker", () => {
         operatorChatId: CHAT,
         repos: {
           tacp: "/configured/repos/tacp",
-          acpx: "/configured/repos/acpx",
+          other: "/configured/repos/other",
         },
       },
     });
@@ -180,7 +180,7 @@ describe("permission inline keyboard round-trip", () => {
     const session = (await daemon.listSessions())[0]!;
     env.telegram.clearOutbound();
 
-    // Raise permission through the agents port (simulates acpx host hook).
+    // Raise permission through the agents port (simulates ACP host hook).
     // No concurrent turn required for the UI round-trip itself.
     const permPromise = env.agents.raisePermission({
       sessionId: "tacp/perm",

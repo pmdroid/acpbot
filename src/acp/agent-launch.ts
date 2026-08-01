@@ -1,6 +1,6 @@
 /**
  * Resolve tacp agent names → stdio spawn command.
- * Small built-in registry (replaces acpx agent-registry for the agents we care about).
+ * Small built-in registry of ACP agent launches.
  *
  * Claude/Codex need the official ACP adapters (not bare `claude acp` / `codex acp`).
  * OpenCode has a native `opencode acp` command.
@@ -62,7 +62,7 @@ export const DEFAULT_CODEX_ACP_PKG = "@agentclientprotocol/codex-acp@1.1.7";
  * Built-in launches. Override with TACP_AGENT_COMMAND_JSON:
  * {"grok-build":{"command":"grok","args":["agent","stdio"]}}
  *
- * Claude/Codex use @agentclientprotocol/* adapters via npx (same as acpx).
+ * Claude/Codex use @agentclientprotocol/* adapters via npx.
  */
 function claudeAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
   return env.TACP_CLAUDE_ACP_PKG?.trim() || DEFAULT_CLAUDE_ACP_PKG;

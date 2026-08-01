@@ -36,7 +36,7 @@ Living checklist from the architecture review (2026-08-01).
 | 2 | Skill install: not every boot | **done** (2026-08-01) |
 | 3 | Working bubble durability | **open — explain first, no decision yet** |
 | 4 | One-time outbound queue cleanup | **done** (2026-08-01) |
-| 5 | Rename acpx → state (naming debt) | **done** (hard cut, no alias) |
+| 5 | Rename state dir env (`TACP_ACPX_*` → `TACP_STATE_DIR`) | **done** (hard cut, no alias) |
 | 6 | Delete dead shims / aliases | **done** (2026-08-01) |
 | 7 | Extract turn runner from daemon | **done** (2026-08-01) |
 | 8 | Unify three wait-for-operator UIs | **done** (8a, 2026-08-01) |
@@ -206,15 +206,15 @@ No options chosen. Do not implement until you decide.
 
 ---
 
-## Step 5 — Rename acpx → state (naming debt)
+## Step 5 — Rename state dir env (naming debt)
 
-**Problem:** Fork is gone; env and fields still say `TACP_STATE_DIR` / `stateDir`.
+**Problem:** Old third-party-host state env (`TACP_ACPX_*`) and matching field names lingered after the host stack moved in-tree.
 
 **Options:**
 
 | Id | How |
 |----|-----|
-| 5a | New primary `TACP_STATE_DIR`; accept old `TACP_STATE_DIR` as alias (warn once) |
+| 5a | New primary `TACP_STATE_DIR`; accept old env as alias (warn once) |
 | 5b | Rename in code comments/types only; keep env var string forever |
 | 5c | Hard rename env only (breaking) |
 
@@ -353,7 +353,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `TACP_ACP_HOST=0`. |
 | 2026-08-01 | Step 2 done: no skill install on boot; safe installer (no clobber of real skill dirs). |
 | 2026-08-01 | Step 4 done: boot removes legacy `telegram-queue` / `speak-queue` under state dir. |
-| 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no ACPX alias; repo inject → `TACP_REPO_STATE_DIR`. |
+| 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no legacy state-dir alias; repo inject → `TACP_REPO_STATE_DIR`. |
 | 2026-08-01 | Step 6 done: dead shims removed (renameTopic, Runtime*, extractSpeak, shouldUseAcpHost, …). |
 | 2026-08-01 | Step 7 done: extract turn-runner + working-status from daemon. |
 | 2026-08-01 | Step 8a done: shared awaitInlineDecision for permission/elicit/ask-user. |
