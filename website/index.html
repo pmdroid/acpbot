@@ -220,7 +220,11 @@ acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claud
       <section id="install" class="section section-alt">
         <div class="section-head">
           <p class="eyebrow">Install</p>
-          <h2>Two processes. One bot.</h2>
+          <h2>Binary install. Two processes.</h2>
+          <p class="section-sub">
+            Download standalone release binaries — no Bun or source checkout
+            required for normal use.
+          </p>
         </div>
 
         <div class="install">
@@ -228,21 +232,37 @@ acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claud
             <li>
               <span class="step-num">1</span>
               <div>
-                <h3>Create the bot</h3>
+                <h3>Download binaries</h3>
                 <p>
-                  In BotFather: new bot, enable <strong>topics in private
-                  chats</strong>, note your user id.
+                  From
+                  <a href="https://github.com/pmdroid/acpbot/releases"
+                    >GitHub Releases</a
+                  >, grab worker + host for your platform
+                  (<code>linux-x64</code>, <code>linux-arm64</code>,
+                  <code>darwin-arm64</code>, <code>darwin-x64</code>).
                 </p>
+                <pre class="code-block"><code># example: v0.1.0 on Apple Silicon
+curl -sL -o acpbot.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
+curl -sL -o acpbot-host.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
+tar -xzf acpbot.tar.gz &amp;&amp; tar -xzf acpbot-host.tar.gz
+chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
               </div>
             </li>
             <li>
               <span class="step-num">2</span>
               <div>
-                <h3>Configure</h3>
+                <h3>Create the bot &amp; configure</h3>
                 <p>
-                  Copy <code>.env.example</code> → <code>.env</code>. Set token,
-                  operator id, store path, state dir, and
-                  <code>ACPBOT_REPOS_JSON</code> (or legacy <code>TACP_*</code>).
+                  In BotFather: new bot, enable <strong>topics in private
+                  chats</strong>, note your user id. Set env:
+                  <code>ACPBOT_BOT_TOKEN</code>,
+                  <code>ACPBOT_OPERATOR_USER_ID</code>,
+                  <code>ACPBOT_STATE_DIR</code> (absolute),
+                  <code>ACPBOT_STORE_PATH</code>,
+                  <code>ACPBOT_REPOS_JSON</code>. Install agent CLIs on
+                  <code>PATH</code>.
                 </p>
               </div>
             </li>
@@ -250,22 +270,33 @@ acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claud
               <span class="step-num">3</span>
               <div>
                 <h3>Run host + worker</h3>
-                <pre class="code-block"><code>bun install
-bun run skills:install
-bun run acp-host    # terminal 1
-bun run start       # terminal 2</code></pre>
+                <pre class="code-block"><code>./acpbot-host-v0.1.0-darwin-arm64   # terminal 1 — required
+./acpbot-v0.1.0-darwin-arm64        # terminal 2 — worker</code></pre>
+                <p>
+                  Same <code>ACPBOT_STATE_DIR</code> on both. Worker fails boot
+                  if the host socket is missing.
+                </p>
               </div>
             </li>
           </ol>
 
           <aside class="install-note">
-            <p class="eyebrow">Env</p>
+            <p class="eyebrow">Binaries first</p>
             <p>
-              Prefer <code>ACPBOT_*</code> variables.
-              <code>TACP_*</code> remains accepted as a compatibility alias.
+              Release assets are the supported install path. Docker images
+              (<code>ghcr.io/pmdroid/acpbot:&lt;tag&gt;</code>) and source
+              (<code>bun run</code>) are optional.
             </p>
             <p>
-              Domain: <a href="https://acpbot.app">acpbot.app</a>
+              Prefer <code>ACPBOT_*</code> env vars.
+              <code>TACP_*</code> remains a legacy alias.
+            </p>
+            <p>
+              <a href="https://github.com/pmdroid/acpbot/releases"
+                >Releases</a
+              >
+              ·
+              <a href="https://github.com/pmdroid/acpbot">Source</a>
             </p>
           </aside>
         </div>
