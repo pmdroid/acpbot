@@ -1,9 +1,0 @@
-{
-  "mcpServers": [
-    {
-      "name": "arcade",
-      "type": "http",
-      "url": "https://api.arcade.dev/mcp/tacp"
-    }
-  ]
-}

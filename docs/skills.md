@@ -7,7 +7,7 @@ tacp ships two **operator skills** for coding agents (Grok, Claude, Codex, …):
 | **telegram** | [`skills/telegram/SKILL.md`](../skills/telegram/SKILL.md) | Progress pings, mid-turn text, photos, files, voice via host MCP `tacp` |
 | **schedules** | [`skills/schedules/SKILL.md`](../skills/schedules/SKILL.md) | Create / list / cancel / fire delayed or recurring jobs |
 
-They are **not** demo-only. The package tree is the source of truth; install puts them in global agent skill dirs so every workspace sees them.
+The package tree is the source of truth; install puts them in global agent skill dirs so every workspace sees them.
 
 ## Install (onboarding)
 

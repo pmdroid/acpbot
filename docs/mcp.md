@@ -67,8 +67,6 @@ Each session’s **cwd** (repo root) may declare:
 
 Missing or invalid JSON → built-in only (warn on invalid).
 
-Also see `demo/.tacp/mcp.json` / `demo/.tacp/mcp.json.example` if present.
-
 ### Remote servers (HTTP / SSE)
 
 Registered via topic commands (persisted in the repo registry, **not** tokens):

@@ -121,7 +121,7 @@ TACP_BOT_TOKEN=…
 TACP_OPERATOR_USER_ID=…
 TACP_STORE_PATH=./data/tacp-store.json
 TACP_ACPX_STATE_DIR=/abs/path/data/acpx-state
-TACP_REPOS_JSON='{"demo":"/abs/path/demo","tacp":"/abs/path"}'
+TACP_REPOS_JSON='{"tacp":"/abs/path/to/tacp"}'
 TACP_DEFAULT_AGENT=grok-build
 ```
 
