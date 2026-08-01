@@ -136,10 +136,10 @@ export type DaemonOptions = {
   pollTimeoutSec?: number;
   conflictBackoffMs?: number;
   /**
-   * Absolute (or resolvable) acpx state dir — **must match acp-host**
-   * `TACP_ACPX_STATE_DIR` so OAuth pending/tokens are shared across processes.
+   * Absolute (or resolvable) state dir — **must match acp-host**
+   * `TACP_STATE_DIR` so OAuth pending/tokens are shared across processes.
    */
-  acpxStateDir?: string;
+  stateDir?: string;
 };
 
 export type Daemon = {
@@ -184,7 +184,7 @@ export function createDaemon(
   const conflictBackoffMs = options.conflictBackoffMs ?? 1000;
   const log = (env.log ?? silentLogger()).child("daemon");
   // Same absolute path worker + acp-host must share for OAuth pending/tokens.
-  const acpxStateDir = resolveOAuthStateDir(options.acpxStateDir);
+  const stateDir = resolveOAuthStateDir(options.stateDir);
 
   let sessionIndex: SessionIndex = emptySessionIndex();
   let operatorChatId: number | undefined = env.config.operatorChatId;
@@ -1418,7 +1418,7 @@ export function createDaemon(
 
   /** MCP → worker Unix API (token + topics stay on the daemon). */
   const workerApi = createWorkerApiServer({
-    stateDir: acpxStateDir,
+    stateDir: stateDir,
     log,
     handlers: {
       async sendMessage({ sessionKey, text, kind }) {
@@ -1526,7 +1526,7 @@ export function createDaemon(
   ): Promise<void> {
     const repoRoot = session.cwd;
     const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
-    const oauthStateDir = acpxStateDir;
+    const oauthStateDir = stateDir;
     const oauthConfigured = Boolean(
       process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
     );
@@ -1944,7 +1944,9 @@ export function createDaemon(
           cwd: session.cwd,
           sessionKey: session.sessionKey,
           stateDir:
-            process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state",
+            process.env.TACP_STATE_DIR?.trim() ||
+              process.env.TACP_STATE_DIR?.trim() ||
+              "./data/tacp-state",
           enabled: true,
         });
         mcpCount = servers.length;

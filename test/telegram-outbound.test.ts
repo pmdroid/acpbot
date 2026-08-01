@@ -104,7 +104,7 @@ describe("daemon worker API delivers photo/file", () => {
         repos: { demo: repoDir },
       },
     });
-    const daemon = createDaemon(env, { acpxStateDir: stateDir });
+    const daemon = createDaemon(env, { stateDir: stateDir });
     await daemon.handleUpdate(root("/new demo mediaout", 1));
     const session = (await daemon.listSessions())[0]!;
 

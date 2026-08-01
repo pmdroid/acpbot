@@ -46,7 +46,7 @@
 - Maps chat + `message_thread_id` → session
 - Slash commands never forward to the agent
 - Buffers agent text during a turn; flushes at end (Telegram chunk limits)
-- Serves **worker API** on `$TACP_ACPX_STATE_DIR/worker-api.sock`
+- Serves **worker API** on `$TACP_STATE_DIR/worker-api.sock`
 
 ### ACP session host (`src/acp/`)
 
@@ -65,7 +65,7 @@ Long-lived process that **owns agent stdio** so the Telegram worker can restart 
 - Scans each `TACP_REPOS_JSON` repo for due schedules
 - Serves OAuth callback HTTP when `TACP_OAUTH_CALLBACK_BASE` is set
 
-Socket: `$TACP_ACPX_STATE_DIR/acp-host.sock`  
+Socket: `$TACP_STATE_DIR/acp-host.sock`  
 Design note: [ideas/agent-host-keepalive.md](ideas/agent-host-keepalive.md).
 
 ## Environment port
@@ -82,16 +82,16 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 | Path | Contents |
 |---|---|
 | `TACP_STORE_PATH` | Durable tacp JSON (sessions registry, offsets, …) |
-| `$TACP_ACPX_STATE_DIR/sessions/` | ACP session records (for `session/load`) |
-| `$TACP_ACPX_STATE_DIR/worker-api.sock` | Outbound worker HTTP API |
-| `$TACP_ACPX_STATE_DIR/acp-host.sock` | Optional host control socket |
-| `$TACP_ACPX_STATE_DIR/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
+| `$TACP_STATE_DIR/sessions/` | ACP session records (for `session/load`) |
+| `$TACP_STATE_DIR/worker-api.sock` | Outbound worker HTTP API |
+| `$TACP_STATE_DIR/acp-host.sock` | Optional host control socket |
+| `$TACP_STATE_DIR/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
 | `<repo>/.tacp/mcp.json` | Per-repo MCP servers |
 | `<repo>/.tacp/config.json` | Optional repo defaults / `mcpProfile` |
 | `<repo>/.tacp/schedules/` | Durable schedule jobs |
 | `<repo>/.tacp-inbox/` | Inbound media drop (gitignored pattern) |
 
-**Always use an absolute `TACP_ACPX_STATE_DIR`** when running worker + acp-host together so OAuth pending state and sockets agree regardless of CWD.
+**Always use an absolute `TACP_STATE_DIR`** when running worker + acp-host together so OAuth pending state and sockets agree regardless of CWD.
 
 ## Session model
 

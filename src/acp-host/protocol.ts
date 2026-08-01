@@ -176,7 +176,7 @@ export type HostToWorker =
   | { type: "err"; reqId: string; error: string };
 
 export function defaultAcpHostSock(
-  stateDir = process.env.TACP_ACPX_STATE_DIR?.trim() || "./data/acpx-state",
+  stateDir = process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
 ): string {
   const root = stateDir.replace(/\/$/, "");
   return process.env.TACP_ACP_HOST_SOCK?.trim() || `${root}/acp-host.sock`;

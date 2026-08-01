@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config";
 
 describe("loadConfig (shipped entry config)", () => {
-  test("requires bot token, operator id, store path, acpx state dir", () => {
+  test("requires bot token, operator id, store path, state dir", () => {
     expect(() => loadConfig({ env: {} })).toThrow(/bot token/i);
     expect(() =>
       loadConfig({ env: { TACP_BOT_TOKEN: "t" } }),
@@ -22,7 +22,7 @@ describe("loadConfig (shipped entry config)", () => {
           TACP_STORE_PATH: "/tmp/x.json",
         },
       }),
-    ).toThrow(/acpx state/i);
+    ).toThrow(/state dir/i);
   });
 
   test("loads complete config without assuming host layout", () => {
@@ -31,7 +31,7 @@ describe("loadConfig (shipped entry config)", () => {
         TACP_BOT_TOKEN: "tok-abc",
         TACP_OPERATOR_USER_ID: "42",
         TACP_STORE_PATH: "/cfg/store.json",
-        TACP_ACPX_STATE_DIR: "/cfg/acpx",
+        TACP_STATE_DIR: "/cfg/state",
         TACP_REPOS_JSON: JSON.stringify({ tacp: "/cfg/repos/tacp" }),
         TACP_DEFAULT_AGENT: "codex",
       },
@@ -39,7 +39,7 @@ describe("loadConfig (shipped entry config)", () => {
     expect(cfg.botToken).toBe("tok-abc");
     expect(cfg.operatorUserId).toBe(42);
     expect(cfg.storePath).toBe("/cfg/store.json");
-    expect(cfg.acpxStateDir).toBe("/cfg/acpx");
+    expect(cfg.stateDir).toBe("/cfg/state");
     expect(cfg.repos?.tacp).toBe("/cfg/repos/tacp");
     expect(cfg.defaultAgent).toBe("codex");
     expect("agentBackend" in cfg).toBe(false);
@@ -69,7 +69,7 @@ describe("main entry wiring (structural + import)", () => {
       "TACP_BOT_TOKEN",
       "TACP_OPERATOR_USER_ID",
       "TACP_STORE_PATH",
-      "TACP_ACPX_STATE_DIR",
+      "TACP_STATE_DIR",
       "BOT_TOKEN",
       "OPERATOR_USER_ID",
     ]) {

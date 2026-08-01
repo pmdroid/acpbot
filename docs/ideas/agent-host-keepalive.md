@@ -39,7 +39,7 @@ tacp daemon  ──spawn──►  agent stdio (child)
                                   worker re-spawns + session/new or session/load
 ```
 
-Durable store (`TACP_ACPX_STATE_DIR/sessions/`) already persists `sessionKey → agentSessionId` and tries `session/load` when the agent advertises it. That is **rehydrate after re-spawn**, not **warm process**.
+Durable store (`TACP_STATE_DIR/sessions/`) already persists `sessionKey → agentSessionId` and tries `session/load` when the agent advertises it. That is **rehydrate after re-spawn**, not **warm process**.
 
 ## Target mental model
 

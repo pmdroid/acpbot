@@ -61,7 +61,7 @@ Minimum:
 | `TACP_BOT_TOKEN` | Bot token |
 | `TACP_OPERATOR_USER_ID` | Your user id (allowlist) |
 | `TACP_STORE_PATH` | Durable JSON store path |
-| `TACP_ACPX_STATE_DIR` | Host state dir (sessions, OAuth, sockets) — prefer **absolute** |
+| `TACP_STATE_DIR` | Host state dir (sessions, OAuth, sockets) — prefer **absolute** |
 | `TACP_REPOS_JSON` | `{"repoKey":"/absolute/cwd",…}` |
 | `TACP_DEFAULT_AGENT` | `grok-build` (default), `claude`, `codex`, `opencode`, … |
 

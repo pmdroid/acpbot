@@ -32,9 +32,9 @@ export type RealAgentsOptions = {
   config: TacpConfig;
   /**
    * Durable ACP session store directory (`<dir>/sessions/*.json`).
-   * Same env as before: TACP_ACPX_STATE_DIR.
+   * Env: TACP_STATE_DIR.
    */
-  acpxStateDir: string;
+  stateDir: string;
   verbose?: boolean;
   log?: import("./logger").Logger;
   forceReadOnly?: boolean;
@@ -43,12 +43,12 @@ export type RealAgentsOptions = {
 };
 
 /**
- * @deprecated acpx option builder — kept as a thin shim for older tests.
+ * @deprecated option builder — kept as a thin shim for older tests.
  * Prefer realAgents (always acp-host client; inject `host` in tests).
  */
 export function buildAcpRuntimeOptions(input: {
   config: TacpConfig;
-  acpxStateDir: string;
+  stateDir: string;
   verbose?: boolean;
   sessionStore?: unknown;
   agentRegistry?: unknown;
@@ -183,7 +183,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
   };
 
   // Agents always live in acp-host (Unix client). Inject `host` only in tests.
-  const hostSockPath = resolveAcpHostSockPath(options.acpxStateDir);
+  const hostSockPath = resolveAcpHostSockPath(options.stateDir);
   const host: SessionHost =
     options.host ??
     (() => {

@@ -43,7 +43,7 @@ TACP_BOT_TOKEN=...
 TACP_OPERATOR_USER_ID=...
 TACP_STORE_PATH=./data/tacp-store.json
 # Prefer absolute so worker + acp-host always share the same dir
-TACP_ACPX_STATE_DIR=/absolute/path/to/tacp/data/acpx-state
+TACP_STATE_DIR=/absolute/path/to/tacp/data/tacp-state
 TACP_REPOS_JSON='{"tacp":"/absolute/path/to/tacp"}'
 TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
 ```
@@ -112,7 +112,7 @@ Speech env vars are documented in [configuration.md](configuration.md). Outbound
 | No reply from non-you | `TACP_OPERATOR_USER_ID` mismatch |
 | Agent picker empty | No agent CLIs on `PATH` (`grok`, `claude`, …) |
 | Spawn dies immediately | Check agent login / adapter; stderr is logged |
-| OAuth / host diverge | Relative `TACP_ACPX_STATE_DIR` + different CWDs — use absolute |
+| OAuth / host diverge | Relative `TACP_STATE_DIR` + different CWDs — use absolute |
 | `acp-host` exits on boot | OAuth listen port in use, or missing shared state dir |
 
 ## Tests

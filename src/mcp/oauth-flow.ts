@@ -6,7 +6,7 @@
  * 2. Authorization server metadata (RFC 8414)
  * 3. Dynamic client registration (RFC 7591) for a public PKCE client
  *
- * Tokens + pending PKCE live under absolute `$TACP_ACPX_STATE_DIR` (worker + acp-host).
+ * Tokens + pending PKCE live under absolute `$TACP_STATE_DIR` (worker + acp-host).
  * Authorize URL is returned for Telegram — host never opens a browser.
  */
 import { resolve } from "node:path";
