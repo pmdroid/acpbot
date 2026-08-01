@@ -31,7 +31,7 @@ You (Telegram) ──topic──► tacp worker ──ACP──► grok / claude
 - **Host MCP** — built-in `tacp` tools + per-repo `.tacp/mcp.json` (stdio / HTTP / SSE)
 - **Remote MCP OAuth** — PKCE + dynamic client registration; tokens stay off-repo
 - **Schedules** — durable in-repo jobs; `acp-host` fires them even if the worker is down
-- **acp-host by default** — keep agent processes warm across worker restarts
+- **acp-host required** — agent processes live in the host; worker fails boot if host is down
 
 Full capability matrix and design notes live under [`docs/`](docs/).
 
@@ -85,17 +85,15 @@ bun run start            # also installs skills unless TACP_SKIP_SKILL_INSTALL=1
 bun run start
 ```
 
-**Recommended layout** (acp-host is the default for the worker):
+**Required layout** (worker will not start without acp-host):
 
 ```bash
-# Terminal 1 — agents + schedule ticker
+# Terminal 1 — agents + schedule ticker + OAuth callback
 bun run acp-host
 
-# Terminal 2 — Telegram worker + worker API
+# Terminal 2 — Telegram worker + worker API (fails boot if host socket is down)
 bun run start
 ```
-
-Opt out of acp-host (in-process agents): `TACP_ACP_HOST=0 bun run start`.
 
 ### 4. In Telegram
 

@@ -34,23 +34,151 @@ type Pending = {
 };
 
 /**
- * Prefer long-lived acp-host for agent processes (default on).
- * Opt out with TACP_ACP_HOST=0 / false (in-process SessionHost).
+ * @deprecated Always true — in-process agents were removed; worker requires acp-host.
+ * Kept so older call sites compile until cleaned up.
  */
 export function shouldUseAcpHost(
-  env: NodeJS.ProcessEnv = process.env,
+  _env?: NodeJS.ProcessEnv,
   _sockPath?: string,
 ): boolean {
-  if (env.TACP_ACP_HOST === "0" || env.TACP_ACP_HOST === "false") return false;
-  // Default true — worker always attaches to acp-host unless explicitly disabled.
   return true;
+}
+
+/** Thrown when acp-host is missing or not responding (worker cannot start). */
+export class AcpHostRequiredError extends Error {
+  constructor(
+    readonly sockPath: string,
+    message?: string,
+  ) {
+    super(
+      message ??
+        [
+          `acp-host is required but is not available.`,
+          `  socket: ${sockPath}`,
+          `Start it first:`,
+          `  bun run acp-host`,
+          `(same absolute TACP_ACPX_STATE_DIR as the worker)`,
+        ].join("\n"),
+    );
+    this.name = "AcpHostRequiredError";
+  }
+}
+
+/** Resolve host socket path from state dir / env overrides. */
+export function resolveAcpHostSockPath(
+  stateDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const fromEnv = env.TACP_ACP_HOST_SOCK?.trim();
+  if (fromEnv) return fromEnv;
+  return defaultAcpHostSock(stateDir ?? env.TACP_ACPX_STATE_DIR?.trim());
+}
+
+/**
+ * Fail-fast readiness for worker boot. acp-host is mandatory:
+ * socket must exist and answer `ping` with `pong`.
+ */
+export async function assertAcpHostReady(options?: {
+  stateDir?: string;
+  sockPath?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+}): Promise<{ sockPath: string }> {
+  const env = options?.env ?? process.env;
+  const sockPath =
+    options?.sockPath?.trim() ||
+    resolveAcpHostSockPath(options?.stateDir, env);
+
+  if (!existsSync(sockPath)) {
+    throw new AcpHostRequiredError(
+      sockPath,
+      [
+        `acp-host is required but the socket file is missing.`,
+        `  socket: ${sockPath}`,
+        `Start it first (separate terminal):`,
+        `  bun run acp-host`,
+        `Use the same absolute TACP_ACPX_STATE_DIR on both processes.`,
+      ].join("\n"),
+    );
+  }
+
+  const timeoutMs = options?.timeoutMs ?? 3_000;
+  const reqId = randomUUID();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const s = createConnection(sockPath);
+      let buf = "";
+      const timer = setTimeout(() => {
+        s.destroy();
+        reject(new Error(`timeout after ${timeoutMs}ms waiting for pong`));
+      }, timeoutMs);
+
+      const finish = (err?: Error) => {
+        clearTimeout(timer);
+        s.destroy();
+        if (err) reject(err);
+        else resolve();
+      };
+
+      s.setEncoding("utf8");
+      s.on("connect", () => {
+        s.write(JSON.stringify({ type: "ping", reqId }) + "\n");
+      });
+      s.on("data", (chunk: string) => {
+        buf += chunk;
+        let i: number;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim();
+          buf = buf.slice(i + 1);
+          if (!line) continue;
+          try {
+            const msg = JSON.parse(line) as { type?: string; reqId?: string };
+            if (msg.type === "pong" && msg.reqId === reqId) {
+              finish();
+              return;
+            }
+            if (msg.type === "err" && msg.reqId === reqId) {
+              finish(new Error(`host err on ping`));
+              return;
+            }
+          } catch {
+            /* ignore partial / non-json */
+          }
+        }
+      });
+      s.on("error", (e) => {
+        finish(
+          new Error(
+            e instanceof Error ? e.message : `connect failed: ${String(e)}`,
+          ),
+        );
+      });
+      s.on("close", () => {
+        /* resolved/rejected via finish */
+      });
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new AcpHostRequiredError(
+      sockPath,
+      [
+        `acp-host is required but did not respond to ping.`,
+        `  socket: ${sockPath}`,
+        `  detail: ${detail}`,
+        `Is acp-host running? Start: bun run acp-host`,
+      ].join("\n"),
+    );
+  }
+
+  return { sockPath };
 }
 
 export function createAcpHostClient(
   options: AcpHostClientOptions = {},
 ): SessionHost {
   const log = (options.log ?? silentLogger()).child("acp-host-client");
-  const sockPath = options.sockPath ?? defaultAcpHostSock();
+  const sockPath = options.sockPath ?? resolveAcpHostSockPath();
   let hooks: SessionHostHooks = { ...options.hooks };
   let sock: Socket | null = null;
   let buf = "";

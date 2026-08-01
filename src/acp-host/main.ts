@@ -3,7 +3,7 @@
  * Long-lived ACP host — owns agent stdio processes (any agent command).
  *
  *   Terminal 1: bun run acp-host
- *   Terminal 2: TACP_ACP_HOST=1 bun run start
+ *   Terminal 2: bun run start
  *
  * Worker restart detaches; agent processes stay. Next ensure reattaches.
  * Also scans TACP_REPOS_JSON repos' `.tacp/schedules/` and fires due jobs
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   console.error(`tacp acp-host listening on ${sockPath}`);
   console.error(`tacp acp-host state dir: ${stateDir}`);
   console.error(
-    "Slots keyed by sessionKey (repo/name). Worker attaches by default (TACP_ACP_HOST=0 to disable)",
+    "Slots keyed by sessionKey (repo/name). Worker requires this process (fail-fast at boot).",
   );
   if (Object.keys(repos).length > 0) {
     console.error(

@@ -78,7 +78,7 @@ import {
   type SpeakRequest,
 } from "./speak";
 import { createWorkerApiServer } from "./worker-api-server";
-import { shouldUseAcpHost } from "../acp-host/client";
+
 import {
   buildSkillsKeyboard,
   clampSkillPage,
@@ -1957,8 +1957,6 @@ export function createDaemon(
       }
     }
 
-    const acpHost = shouldUseAcpHost();
-
     await sendInTopic(
       session,
       formatSessionStatus({
@@ -1976,7 +1974,7 @@ export function createDaemon(
         mcpEnabled,
         mcpCount,
         mcpNames,
-        acpHost,
+        acpHost: true, // worker always uses acp-host
       }),
       undefined,
       { html: true },

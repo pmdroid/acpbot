@@ -38,19 +38,22 @@ Quote the JSON value in `.env` so shells/dotenv keep it intact.
 | `TACP_CLAUDE_ACP_PKG` | Full npm package pin for Claude ACP, e.g. `@agentclientprotocol/claude-agent-acp@0.64.0` |
 | `TACP_CODEX_ACP_PKG` | Full npm package pin for Codex ACP, e.g. `@agentclientprotocol/codex-acp@1.1.7` |
 
-## acp-host
+## acp-host (required)
+
+Agent processes always run in **acp-host**. The worker has no in-process agent path.
 
 | Variable | Purpose |
 |---|---|
-| `TACP_ACP_HOST` | Default **on** (worker uses acp-host). Set `0` / `false` for in-process SessionHost |
-| `TACP_ACP_HOST_SOCK` | Override host socket path |
+| `TACP_ACP_HOST_SOCK` | Optional override of host Unix socket (default `$TACP_ACPX_STATE_DIR/acp-host.sock`) |
+
+Worker boot **fails** if the socket is missing or does not answer `ping`.
 
 ```bash
 # Terminal 1
 bun run acp-host
 
 # Terminal 2
-TACP_ACP_HOST=1 bun run start
+bun run start
 ```
 
 ## Operator chat
