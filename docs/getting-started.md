@@ -33,8 +33,8 @@ bun run skills:install
 
 `skills:install` symlinks (or copies) package skills into `~/.agents/skills`,
 `~/.grok/skills`, and `~/.claude/skills` so **all** coding agents see them, not
-only a single workspace. The worker also runs this on startup unless
-`TACP_SKIP_SKILL_INSTALL=1`.
+only a single workspace. Run it after clone or skill upgrades — the worker does
+**not** install skills on boot.
 
 Edit `.env` (paths are yours to choose — nothing assumes a fixed home layout):
 

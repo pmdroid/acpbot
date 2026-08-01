@@ -33,7 +33,7 @@ Living checklist from the architecture review (2026-08-01).
 |------|--------|--------|
 | 0 | Orient / decide product stance | **partial** (host + skills decided; bubble open) |
 | 1 | acp-host required only (no in-process path) | **done** (2026-08-01) |
-| 2 | Skill install: not every boot | pending (stance: **no boot install**) |
+| 2 | Skill install: not every boot | **done** (2026-08-01) |
 | 3 | Working bubble durability | **open — explain first, no decision yet** |
 | 4 | One-time outbound queue cleanup | pending |
 | 5 | Rename acpx → state (naming debt) | pending |
@@ -176,7 +176,7 @@ Complexity is low for “save id + delete if idle”; higher if we want perfect 
 **Touch:** `src/main.ts`, `src/core/bundled-skills.ts`, docs/skills, getting-started  
 **Verify:** start worker does not touch `~/.agents/skills`; `skills:install` still works  
 
-**Status:** pending — ask if/how
+**Status:** **done** — boot install removed; installer never clobbers non-symlink skill dirs.
 
 ---
 
@@ -357,6 +357,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Plan created from architecture review; no steps implemented yet. |
 | 2026-08-01 | Step 0 partial: **acp-host required**; **no skill install every boot**. Working bubble left open + deep-dive added. |
 | 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `TACP_ACP_HOST=0`. |
+| 2026-08-01 | Step 2 done: no skill install on boot; safe installer (no clobber of real skill dirs). |
 
 ---
 

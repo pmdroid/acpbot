@@ -67,9 +67,16 @@ bun run start
 | Variable | Purpose |
 |---|---|
 | `TACP_SKILL_ROOTS` | Extra skill dirs, colon/semicolon/comma-separated |
-| `TACP_SKIP_SKILL_INSTALL` | `1` — do not auto-install bundled skills on worker start |
 
 Always included: package `skills/` (bundled **telegram** + **schedules**).
+
+Install into global agent skill dirs **once** (not on worker boot):
+
+```bash
+bun run skills:install
+```
+
+The installer never overwrites a real directory that is not a tacp symlink.
 
 Defaults (when `HOME` is known): `~/.grok/skills`, `~/.grok/bundled/skills`, `~/.agents/skills`, `~/.claude/skills`.
 

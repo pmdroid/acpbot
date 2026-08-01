@@ -71,11 +71,12 @@ See [docs/configuration.md](docs/configuration.md) and [docs/getting-started.md]
 
 ```bash
 bun install
-bun run skills:install   # global telegram + schedules skills for all agents
+bun run skills:install   # once: global telegram + schedules skills for all agents
 bun test ./test
 
 set -a && source .env && set +a
-bun run start            # also installs skills unless TACP_SKIP_SKILL_INSTALL=1
+bun run acp-host         # required
+bun run start            # worker (does not reinstall skills)
 ```
 
 **Real ACP agents** (default). Example with Grok:
