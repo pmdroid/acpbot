@@ -325,9 +325,9 @@ export type PromptAttachment = {
 
 export type PromptTurnInput = {
   text: string;
-  /** image/* and audio/* forwarded to acpx as ACP content blocks */
+  /** image/* and audio/* forwarded as ACP content blocks */
   attachments?: PromptAttachment[];
-  /** Must never be set — omission disarms acpx turn timeout. */
+  /** Must never be set — omission avoids artificial turn timeouts. */
   timeoutMs?: never;
   signal?: AbortSignal;
   mode?: "prompt" | "steer";

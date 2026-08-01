@@ -1476,7 +1476,7 @@ export function createDaemon(
   }
 
   /**
-   * /plan /build /mode — ACP session/set_mode control (like acpx session modes).
+   * /plan /build /mode — ACP session/set_mode control.
    */
   async function handleSessionModeCommand(
     session: PersistedSession,

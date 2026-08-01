@@ -1,6 +1,6 @@
 /**
  * Thin ACP host: spawn agent stdio + official @agentclientprotocol/sdk client.
- * Replaces acpx/runtime for tacp's AgentsPort.
+ * Thin ACP session host for tacp's AgentsPort.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -200,7 +200,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     (options.stateDir
       ? createFileHostSessionStore(options.stateDir)
       : undefined);
-  /** Shared ACP client terminal/* manager (acpx-grade). */
+  /** Shared ACP client terminal/* manager. */
   const terminals = new TerminalManager({
     cwd: process.cwd(),
     log,

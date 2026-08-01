@@ -34,7 +34,7 @@ export function createFakeEnvironment(
     operatorChatId: options.config?.operatorChatId,
     repos: options.config?.repos ?? {
       tacp: "/configured/repos/tacp",
-      acpx: "/configured/repos/acpx",
+      other: "/configured/repos/other",
     },
     defaultAgent: options.config?.defaultAgent ?? "codex",
     skillRoots: options.config?.skillRoots,

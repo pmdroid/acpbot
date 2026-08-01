@@ -1,7 +1,7 @@
 /**
- * ACP client terminal/* implementation — adapted from openclaw/acpx TerminalManager.
+ * ACP client terminal/* implementation (process-group aware).
  *
- * Features retained from acpx:
+ * Features:
  * - outputByteLimit with UTF-8 boundary trim + truncated flag
  * - process-group kill (detached shells) + descendant PID tracking
  * - SIGTERM → grace → SIGKILL
