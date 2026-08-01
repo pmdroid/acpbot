@@ -1,48 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildAcpRuntimeOptions,
   pickReadOnlyModeId,
   pickSessionModeId,
   realAgents,
 } from "../src/env/real-agents";
 import type { SessionHost, HostTurn } from "../src/acp/session-host";
-
-describe("buildAcpRuntimeOptions (compat shim)", () => {
-  test("never includes timeoutMs", () => {
-    const opts = buildAcpRuntimeOptions({
-      config: {
-        operatorUserId: 1,
-        repos: { tacp: "/r/tacp" },
-      },
-      stateDir: "/state",
-      onPermissionRequest: async () => ({ outcome: "reject_once" }),
-      onElicitationRequest: async () => ({ action: "decline" }),
-    });
-    expect("timeoutMs" in opts).toBe(false);
-    expect(opts.backend).toBe("acp-sdk");
-    expect(opts.cwd).toBe("/r/tacp");
-  });
-
-  test("forwards onAskUserQuestion", async () => {
-    const ask = async () => ({
-      answers: [{ questionId: "q1", selectedOptionIds: ["a"] }],
-    });
-    const opts = buildAcpRuntimeOptions({
-      config: { operatorUserId: 1, repos: { tacp: "/r/tacp" } },
-      stateDir: "/state",
-      onPermissionRequest: async () => ({ outcome: "reject_once" }),
-      onElicitationRequest: async () => ({ action: "decline" }),
-      onAskUserQuestion: ask,
-    });
-    expect(typeof opts.onAskUserQuestion).toBe("function");
-    const result = await (
-      opts.onAskUserQuestion as () => Promise<Record<string, unknown>>
-    )();
-    expect(result).toEqual({
-      answers: [{ questionId: "q1", selectedOptionIds: ["a"] }],
-    });
-  });
-});
 
 describe("pickSessionModeId", () => {
   test("default prefers interactive modes over read-only", () => {

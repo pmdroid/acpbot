@@ -61,7 +61,7 @@ describe("02 — sessions become topics and survive restart", () => {
     );
     expect(creates).toHaveLength(1);
     if (creates[0]?.method === "createForumTopic") {
-      expect(creates[0].params.name).toBe(topicName("tacp", "auth-refactor", "idle"));
+      expect(creates[0].params.name).toBe(topicName("tacp", "auth-refactor"));
       expect(creates[0].params.chatId).toBe(CHAT);
     }
 

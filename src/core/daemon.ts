@@ -334,14 +334,6 @@ export function createDaemon(
     await persistIndex();
   }
 
-  /** Status-only; does not rename the Telegram topic. */
-  async function renameTopic(
-    session: PersistedSession,
-    status: SessionStatus,
-  ): Promise<void> {
-    await setSessionStatus(session, status);
-  }
-
   async function createSession(
     identity: SessionIdentity,
   ): Promise<PersistedSession> {
@@ -1154,7 +1146,7 @@ export function createDaemon(
       await env.agents.cancelTurn(session.sessionKey, "operator /cancel");
     }
     await clearWorkingStatus(session);
-    await renameTopic(session, "idle");
+    await setSessionStatus(session, "idle");
     await sendInTopic(session, "⏹ turn cancelled — session kept", undefined, {
       html: true,
     });
@@ -1295,10 +1287,10 @@ export function createDaemon(
           if (s === "waiting-on-you" && session.status === "waiting-on-you") {
             continue;
           }
-          await renameTopic(session, s);
+          await setSessionStatus(session, s);
         }
         if (statusTransitions.length === 0 && session.status !== status) {
-          await renameTopic(session, status);
+          await setSessionStatus(session, status);
         }
 
         if (deathError) {
@@ -1354,7 +1346,7 @@ export function createDaemon(
         }
       } catch (err) {
         try {
-          await renameTopic(session, "failed");
+          await setSessionStatus(session, "failed");
           await sendInTopic(
             session,
             `✕ turn error: ${err instanceof Error ? err.message : String(err)}`,
@@ -2674,7 +2666,7 @@ export function createDaemon(
       const drain = drainTurn(session, turn.events)
         .catch(async () => {
           try {
-            await renameTopic(session, "failed");
+            await setSessionStatus(session, "failed");
           } catch {
             /* ignore */
           }

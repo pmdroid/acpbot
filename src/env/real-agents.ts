@@ -16,7 +16,7 @@ import type {
   TacpConfig,
 } from "./types";
 import { silentLogger } from "./logger";
-import type { SessionHost, HostTurnEvent } from "../acp/session-host";
+import type { SessionHost } from "../acp/session-host";
 import {
   createAcpHostClient,
   resolveAcpHostSockPath,
@@ -40,90 +40,6 @@ export type RealAgentsOptions = {
   forceReadOnly?: boolean;
   /** Test seam: inject a pre-built host. */
   host?: SessionHost;
-};
-
-/**
- * @deprecated option builder — kept as a thin shim for older tests.
- * Prefer realAgents (always acp-host client; inject `host` in tests).
- */
-export function buildAcpRuntimeOptions(input: {
-  config: TacpConfig;
-  stateDir: string;
-  verbose?: boolean;
-  sessionStore?: unknown;
-  agentRegistry?: unknown;
-  onPermissionRequest: (
-    req: { sessionId: string; raw: unknown },
-    ctx: { signal: AbortSignal },
-  ) => Promise<PermissionDecision | undefined>;
-  onElicitationRequest: (
-    req: { sessionId?: string; raw: unknown },
-    ctx: { signal: AbortSignal },
-  ) => Promise<ElicitationDecision | undefined | { action: "decline" }>;
-  onAskUserQuestion?: (
-    req: { sessionId?: string; raw: unknown },
-    ctx: { signal: AbortSignal },
-  ) => Promise<Record<string, unknown>>;
-  mcpServers?: unknown[];
-}): Record<string, unknown> {
-  return {
-    cwd:
-      input.config.repos && Object.keys(input.config.repos).length > 0
-        ? (Object.values(input.config.repos)[0] as string)
-        : process.cwd(),
-    // Never set timeoutMs
-    onPermissionRequest: input.onPermissionRequest,
-    onElicitationRequest: input.onElicitationRequest,
-    ...(input.onAskUserQuestion
-      ? { onAskUserQuestion: input.onAskUserQuestion }
-      : {}),
-    mcpServers: input.mcpServers,
-    backend: "acp-sdk",
-  };
-}
-
-/** @deprecated test inject type — use SessionHost */
-export type RuntimeHandle = {
-  sessionKey: string;
-  backend: string;
-  runtimeSessionName: string;
-  cwd?: string;
-  agentSessionId?: string;
-};
-
-/** @deprecated */
-export type Runtime = {
-  ensureSession(input: {
-    sessionKey: string;
-    agent: string;
-    mode: "persistent" | "oneshot";
-    cwd?: string;
-  }): Promise<RuntimeHandle>;
-  startTurn(input: {
-    handle: RuntimeHandle;
-    text: string;
-    mode: "prompt" | "steer";
-    requestId: string;
-    signal?: AbortSignal;
-    attachments?: Array<{ mediaType: string; data: string }>;
-  }): {
-    events: AsyncIterable<HostTurnEvent>;
-    result: Promise<{
-      status: string;
-      stopReason?: string;
-      error?: { message?: string };
-    }>;
-    cancel?(input?: { reason?: string }): Promise<void>;
-  };
-  setMode?(input: { handle: RuntimeHandle; mode: string }): Promise<void>;
-  cancel?(input: { handle: RuntimeHandle; reason?: string }): Promise<void>;
-  getStatus?(input: {
-    handle: RuntimeHandle;
-  }): Promise<{
-    details?: {
-      availableModeIds?: string[];
-    };
-  }>;
 };
 
 export function realAgents(options: RealAgentsOptions): AgentsPort {

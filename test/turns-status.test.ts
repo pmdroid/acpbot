@@ -156,7 +156,7 @@ describe("03 — live turns with status projection", () => {
     const names = env.telegram.outbound
       .filter((c) => c.method === "editForumTopic")
       .map((c) => (c.method === "editForumTopic" ? c.params.name : undefined));
-    expect(names).not.toContain(topicName("tacp", "work", "failed"));
+    expect(names).not.toContain(topicName("tacp", "work"));
     // Status still tracked; failure is messaged in-topic.
     const after = (await daemon.listSessions()).find(
       (s) => s.sessionKey === "tacp/work",

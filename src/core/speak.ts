@@ -62,13 +62,3 @@ export function stripSpeakMarkers(reply: string): string {
   if (!SPEAK_BLOCK.test(reply)) return reply;
   return reply.replace(SPEAK_BLOCK, "").trim();
 }
-
-/**
- * @deprecated Use stripSpeakMarkers. Kept for tests; never returns speak.
- */
-export function extractSpeakFromReply(reply: string): {
-  visibleText: string;
-  speak: undefined;
-} {
-  return { visibleText: stripSpeakMarkers(reply), speak: undefined };
-}

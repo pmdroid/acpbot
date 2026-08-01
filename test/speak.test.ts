@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  extractSpeakFromReply,
   isSpeakToolName,
   speakTextFromToolInput,
   stripSpeakMarkers,
@@ -11,20 +10,17 @@ describe("stripSpeakMarkers", () => {
     expect(stripSpeakMarkers("Hello only")).toBe("Hello only");
   });
 
-  test("strips marker block without requesting TTS", () => {
-    const r = extractSpeakFromReply("Hi there.\n\n<<<speak>>>\n");
-    expect(r.speak).toBeUndefined();
-    expect(r.visibleText).toBe("Hi there.");
+  test("strips marker block from visible text", () => {
+    expect(stripSpeakMarkers("Hi there.\n\n<<<speak>>>\n")).toBe("Hi there.");
   });
 
-  test("strips marker and override body from visible text", () => {
-    const r = extractSpeakFromReply(
+  test("strips marker and body from visible text", () => {
+    const visible = stripSpeakMarkers(
       "Long explanation.\n\n<<<speak>>>\nShort voice line\n",
     );
-    expect(r.speak).toBeUndefined();
-    expect(r.visibleText).toContain("Long explanation");
-    expect(r.visibleText).not.toContain("<<<speak>>>");
-    expect(r.visibleText).not.toContain("Short voice line");
+    expect(visible).toContain("Long explanation");
+    expect(visible).not.toContain("<<<speak>>>");
+    expect(visible).not.toContain("Short voice line");
   });
 });
 

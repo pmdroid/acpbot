@@ -33,17 +33,6 @@ type Pending = {
   reject: (err: Error) => void;
 };
 
-/**
- * @deprecated Always true — in-process agents were removed; worker requires acp-host.
- * Kept so older call sites compile until cleaned up.
- */
-export function shouldUseAcpHost(
-  _env?: NodeJS.ProcessEnv,
-  _sockPath?: string,
-): boolean {
-  return true;
-}
-
 /** Thrown when acp-host is missing or not responding (worker cannot start). */
 export class AcpHostRequiredError extends Error {
   constructor(
