@@ -38,7 +38,7 @@ Living checklist from the architecture review (2026-08-01).
 | 4 | One-time outbound queue cleanup | **done** (2026-08-01) |
 | 5 | Rename acpx → state (naming debt) | **done** (hard cut, no alias) |
 | 6 | Delete dead shims / aliases | **done** (2026-08-01) |
-| 7 | Extract turn runner from daemon | pending |
+| 7 | Extract turn runner from daemon | **done** (2026-08-01) |
 | 8 | Unify three wait-for-operator UIs | pending |
 | 9 | Collapse dual SessionHost paths | pending (stance leans **host required**) |
 | 10 | Optional boundary for OAuth / heavy MCP | pending |
@@ -263,7 +263,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 
 **Verify:** existing turn / echo / drain-queue tests green  
 
-**Status:** pending — ask if/how
+**Status:** **done** — `createWorkingStatus` + `createTurnRunner` (7a inject deps); daemon wires them after `sendInTopic`.
 
 ---
 
@@ -355,6 +355,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 4 done: boot removes legacy `telegram-queue` / `speak-queue` under state dir. |
 | 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no ACPX alias; repo inject → `TACP_REPO_STATE_DIR`. |
 | 2026-08-01 | Step 6 done: dead shims removed (renameTopic, Runtime*, extractSpeak, shouldUseAcpHost, …). |
+| 2026-08-01 | Step 7 done: extract turn-runner + working-status from daemon. |
 
 ---
 
