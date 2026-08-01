@@ -45,6 +45,11 @@ export type TacpConfig = {
    * Default true. Env: TACP_MCP=0.
    */
   mcpEnabled?: boolean;
+  /**
+   * When true, allow remote http/sse MCP from `.tacp/mcp.json` and OAuth flows.
+   * Default false. Env: TACP_REMOTE_MCP=1.
+   */
+  remoteMcpEnabled?: boolean;
 };
 
 // ── Telegram shapes (subset of Bot API we use) ─────────────────────────────

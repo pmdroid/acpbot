@@ -13,6 +13,7 @@ import {
   type SessionHost,
   type SessionHostHooks,
 } from "../acp/session-host";
+import { remoteMcpEnabled } from "../mcp/remote-mcp";
 import type { HostSessionStore } from "../acp/session-store";
 import {
   type HostToWorker,
@@ -84,10 +85,15 @@ export async function startAcpHostServer(
     process.env.TACP_STATE_DIR?.trim() ??
     "./data/tacp-state";
   const sockPath = options.sockPath ?? defaultAcpHostSock(stateDir);
-  const baseConfig: TacpConfig = options.config ?? {
+  const baseConfig: TacpConfig = {
     operatorUserId: 0,
     mcpEnabled: true,
+    remoteMcpEnabled: remoteMcpEnabled(process.env),
+    ...options.config,
   };
+  if (options.config?.remoteMcpEnabled === undefined) {
+    baseConfig.remoteMcpEnabled = remoteMcpEnabled(process.env);
+  }
   const defaultAgent =
     options.defaultAgent?.trim() ||
     baseConfig.defaultAgent?.trim() ||
@@ -272,6 +278,9 @@ export async function startAcpHostServer(
         ...(config.mcpEnabled !== undefined
           ? { mcpEnabled: config.mcpEnabled }
           : {}),
+        remoteMcpEnabled:
+          baseConfig.remoteMcpEnabled === true ||
+          remoteMcpEnabled(process.env),
       },
       stateDir,
       ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),

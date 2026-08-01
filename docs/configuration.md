@@ -38,6 +38,21 @@ Quote the JSON value in `.env` so shells/dotenv keep it intact.
 | `TACP_CLAUDE_ACP_PKG` | Full npm package pin for Claude ACP, e.g. `@agentclientprotocol/claude-agent-acp@0.64.0` |
 | `TACP_CODEX_ACP_PKG` | Full npm package pin for Codex ACP, e.g. `@agentclientprotocol/codex-acp@1.1.7` |
 
+## Remote MCP + OAuth (optional)
+
+| Variable | Purpose |
+|---|---|
+| `TACP_REMOTE_MCP` | `1` / `true` enables remote http/sse MCP and OAuth. **Default off.** |
+| `TACP_OAUTH_CALLBACK_BASE` | Public callback URL (only used when remote MCP is on) |
+| `TACP_OAUTH_LISTEN_HOST` / `PORT` | acp-host OAuth HTTP bind (when remote MCP + callback base set) |
+
+Without `TACP_REMOTE_MCP=1`:
+
+- Built-in host tools (`tacp` speak/update/photo/schedules) still work  
+- Local **stdio** servers in `.tacp/mcp.json` still work  
+- Remote entries are **not** injected; `/mcp add` / `auth` / `code` refuse with a hint  
+- acp-host does **not** open the OAuth HTTP listener  
+
 ## acp-host (required)
 
 Agent processes always run in **acp-host**. The worker has no in-process agent path.

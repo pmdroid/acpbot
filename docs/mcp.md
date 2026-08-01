@@ -69,7 +69,10 @@ Missing or invalid JSON → built-in only (warn on invalid).
 
 ### Remote servers (HTTP / SSE)
 
-Registered via topic commands (persisted in the repo registry, **not** tokens):
+**Optional.** Enable with `TACP_REMOTE_MCP=1` (default **off**). Without it, only
+built-in `tacp` and **stdio** servers from `.tacp/mcp.json` are injected.
+
+When enabled, register via topic commands (persisted in the repo registry, **not** tokens):
 
 ```text
 /mcp add linear https://mcp.example/…

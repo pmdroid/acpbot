@@ -34,6 +34,7 @@ import {
   repoKeyForOAuth,
   resolveOAuthStateDir,
 } from "./oauth-store";
+import { remoteMcpEnabled } from "./remote-mcp";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
 export type TacpMcpRemoteServer = {
@@ -103,6 +104,11 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
    * otherwise false (public remotes still work).
    */
   oauthFailClosed?: boolean;
+  /**
+   * When false, drop remote http/sse entries and skip OAuth token attach.
+   * Default: `TACP_REMOTE_MCP=1` (otherwise off). Local stdio + built-in tacp stay.
+   */
+  remoteMcpEnabled?: boolean;
 };
 
 /** Reserved built-in host MCP name (speak). */
@@ -701,7 +707,21 @@ export async function buildSessionMcpServers(
   ]);
 
   const profileName = options.mcpProfile ?? repoConfig.mcpProfile;
-  const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles, log);
+  let repo = filterRepoMcpByProfile(repoRaw, profileName, profiles, log);
+
+  const allowRemote = remoteMcpEnabled(process.env, options.remoteMcpEnabled);
+  if (!allowRemote) {
+    const before = repo.length;
+    repo = repo.filter((s) => {
+      const t = (s as { type?: string }).type;
+      return t !== "http" && t !== "sse";
+    });
+    if (before > repo.length) {
+      log.info("remote MCP skipped (TACP_REMOTE_MCP not enabled)", {
+        dropped: before - repo.length,
+      });
+    }
+  }
 
   const tacp = buildTacpMcpServers({
     enabled: true,
@@ -733,19 +753,20 @@ export async function buildSessionMcpServers(
     ...tacp.map((s) => injectSessionEnv(s, injectCtx)),
   ];
 
-  // OAuth: merge Bearer from host store (never from repo mcp.json).
-  // Always absolute so ensure (acp-host) matches /mcp auth (worker).
-  const oauthStateDir = resolveOAuthStateDir(
-    options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
-  );
-  const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
-  const failClosed = oauthFailClosedDefault(options.oauthFailClosed);
-  merged = await applyOAuthTokensToServers(merged, {
-    stateDir: oauthStateDir,
-    repoKey,
-    failClosed,
-    log,
-  });
+  // OAuth only when remote MCP is enabled.
+  if (allowRemote) {
+    const oauthStateDir = resolveOAuthStateDir(
+      options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
+    );
+    const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
+    const failClosed = oauthFailClosedDefault(options.oauthFailClosed);
+    merged = await applyOAuthTokensToServers(merged, {
+      stateDir: oauthStateDir,
+      repoKey,
+      failClosed,
+      log,
+    });
+  }
 
   // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).
   return merged as McpServer[];

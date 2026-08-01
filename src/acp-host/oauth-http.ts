@@ -16,6 +16,7 @@ import {
   oauthListenPort,
 } from "../mcp/oauth-flow";
 import { resolveOAuthStateDir } from "../mcp/oauth-store";
+import { remoteMcpEnabled } from "../mcp/remote-mcp";
 
 export type OauthHttpServerOptions = {
   stateDir?: string;
@@ -219,13 +220,14 @@ export async function startOauthHttpServer(
 }
 
 /**
- * Start OAuth HTTP only when TACP_OAUTH_CALLBACK_BASE is set.
- * Returns null when OAuth is not configured.
+ * Start OAuth HTTP only when remote MCP is enabled and callback base is set.
+ * Returns null when OAuth is not configured / remote MCP is off.
  */
 export async function maybeStartOauthHttpServer(
   options: OauthHttpServerOptions = {},
 ): Promise<OauthHttpServer | null> {
   const env = options.env ?? process.env;
+  if (!remoteMcpEnabled(env)) return null;
   if (!env.TACP_OAUTH_CALLBACK_BASE?.trim()) return null;
   return startOauthHttpServer(options);
 }
