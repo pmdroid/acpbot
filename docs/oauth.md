@@ -1,7 +1,7 @@
 # Remote MCP OAuth
 
-**Requires** `TACP_REMOTE_MCP=1` (and usually `TACP_OAUTH_CALLBACK_BASE`).  
-With remote MCP off, `/mcp auth` is disabled and acp-host does not listen for callbacks.
+Set `TACP_OAUTH_CALLBACK_BASE` so acp-host can complete browser OAuth.  
+Public remotes work without it; authenticated gateways need the callback (or `/mcp code` paste).
 
 Tokens are **never** written to the repo. They live under:
 

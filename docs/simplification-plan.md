@@ -41,7 +41,7 @@ Living checklist from the architecture review (2026-08-01).
 | 7 | Extract turn runner from daemon | **done** (2026-08-01) |
 | 8 | Unify three wait-for-operator UIs | **done** (8a, 2026-08-01) |
 | 9 | Collapse dual SessionHost paths | **done** (9a, already by step 1) |
-| 10 | Optional boundary for OAuth / heavy MCP | **done** (10b, default off) |
+| 10 | Optional boundary for OAuth / heavy MCP | **wontfix** — remote MCP always on; no flag |
 | 11 | AgentsPort surface split (optional) | pending |
 
 Statuses: `pending` · `discussing` · `in progress` · `done` · `wontfix` · `open` · `partial`
@@ -315,7 +315,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 10b | Gate remote MCP + OAuth behind `TACP_REMOTE_MCP=1` (default off) |
 | 10c | Move OAuth into separate entry/package later |
 
-**Status:** **done (10b)** — `TACP_REMOTE_MCP=1` enables remote http/sse + OAuth; default off. Built-in `tacp` + stdio MCP unchanged.
+**Status:** **wontfix** — product wants remote MCP always available; `TACP_REMOTE_MCP` removed.
 
 ---
 
@@ -359,6 +359,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 8a done: shared awaitInlineDecision for permission/elicit/ask-user. |
 | 2026-08-01 | Step 9a done: dual production SessionHost path closed (host-only; inject for tests). |
 | 2026-08-01 | Step 10b done: TACP_REMOTE_MCP gates remote MCP + OAuth (default off). |
+| 2026-08-01 | Reverted 10b: removed TACP_REMOTE_MCP; remotes always allowed. |
 
 ---
 

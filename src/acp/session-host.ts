@@ -556,10 +556,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             enabled: options.config.mcpEnabled !== false,
             sessionKey: input.sessionKey,
             repoKey: repoKeyFromSession,
-            // Prefer explicit config; otherwise TACP_REMOTE_MCP in process.env.
-            ...(options.config.remoteMcpEnabled !== undefined
-              ? { remoteMcpEnabled: options.config.remoteMcpEnabled }
-              : {}),
             ...(options.stateDir !== undefined
               ? { stateDir: options.stateDir, oauthStateDir: options.stateDir }
               : {}),
