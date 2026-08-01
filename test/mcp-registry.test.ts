@@ -115,7 +115,7 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
               {
                 name: "local",
                 command: "bun",
-                args: ["run", ".tacp/tools/x.ts"],
+                args: ["run", ".acpbot/tools/x.ts"],
                 env: { FOO: "bar" },
               },
             ],
@@ -177,7 +177,7 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
         ).rejects.toThrow(/id is required/i);
         await expect(
           writeRemoteMcpServer(repo, {
-            name: "tacp",
+            name: "acpbot",
             url: "https://x.example",
           }),
         ).rejects.toThrow(/reserved/i);
@@ -234,7 +234,7 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
               {
                 name: "local",
                 command: "bun",
-                args: ["run", ".tacp/tools/x.ts"],
+                args: ["run", ".acpbot/tools/x.ts"],
                 env: { FOO: "bar" },
               },
             ],

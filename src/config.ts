@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LogLevel, TacpConfig } from "./env/types";
+import type { LogLevel, AcpbotConfig } from "./env/types";
 import { parseLogLevel } from "./env/logger";
 import { resolveStateDir, stateDirFromEnv } from "./env/state-dir";
 
@@ -8,17 +8,17 @@ import { resolveStateDir, stateDirFromEnv } from "./env/state-dir";
  * Load configuration from process env / a JSON blob.
  * No assumed filesystem layout: store path and token are explicit config.
  */
-export type ProcessConfig = TacpConfig & {
+export type ProcessConfig = AcpbotConfig & {
   botToken: string;
-  /** Durable tacp store file path — caller chooses location. */
+  /** Durable acpbot store file path — caller chooses location. */
   storePath: string;
   /**
    * Shared runtime state dir (sockets, ACP sessions, OAuth).
-   * Env: `TACP_STATE_DIR`.
+   * Env: `ACPBOT_STATE_DIR` or `TACP_STATE_DIR`.
    */
   stateDir: string;
   verbose?: boolean;
-  /** debug | info | warn | error | silent — TACP_LOG_LEVEL (default info; TACP_VERBOSE=1 → debug). */
+  /** debug | info | warn | error | silent — ACPBOT_LOG_LEVEL / TACP_LOG_LEVEL. */
   logLevel: LogLevel;
 };
 
@@ -42,20 +42,21 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   const env = options.env ?? process.env;
   const file = options.file ?? {};
 
-  const botToken = file.botToken ?? env.TACP_BOT_TOKEN ?? env.BOT_TOKEN;
+  const botToken = file.botToken ?? env.ACPBOT_BOT_TOKEN ?? env.TACP_BOT_TOKEN ?? env.BOT_TOKEN;
   if (!botToken) {
     throw new Error(
-      "Missing bot token. Set TACP_BOT_TOKEN (or pass botToken in config).",
+      "Missing bot token. Set ACPBOT_BOT_TOKEN or TACP_BOT_TOKEN (or pass botToken in config).",
     );
   }
 
   const operatorRaw =
     file.operatorUserId?.toString() ??
+    env.ACPBOT_OPERATOR_USER_ID ??
     env.TACP_OPERATOR_USER_ID ??
     env.OPERATOR_USER_ID;
   if (!operatorRaw) {
     throw new Error(
-      "Missing operator user id. Set TACP_OPERATOR_USER_ID to your Telegram user id.",
+      "Missing operator user id. Set ACPBOT_OPERATOR_USER_ID or TACP_OPERATOR_USER_ID.",
     );
   }
   const operatorUserId = Number(operatorRaw);
@@ -63,25 +64,26 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     throw new Error(`Invalid operator user id: ${operatorRaw}`);
   }
 
-  const storePath = file.storePath ?? env.TACP_STORE_PATH;
+  const storePath = file.storePath ?? env.ACPBOT_STORE_PATH ?? env.TACP_STORE_PATH;
   if (!storePath) {
     throw new Error(
-      "Missing store path. Set TACP_STORE_PATH to a writable JSON file path.",
+      "Missing store path. Set ACPBOT_STORE_PATH or TACP_STORE_PATH.",
     );
   }
 
   const stateDirRaw = file.stateDir ?? stateDirFromEnv(env);
   if (!stateDirRaw) {
     throw new Error(
-      "Missing state dir. Set TACP_STATE_DIR to a writable directory.",
+      "Missing state dir. Set ACPBOT_STATE_DIR or TACP_STATE_DIR.",
     );
   }
   // Always absolute so worker + acp-host share OAuth pending/tokens regardless of CWD.
   const stateDir = resolveStateDir(stateDirRaw, env);
 
   let repos = file.repos;
-  if (!repos && env.TACP_REPOS_JSON) {
-    let raw = env.TACP_REPOS_JSON.trim();
+  const reposJson = env.ACPBOT_REPOS_JSON ?? env.TACP_REPOS_JSON;
+  if (!repos && reposJson) {
+    let raw = reposJson.trim();
     // dotenv may leave surrounding quotes depending on the loader.
     if (
       (raw.startsWith("'") && raw.endsWith("'")) ||
@@ -93,7 +95,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   }
 
   const operatorChatIdRaw =
-    file.operatorChatId?.toString() ?? env.TACP_OPERATOR_CHAT_ID;
+    file.operatorChatId?.toString() ?? env.ACPBOT_OPERATOR_CHAT_ID ?? env.TACP_OPERATOR_CHAT_ID;
   const operatorChatId = operatorChatIdRaw
     ? Number(operatorChatIdRaw)
     : undefined;
@@ -104,7 +106,10 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     stateDir,
     operatorUserId,
     defaultAgent: normalizeAgentName(
-      file.defaultAgent ?? env.TACP_DEFAULT_AGENT ?? "grok-build",
+      file.defaultAgent ??
+        env.ACPBOT_DEFAULT_AGENT ??
+        env.TACP_DEFAULT_AGENT ??
+        "grok-build",
     ),
     logLevel: "info",
   };
@@ -112,7 +117,10 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     config.operatorChatId = operatorChatId;
   }
   if (repos) config.repos = repos;
-  const verbose = file.verbose === true || env.TACP_VERBOSE === "1";
+  const verbose =
+    file.verbose === true ||
+    env.ACPBOT_VERBOSE === "1" ||
+    env.TACP_VERBOSE === "1";
   if (verbose) config.verbose = true;
   config.logLevel = parseLogLevel(
     file.logLevel ?? env.TACP_LOG_LEVEL,

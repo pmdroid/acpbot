@@ -8,7 +8,7 @@
  * - shell fallback for shell metacharacters / ENOENT paths
  * - wait_for_exit promise, release cleans up
  *
- * tacp always allows create (client surface is open; agent tool permission is separate).
+ * acpbot always allows create (client surface is open; agent tool permission is separate).
  */
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";

@@ -57,6 +57,29 @@ describe("/status and /mode picker", () => {
     expect(status).toMatch(/demo\/st/);
   });
 
+  test("/status ensures (host may spawn) then reports model", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        defaultAgent: "grok-build",
+        repos: { demo: "/tmp/demo-repo" },
+      },
+    });
+    const d = createDaemon(env);
+    await d.handleUpdate(root("/new demo st-ro", 1));
+    const tid = (await d.listSessions())[0]!.messageThreadId;
+    const before = env.agents.ensureCalls.length;
+
+    await d.handleUpdate(topic(tid, "/status", 2));
+
+    // Status must ensure so a cold host slot is launched/reattached.
+    expect(env.agents.ensureCalls.length).toBeGreaterThan(before);
+    const texts = env.telegram.sentMessages().map((m) => m.text);
+    const status = texts.find((t) => /Session/i.test(t) && /Model:/i.test(t));
+    expect(status).toBeDefined();
+    expect(status).toMatch(/Model:/i);
+  });
+
   test("/mode shows picker keyboard; callback sets mode", async () => {
     const env = createFakeEnvironment({
       config: {
@@ -129,10 +152,10 @@ describe("/status and /mode picker", () => {
       chatId: 2,
       mcpEnabled: true,
       mcpCount: 1,
-      mcpNames: ["tacp"],
+      mcpNames: ["acpbot"],
       acpHost: true,
     });
     expect(t).toContain("grok agent stdio");
-    expect(t).toContain("tacp");
+    expect(t).toContain("acpbot");
   });
 });

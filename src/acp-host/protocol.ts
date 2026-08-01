@@ -1,10 +1,10 @@
 /**
- * NDJSON protocol: tacp worker ↔ acp-host (Unix socket).
+ * NDJSON protocol: acpbot worker ↔ acp-host (Unix socket).
  *
  * Host owns multi-agent ACP stdio processes so the Telegram worker can restart
  * without killing agent context. Agent-agnostic: command/args come from the worker.
  *
- * Slot key = tacp sessionKey (repo/name), same as durable store.
+ * Slot key = acpbot sessionKey (repo/name), same as durable store.
  */
 import type {
   ElicitationDecision,
@@ -13,7 +13,7 @@ import type {
 import type { HostTurnEvent } from "../acp/session-host";
 
 export type HostAgentConfig = {
-  /** tacp agent name, e.g. grok-build */
+  /** acpbot agent name, e.g. grok-build */
   agent: string;
   cwd: string;
   /** Optional explicit spawn (else host uses agent-launch builtins) */
@@ -176,9 +176,9 @@ export type HostToWorker =
   | { type: "err"; reqId: string; error: string };
 
 export function defaultAcpHostSock(
-  stateDir = process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
+  stateDir = process.env.ACPBOT_STATE_DIR?.trim() || process.env.TACP_STATE_DIR?.trim() || "./data/acpbot-state",
 ): string {
   const root = stateDir.replace(/\/$/, "");
-  return process.env.TACP_ACP_HOST_SOCK?.trim() || `${root}/acp-host.sock`;
+  return process.env.ACPBOT_ACP_HOST_SOCK || process.env.TACP_ACP_HOST_SOCK?.trim() || `${root}/acp-host.sock`;
 }
 

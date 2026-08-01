@@ -1,5 +1,5 @@
 /**
- * tacp ships operator skills under `<package>/skills/{telegram,schedules}/`.
+ * acpbot ships operator skills under `<package>/skills/{telegram,schedules}/`.
  *
  * - Always listed for `/skills` via skillRoots (bundled root).
  * - Install into global agent dirs only via explicit `bun run skills:install`
@@ -108,7 +108,7 @@ export async function installBundledSkills(options?: {
         const mode = await installOneSkillLink(srcSkill, dest);
         result.installed.push({ target: dest, mode });
         if (mode === "conflict") {
-          const msg = `skipped ${dest}: exists and is not a tacp skill symlink (will not overwrite)`;
+          const msg = `skipped ${dest}: exists and is not a acpbot skill symlink (will not overwrite)`;
           result.errors.push(msg);
           log.warn("bundled skill conflict", { id, dest });
         } else if (mode !== "skip") {

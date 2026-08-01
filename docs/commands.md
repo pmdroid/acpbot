@@ -9,7 +9,7 @@ Commands are registered in `src/core/commands.ts`.
 |---|---|
 | `/ping` | Liveness → `pong` |
 | `/new` | Create a session (repo picker, or `/new <repo> <name>`) |
-| `/sessions` | List sessions from the tacp store |
+| `/sessions` | List sessions from the acpbot store |
 | `/help` | Lobby help |
 
 ## Topic (session)
@@ -42,14 +42,14 @@ Tokens are stored under `TACP_STATE_DIR`, never in the repo. Full flow: [oauth.m
 
 ## Telegram menu
 
-On startup tacp clears stale `setMyCommands` scopes (default + private, `en`) and registers the command menu from the registry so operators see lobby + topic commands in Telegram’s `/` UI.
+On startup acpbot clears stale `setMyCommands` scopes (default + private, `en`) and registers the command menu from the registry so operators see lobby + topic commands in Telegram’s `/` UI.
 
 ## Non-command input
 
 | Input | Handling |
 |---|---|
 | Plain text in topic | ACP prompt turn |
-| Photo / document | Saved to `.tacp-inbox/` (or ACP attach if enabled) + prompt |
+| Photo / document | Saved to `.acpbot-inbox/` (or ACP attach if enabled) + prompt |
 | Voice | STT when configured, then prompt |
 | Callback button | Permission / question / mode / model / agent pickers |
 

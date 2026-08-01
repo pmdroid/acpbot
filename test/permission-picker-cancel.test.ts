@@ -110,7 +110,7 @@ describe("minimal repo picker", () => {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
         repos: {
-          tacp: "/configured/repos/tacp",
+          acpbot: "/configured/repos/tacp",
           other: "/configured/repos/other",
         },
       },
@@ -125,7 +125,7 @@ describe("minimal repo picker", () => {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     };
     const labels = markup.inline_keyboard.flat().map((b) => b.text);
-    expect(labels).toContain("tacp");
+    expect(labels).toContain("acpbot");
     expect(labels).toContain("other");
   });
 
@@ -135,7 +135,7 @@ describe("minimal repo picker", () => {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
         repos: {
-          tacp: "/configured/repos/tacp",
+          acpbot: "/configured/repos/tacp",
           other: "/configured/repos/other",
         },
       },
@@ -150,7 +150,7 @@ describe("minimal repo picker", () => {
     };
     const tacpBtn = markup.inline_keyboard
       .flat()
-      .find((_, i) => Object.keys(env.config.repos!)[i] === "tacp")
+      .find((_, i) => Object.keys(env.config.repos!)[i] === "acpbot")
       ?? markup.inline_keyboard.flat()[0]!;
 
     await daemon.handleUpdate(
@@ -159,7 +159,7 @@ describe("minimal repo picker", () => {
     await daemon.handleUpdate(root("auth-refactor", 3));
 
     const sessions = await daemon.listSessions();
-    expect(sessions.some((s) => s.sessionKey === "tacp/auth-refactor")).toBe(
+    expect(sessions.some((s) => s.sessionKey === "acpbot/auth-refactor")).toBe(
       true,
     );
   });
@@ -171,19 +171,19 @@ describe("permission inline keyboard round-trip", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
     // Prime hydrate + permission wire without starting a held turn.
-    await daemon.handleUpdate(root("/new tacp perm", 1));
+    await daemon.handleUpdate(root("/new acpbot perm", 1));
     const session = (await daemon.listSessions())[0]!;
     env.telegram.clearOutbound();
 
     // Raise permission through the agents port (simulates ACP host hook).
     // No concurrent turn required for the UI round-trip itself.
     const permPromise = env.agents.raisePermission({
-      sessionId: "tacp/perm",
+      sessionId: "acpbot/perm",
       toolCallId: "tc1",
       raw: {
         options: [
@@ -292,18 +292,18 @@ describe("/cancel stops turn and keeps session", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp cxl", 1));
+    await daemon.handleUpdate(root("/new acpbot cxl", 1));
     const session = (await daemon.listSessions())[0]!;
 
     let release!: () => void;
     const hold = new Promise<void>((r) => {
       release = r;
     });
-    env.agents.queueTurn("tacp/cxl", {
+    env.agents.queueTurn("acpbot/cxl", {
       events: [{ type: "turn_started" }],
       hold,
     });
@@ -318,7 +318,7 @@ describe("/cancel stops turn and keeps session", () => {
 
     const sessions = await daemon.listSessions();
     expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.sessionKey).toBe("tacp/cxl");
+    expect(sessions[0]?.sessionKey).toBe("acpbot/cxl");
 
     const cancelMsg = env.telegram
       .sentMessages()

@@ -1,0 +1,16 @@
+node_modules
+data
+.git
+.github
+website
+dist
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+**/*.test.ts
+test
+demo
+*.sock
+.DS_Store

@@ -9,11 +9,11 @@
  * - npm package specs (`@scope/pkg`), flags (`-y`, `--flag=…`), and URL schemes
  *   are left unchanged. Write repo-relative scripts as `./path` or `.tacp/…`.
  * - `~` / `~/…` expands to the process home directory (then treated as absolute).
- * - Built-in server name `tacp` is reserved; repo entries with that name are skipped.
+ * - Built-in server name `acpbot` is reserved; repo entries with that name are skipped.
  *
  * Optional topic profiles (`.tacp/config.json` + `.tacp/mcp.profiles.json`):
  * - When `mcpProfile` is set and the named profile exists, repo MCP is filtered
- *   to that allowlist before merge with built-in tacp.
+ *   to that allowlist before merge with built-in acpbot.
  * - Empty profile list `[]` → no repo MCP (built-in still added).
  * - Missing config, missing profiles file, or unknown profile name → no filter.
  */
@@ -34,6 +34,7 @@ import {
   repoKeyForOAuth,
   resolveOAuthStateDir,
 } from "./oauth-store";
+import { resolveRepoConfigDir } from "../env/repo-config-dir";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
 export type TacpMcpRemoteServer = {
@@ -46,7 +47,7 @@ export type TacpMcpRemoteServer = {
 /** Stdio or remote MCP descriptor for a session (matches ACP McpServer shapes we emit). */
 export type SessionMcpServer = TacpMcpServer | TacpMcpRemoteServer;
 
-/** Optional per-repo tacp settings from `<repo>/.tacp/config.json`. */
+/** Optional per-repo acpbot settings from `<repo>/.tacp/config.json`. */
 export type RepoTacpConfig = {
   /** Preferred agent for sessions in this repo (not applied at create yet; reserved). */
   defaultAgent?: string;
@@ -105,8 +106,10 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
   oauthFailClosed?: boolean;
 };
 
-/** Reserved built-in host MCP name (speak). */
-export const TACP_BUILTIN_MCP_NAME = "tacp";
+/** Reserved built-in host MCP name (speak / media tools). */
+export const ACPBOT_BUILTIN_MCP_NAME = "acpbot";
+/** @deprecated Use {@link ACPBOT_BUILTIN_MCP_NAME}. */
+export const TACP_BUILTIN_MCP_NAME = ACPBOT_BUILTIN_MCP_NAME;
 
 /**
  * True when token should be treated as a filesystem path for repo resolution.
@@ -253,8 +256,8 @@ function parseOneServer(
     return undefined;
   }
 
-  if (name === TACP_BUILTIN_MCP_NAME) {
-    log.warn("repo mcp: skip server; name is reserved for built-in tacp", {
+  if (name === ACPBOT_BUILTIN_MCP_NAME || name === "tacp") {
+    log.warn("repo mcp: skip server; name is reserved for built-in acpbot", {
       index,
       name,
     });
@@ -361,7 +364,7 @@ export async function loadRepoTacpConfig(
   const log = options.log ?? silentLogger();
   const root = resolve(repoRoot);
   const configPath =
-    options.configPath ?? join(root, ".tacp", "config.json");
+    options.configPath ?? join(resolveRepoConfigDir(root), "config.json");
 
   const text = await readOptionalText(configPath, log, "config.json");
   if (text === undefined) return {};
@@ -406,7 +409,8 @@ export async function loadRepoMcpProfiles(
   const log = options.log ?? silentLogger();
   const root = resolve(repoRoot);
   const profilesPath =
-    options.profilesPath ?? join(root, ".tacp", "mcp.profiles.json");
+    options.profilesPath ??
+    join(resolveRepoConfigDir(root), "mcp.profiles.json");
 
   const text = await readOptionalText(profilesPath, log, "mcp.profiles.json");
   if (text === undefined) return undefined;
@@ -507,7 +511,7 @@ export async function loadRepoMcpServers(
   const log = options.log ?? silentLogger();
   const root = resolve(repoRoot);
   const configPath =
-    options.configPath ?? join(root, ".tacp", "mcp.json");
+    options.configPath ?? join(resolveRepoConfigDir(root), "mcp.json");
 
   let text: string;
   try {
@@ -657,13 +661,13 @@ function oauthFailClosedDefault(
 }
 
 /**
- * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in tacp** (speak).
+ * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in acpbot** (speak).
  * Missing/invalid repo config → built-in only.
  * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_REPO_STATE_DIR into every stdio child.
  * Merges OAuth Bearer headers for remote http/sse from the host token store.
  *
  * Profile filter (when `.tacp/config.json` has `mcpProfile` and profiles file exists):
- * see `filterRepoMcpByProfile`. Built-in `tacp` is never filtered out.
+ * see `filterRepoMcpByProfile`. Built-in `acpbot` is never filtered out.
  *
  * Returns ACP `McpServer[]` (stdio + optional http/sse).
  */
@@ -672,11 +676,14 @@ export async function buildSessionMcpServers(
 ): Promise<McpServer[]> {
   const enabled =
     options.enabled ??
-    (process.env.TACP_MCP !== "0" && process.env.TACP_MCP !== "false");
+    (process.env.ACPBOT_MCP !== "0" &&
+      process.env.ACPBOT_MCP !== "false" &&
+      process.env.TACP_MCP !== "0" &&
+      process.env.TACP_MCP !== "false");
   if (!enabled) return [];
 
   const repoRoot = resolve(options.cwd);
-  const repoStateDir = join(repoRoot, ".tacp");
+  const repoStateDir = resolveRepoConfigDir(repoRoot);
   const log = options.log ?? silentLogger();
 
   const [repoRaw, repoConfig, profiles] = await Promise.all([
@@ -703,7 +710,7 @@ export async function buildSessionMcpServers(
   const profileName = options.mcpProfile ?? repoConfig.mcpProfile;
   const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles, log);
 
-  const tacp = buildTacpMcpServers({
+  const acpbot = buildTacpMcpServers({
     enabled: true,
     ...(options.serverEntry !== undefined
       ? { serverEntry: options.serverEntry }
@@ -730,7 +737,7 @@ export async function buildSessionMcpServers(
 
   let merged: SessionMcpServer[] = [
     ...repo.map((s) => injectSessionEnv(s, injectCtx)),
-    ...tacp.map((s) => injectSessionEnv(s, injectCtx)),
+    ...acpbot.map((s) => injectSessionEnv(s, injectCtx)),
   ];
 
   // OAuth: merge Bearer from host store (never from repo mcp.json).
@@ -855,8 +862,8 @@ const REMOTE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 function validateRemoteName(name: string): string {
   const n = name.trim();
   if (!n) throw new Error("MCP id is required");
-  if (n === TACP_BUILTIN_MCP_NAME) {
-    throw new Error(`MCP id "${TACP_BUILTIN_MCP_NAME}" is reserved`);
+  if (n === ACPBOT_BUILTIN_MCP_NAME || n === "tacp") {
+    throw new Error(`MCP id "${n}" is reserved`);
   }
   if (!REMOTE_NAME_RE.test(n)) {
     throw new Error(

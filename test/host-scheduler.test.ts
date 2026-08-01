@@ -65,7 +65,7 @@ describe("scheduler helpers", () => {
       sessionKey: "life/main",
       name: "morning",
       prompt: "Do the brief.",
-      script: ".tacp/schedules/scripts/m.sh",
+      script: ".acpbot/schedules/scripts/m.sh",
       kind: "once" as const,
       nextRunAt: "2026-01-01T00:00:00.000Z",
       enabled: true,
@@ -78,7 +78,7 @@ describe("scheduler helpers", () => {
     expect(text).toContain("Repo: /repos/life");
     expect(text).toContain("## Prompt");
     expect(text).toContain("Do the brief.");
-    expect(text).toContain("Path: .tacp/schedules/scripts/m.sh");
+    expect(text).toContain("Path: .acpbot/schedules/scripts/m.sh");
     expect(text).toContain("summarize what you did");
   });
 

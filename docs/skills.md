@@ -1,10 +1,10 @@
 # Bundled skills
 
-tacp ships two **operator skills** for coding agents (Grok, Claude, Codex, …):
+acpbot ships two **operator skills** for coding agents (Grok, Claude, Codex, …):
 
 | Skill | Package path | Purpose |
 |---|---|---|
-| **telegram** | [`skills/telegram/SKILL.md`](../skills/telegram/SKILL.md) | Progress pings, mid-turn text, photos, files, voice via host MCP `tacp` |
+| **telegram** | [`skills/telegram/SKILL.md`](../skills/telegram/SKILL.md) | Progress pings, mid-turn text, photos, files, voice via host MCP `acpbot` |
 | **schedules** | [`skills/schedules/SKILL.md`](../skills/schedules/SKILL.md) | Create / list / cancel / fire delayed or recurring jobs |
 
 The package tree is the source of truth; install puts them in global agent skill dirs so every workspace sees them.
@@ -17,7 +17,7 @@ bun run skills:install
 
 Run after clone or skill upgrades. The **worker does not** install skills on boot.
 
-Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already a tacp skill symlink:
+Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already a acpbot skill symlink:
 
 - `~/.agents/skills/{telegram,schedules}`
 - `~/.grok/skills/{telegram,schedules}`

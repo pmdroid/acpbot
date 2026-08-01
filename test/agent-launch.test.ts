@@ -7,6 +7,8 @@ import {
   normalizeAgentName,
   requiredBinsForAgent,
   resolveAgentLaunch,
+  resolveAgentLaunchForSpawn,
+  resolveLaunchCommandPath,
   type WhichFn,
 } from "../src/acp/agent-launch";
 
@@ -45,6 +47,28 @@ describe("agent-launch", () => {
   test("grok-build keeps native stdio", () => {
     const launch = resolveAgentLaunch("grok-build");
     expect(launch).toEqual({ command: "grok", args: ["agent", "stdio"] });
+  });
+
+  test("resolveLaunchCommandPath looks up bare names", () => {
+    const which: WhichFn = (cmd) =>
+      cmd === "grok" ? "/Users/me/.grok/bin/grok" : null;
+    expect(resolveLaunchCommandPath("grok", which)).toBe(
+      "/Users/me/.grok/bin/grok",
+    );
+    expect(resolveLaunchCommandPath("missing", which)).toBeNull();
+  });
+
+  test("resolveAgentLaunchForSpawn uses absolute path or throws", () => {
+    const which: WhichFn = (cmd) =>
+      cmd === "grok" ? "/Users/me/.grok/bin/grok" : null;
+    const launch = resolveAgentLaunchForSpawn("grok-build", {}, which);
+    expect(launch).toEqual({
+      command: "/Users/me/.grok/bin/grok",
+      args: ["agent", "stdio"],
+    });
+    expect(() => resolveAgentLaunchForSpawn("codex", {}, which)).toThrow(
+      /not found on PATH/,
+    );
   });
 
   test("opencode uses native acp subcommand", () => {

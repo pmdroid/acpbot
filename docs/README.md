@@ -1,6 +1,6 @@
-# tacp documentation
+# acpbot documentation
 
-Operator and architecture docs for **tacp** — Telegram as a control surface for ACP coding agents.
+Operator and architecture docs for **acpbot** — Telegram as a control surface for ACP coding agents.
 
 ## Start here
 
@@ -14,7 +14,7 @@ Operator and architecture docs for **tacp** — Telegram as a control surface fo
 |---|---|
 | [Architecture](architecture.md) | Worker, acp-host, sockets, store layout |
 | [Agents](agents.md) | Built-in agents, `/model`, `/agent` |
-| [MCP](mcp.md) | Built-in `tacp` tools, per-repo servers, profiles |
+| [MCP](mcp.md) | Built-in `acpbot` tools, per-repo servers, profiles |
 | [Worker API](worker-api.md) | Unix HTTP API MCP → Telegram |
 | [Schedules](schedules.md) | Durable delayed/recurring jobs + host ticker |
 | [Skills](skills.md) | Bundled `telegram` + `schedules` skills, global install |

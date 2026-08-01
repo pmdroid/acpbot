@@ -1,4 +1,4 @@
-# tacp simplification plan
+# acpbot simplification plan
 
 Living checklist from the architecture review (2026-08-01).  
 **Rule: collect → agree → implement one step at a time. Never start a step without an explicit go-ahead on *if* and *how*.**

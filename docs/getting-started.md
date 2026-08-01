@@ -18,13 +18,13 @@
 2. Enable **topics in private chats** for that bot
 3. Note your Telegram **user id** (e.g. `@userinfobot`)
 
-tacp only accepts updates from `TACP_OPERATOR_USER_ID`. Everyone else is ignored.
+acpbot only accepts updates from `TACP_OPERATOR_USER_ID`. Everyone else is ignored.
 
 ## 2. Install & configure
 
 ```bash
-git clone https://github.com/pmdroid/tacp.git
-cd tacp
+git clone https://github.com/pmdroid/acpbot.git
+cd acpbot
 bun install
 cp .env.example .env
 # Install operator skills (telegram + schedules) into global agent skill dirs
@@ -41,10 +41,10 @@ Edit `.env` (paths are yours to choose — nothing assumes a fixed home layout):
 ```bash
 TACP_BOT_TOKEN=...
 TACP_OPERATOR_USER_ID=...
-TACP_STORE_PATH=./data/tacp-store.json
+TACP_STORE_PATH=./data/acpbot-store.json
 # Prefer absolute so worker + acp-host always share the same dir
-TACP_STATE_DIR=/absolute/path/to/tacp/data/tacp-state
-TACP_REPOS_JSON='{"tacp":"/absolute/path/to/tacp"}'
+TACP_STATE_DIR=/absolute/path/to/acpbot/data/acpbot-state
+TACP_REPOS_JSON='{"acpbot":"/absolute/path/to/acpbot"}'
 TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
 ```
 
@@ -68,11 +68,11 @@ In the private chat with the bot:
 
 ```text
 /ping          → pong
-/new tacp hi   → creates a forum topic
+/new acpbot hi   → creates a forum topic
 # open the topic, type a prompt → real agent turn
 ```
 
-On startup tacp **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
+On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
 
 Start `bun run acp-host` first so `acp-host.sock` exists; then `bun run start`.
 
@@ -97,7 +97,7 @@ Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](a
 
 | Direction | Behavior |
 |---|---|
-| Photo / document → agent | Saved under `.tacp-inbox/` (or ACP content blocks if `TACP_ACP_MEDIA_ATTACHMENTS=1`) |
+| Photo / document → agent | Saved under `.acpbot-inbox/` (or ACP content blocks if `TACP_ACP_MEDIA_ATTACHMENTS=1`) |
 | Voice → agent | STT when ElevenLabs / OpenAI keys are set |
 | Agent → voice | MCP `speak` → TTS → `sendVoice` |
 | Agent → photo / file | MCP `telegram_send_photo` / `telegram_send_file` (path under session repo) |
@@ -125,6 +125,6 @@ bun run typecheck
 ## Next
 
 - [Architecture](architecture.md)
-- [MCP](mcp.md) — per-repo tools & host `tacp` tools  
+- [MCP](mcp.md) — per-repo tools & host `acpbot` tools  
 - [Skills](skills.md) — bundled telegram + schedules, global install
 - [OAuth](oauth.md) — remote gateways

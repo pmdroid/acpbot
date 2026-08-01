@@ -188,10 +188,15 @@ export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
   if (norm.includes("/.git/") || norm.endsWith("/.git")) {
     throw new Error(`refusing to write OAuth data under .git: ${abs}`);
   }
-  // Never write into <repo>/.tacp/… (mcp.json, mcp-oauth, etc.)
-  if (norm.includes("/.tacp/") || /\/\.tacp$/i.test(norm)) {
+  // Never write into <repo>/.acpbot/… or legacy .tacp/… (mcp.json, etc.)
+  if (
+    norm.includes("/.acpbot/") ||
+    /\/\.acpbot$/i.test(norm) ||
+    norm.includes("/.tacp/") ||
+    /\/\.tacp$/i.test(norm)
+  ) {
     throw new Error(
-      `refusing to write OAuth tokens under repo .tacp path: ${abs}`,
+      `refusing to write OAuth tokens under repo config path (.acpbot/.tacp): ${abs}`,
     );
   }
   if (repoRoot) {

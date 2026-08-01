@@ -6,7 +6,7 @@
  *   Terminal 2: bun run start
  *
  * Worker restart detaches; agent processes stay. Next ensure reattaches.
- * Also scans TACP_REPOS_JSON repos' `.tacp/schedules/` and fires due jobs
+ * Also scans ACPBOT_REPOS_JSON / TACP_REPOS_JSON repos' `.tacp/schedules/` and fires due jobs
  * into the right session slots (even if the Telegram worker is down).
  *
  * When TACP_OAUTH_CALLBACK_BASE is set, also listens for GET /oauth/callback
@@ -24,14 +24,15 @@ import { parseReposFromEnv, scheduleTickMs } from "./scheduler";
 
 async function main(): Promise<void> {
   const log = createLogger({
-    level: process.env.TACP_LOG_LEVEL === "debug" ? "debug" : "info",
+    level: process.env.ACPBOT_LOG_LEVEL === "debug" || process.env.TACP_LOG_LEVEL === "debug" ? "debug" : "info",
     name: "acp-host",
   });
   // Absolute — matches worker after loadConfig / createDaemon resolve.
   const stateDir = resolveOAuthStateDir(
-    process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
+    process.env.ACPBOT_STATE_DIR?.trim() || process.env.TACP_STATE_DIR?.trim() || "./data/acpbot-state",
   );
   // Keep process.env in sync so nested helpers see the same absolute path.
+  process.env.ACPBOT_STATE_DIR = stateDir;
   process.env.TACP_STATE_DIR = stateDir;
   const repos = parseReposFromEnv(process.env);
   const tickMs = scheduleTickMs(process.env);
@@ -41,10 +42,10 @@ async function main(): Promise<void> {
     log,
     repos,
     scheduleTickMs: tickMs,
-    defaultAgent: process.env.TACP_DEFAULT_AGENT?.trim() || "grok-build",
+    defaultAgent: process.env.ACPBOT_DEFAULT_AGENT?.trim() || process.env.TACP_DEFAULT_AGENT?.trim() || "grok-build",
   });
-  console.error(`tacp acp-host listening on ${sockPath}`);
-  console.error(`tacp acp-host state dir: ${stateDir}`);
+  console.error(`acpbot acp-host listening on ${sockPath}`);
+  console.error(`acpbot acp-host state dir: ${stateDir}`);
   console.error(
     "Slots keyed by sessionKey (repo/name). Worker requires this process (fail-fast at boot).",
   );
@@ -54,15 +55,15 @@ async function main(): Promise<void> {
     );
   } else {
     console.error(
-      "Scheduler: idle — set TACP_REPOS_JSON to scan .tacp/schedules/",
+      "Scheduler: idle — set ACPBOT_REPOS_JSON / TACP_REPOS_JSON to scan .tacp/schedules/",
     );
   }
 
   let oauthClose: (() => Promise<void>) | undefined;
-  const oauthBase = process.env.TACP_OAUTH_CALLBACK_BASE?.trim();
+  const oauthBase = process.env.ACPBOT_OAUTH_CALLBACK_BASE?.trim() || process.env.TACP_OAUTH_CALLBACK_BASE?.trim();
   if (oauthBase) {
     console.error(
-      `tacp oauth: callback base ${oauthBase} → state ${stateDir}/mcp-oauth ` +
+      `acpbot oauth: callback base ${oauthBase} → state ${stateDir}/mcp-oauth ` +
         `(worker must use the same absolute TACP_STATE_DIR)`,
     );
     try {
@@ -70,14 +71,14 @@ async function main(): Promise<void> {
       if (oauth) {
         oauthClose = oauth.close;
         console.error(
-          `tacp oauth callback listening on ${oauth.url} ` +
+          `acpbot oauth callback listening on ${oauth.url} ` +
             `(GET /oauth/callback; bind ${oauth.host}:${oauth.port})`,
         );
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(
-        `tacp oauth http FAILED to start: ${msg}\n` +
+        `acpbot oauth http FAILED to start: ${msg}\n` +
           `  TACP_OAUTH_CALLBACK_BASE is set but the callback listener could not bind.\n` +
           `  Primary /mcp auth redirect will not complete. Options:\n` +
           `  - free the port / set TACP_OAUTH_LISTEN_PORT / fix permissions\n` +
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
   }
 
   const shutdown = async () => {
-    console.error("tacp acp-host shutting down…");
+    console.error("acpbot acp-host shutting down…");
     if (oauthClose) {
       try {
         await oauthClose();

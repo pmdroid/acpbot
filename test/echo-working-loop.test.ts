@@ -58,25 +58,25 @@ describe("working surface with shipped echoAgents", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
         defaultAgent: "echo",
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       }),
       clock: systemClock(),
       store: memoryStore(),
     };
 
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp demo", 1));
+    await daemon.handleUpdate(root("/new acpbot demo", 1));
 
     const sessions = await daemon.listSessions();
     expect(sessions).toHaveLength(1);
     const session = sessions[0]!;
-    expect(session.sessionKey).toBe("tacp/demo");
+    expect(session.sessionKey).toBe("acpbot/demo");
     expect(session.messageThreadId).toBeGreaterThan(0);
 
     await daemon.handleUpdate(
@@ -91,7 +91,7 @@ describe("working surface with shipped echoAgents", () => {
     expect(
       topicReplies.some(
         (m) =>
-          m.text?.includes("hello surface") && m.text?.includes("[echo/tacp]"),
+          m.text?.includes("hello surface") && m.text?.includes("[echo/acpbot]"),
       ),
     ).toBe(true);
 
@@ -124,12 +124,12 @@ describe("working surface with shipped echoAgents", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       }),
       clock: systemClock(),
       store: memoryStore(),

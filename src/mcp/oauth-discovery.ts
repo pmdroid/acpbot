@@ -178,7 +178,7 @@ export async function discoverMcpOAuth(
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "tacp", version: "0.1" },
+          clientInfo: { name: "acpbot", version: "0.1" },
         },
       }),
     });

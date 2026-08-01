@@ -398,7 +398,7 @@ export function createAcpHostClient(
     });
   }
 
-  return {
+  const api: SessionHost = {
     setHooks(next) {
       hooks = { ...hooks, ...next };
     },
@@ -604,18 +604,46 @@ export function createAcpHostClient(
       return st;
     },
 
-    getModeState(sessionKey) {
-      return modeCache.get(sessionKey);
+    async getModeState(sessionKey) {
+      await connect();
+      const msg = await request({
+        type: "get_mode",
+        reqId: randomUUID(),
+        slotKey: sessionKey,
+      });
+      if (msg.type !== "get_mode_ok") {
+        return modeCache.get(sessionKey);
+      }
+      const st: HostModeState = {
+        currentModeId: msg.currentModeId,
+        availableModeIds: msg.availableModeIds,
+      };
+      modeCache.set(sessionKey, st);
+      return st;
     },
 
-    getAvailableModes(sessionKey) {
-      return modeCache.get(sessionKey)?.availableModeIds ?? [];
+    async getAvailableModes(sessionKey) {
+      const st = await api.getModeState(sessionKey);
+      return st?.availableModeIds ?? [];
     },
 
-    getConfigOptions(sessionKey) {
-      return (configCache.get(sessionKey) ?? []) as ReturnType<
-        SessionHost["getConfigOptions"]
+    async getConfigOptions(sessionKey) {
+      await connect();
+      const msg = await request({
+        type: "get_config",
+        reqId: randomUUID(),
+        slotKey: sessionKey,
+      });
+      if (msg.type !== "get_config_ok") {
+        return (configCache.get(sessionKey) ?? []) as Awaited<
+          ReturnType<SessionHost["getConfigOptions"]>
+        >;
+      }
+      const opts = (msg.configOptions ?? []) as Awaited<
+        ReturnType<SessionHost["getConfigOptions"]>
       >;
+      configCache.set(sessionKey, opts);
+      return opts;
     },
 
     async setConfigOption(sessionKey, configId, value) {
@@ -632,8 +660,8 @@ export function createAcpHostClient(
           msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
         );
       }
-      const opts = (msg.configOptions ?? []) as ReturnType<
-        SessionHost["getConfigOptions"]
+      const opts = (msg.configOptions ?? []) as Awaited<
+        ReturnType<SessionHost["getConfigOptions"]>
       >;
       configCache.set(sessionKey, opts);
       return opts;
@@ -670,4 +698,5 @@ export function createAcpHostClient(
       sock = null;
     },
   };
+  return api;
 }

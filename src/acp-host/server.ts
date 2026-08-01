@@ -82,7 +82,7 @@ export async function startAcpHostServer(
   const stateDir =
     options.stateDir ??
     process.env.TACP_STATE_DIR?.trim() ??
-    "./data/tacp-state";
+    "./data/acpbot-state";
   const sockPath = options.sockPath ?? defaultAcpHostSock(stateDir);
   const baseConfig: TacpConfig = options.config ?? {
     operatorUserId: 0,
@@ -224,7 +224,7 @@ export async function startAcpHostServer(
             cwd: config.cwd,
           });
           slot.agentSessionId = hs.agentSessionId;
-          const mode = slot.host.getModeState(slotKey);
+          const mode = await slot.host.getModeState(slotKey);
           send(sock, {
             type: "ensure_ok",
             reqId: msg.reqId,
@@ -286,7 +286,7 @@ export async function startAcpHostServer(
         agent: config.agent,
         cwd: config.cwd,
       });
-      const mode = host.getModeState(slotKey);
+      const mode = await host.getModeState(slotKey);
       slots.set(slotKey, {
         slotKey,
         agent: config.agent,
@@ -651,7 +651,7 @@ export async function startAcpHostServer(
           });
           return;
         }
-        const st = slot.host.getModeState(msg.slotKey);
+        const st = await slot.host.getModeState(msg.slotKey);
         send(sock, {
           type: "get_mode_ok",
           reqId: msg.reqId,
@@ -676,7 +676,7 @@ export async function startAcpHostServer(
           type: "get_config_ok",
           reqId: msg.reqId,
           slotKey: msg.slotKey,
-          configOptions: slot.host.getConfigOptions(msg.slotKey),
+          configOptions: await slot.host.getConfigOptions(msg.slotKey),
         });
         return;
       }

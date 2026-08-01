@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Install tacp bundled skills into global agent skill dirs.
+ * Install acpbot bundled skills into global agent skill dirs.
  *   bun run skills:install
  */
 import { createLogger } from "../env/logger";

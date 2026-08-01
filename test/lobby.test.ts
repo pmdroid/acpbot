@@ -78,7 +78,7 @@ describe("01 — authenticated daemon with working lobby", () => {
         me: {
           id: 1,
           is_bot: true,
-          first_name: "tacp",
+          first_name: "acpbot",
           has_topics_enabled: false,
         },
       },
@@ -138,7 +138,7 @@ describe("01 — authenticated daemon with working lobby", () => {
         me: {
           id: 1,
           is_bot: true,
-          first_name: "tacp",
+          first_name: "acpbot",
           has_topics_enabled: true,
         },
       },

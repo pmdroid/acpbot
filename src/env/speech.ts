@@ -1,5 +1,5 @@
 /**
- * Speech provider wiring for tacp.
+ * Speech provider wiring for acpbot.
  * TTS: ElevenLabs (Ursula-style) when ELEVENLABS_API_KEY is set.
  * STT: ElevenLabs Scribe with same key; optional OpenAI Whisper fallback.
  */

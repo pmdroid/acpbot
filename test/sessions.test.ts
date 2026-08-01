@@ -49,25 +49,25 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
 
-    await daemon.handleUpdate(root("/new tacp auth-refactor", 1));
+    await daemon.handleUpdate(root("/new acpbot auth-refactor", 1));
 
     const creates = env.telegram.outbound.filter(
       (c) => c.method === "createForumTopic",
     );
     expect(creates).toHaveLength(1);
     if (creates[0]?.method === "createForumTopic") {
-      expect(creates[0].params.name).toBe(topicName("tacp", "auth-refactor"));
+      expect(creates[0].params.name).toBe(topicName("acpbot", "auth-refactor"));
       expect(creates[0].params.chatId).toBe(CHAT);
     }
 
     const sessions = await daemon.listSessions();
     expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.sessionKey).toBe("tacp/auth-refactor");
+    expect(sessions[0]?.sessionKey).toBe("acpbot/auth-refactor");
     expect(sessions[0]?.messageThreadId).toBeGreaterThan(0);
   });
 
@@ -76,16 +76,16 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
 
-    await daemon.handleUpdate(root("/new tacp work", 1));
+    await daemon.handleUpdate(root("/new acpbot work", 1));
     const sessions = await daemon.listSessions();
     const threadId = sessions[0]!.messageThreadId;
 
-    env.agents.queueTurn("tacp/work", {
+    env.agents.queueTurn("acpbot/work", {
       events: [
         { type: "turn_started" },
         { type: "turn_ended", stopReason: "end_turn" },
@@ -96,7 +96,7 @@ describe("02 — sessions become topics and survive restart", () => {
 
     expect(env.agents.turns).toHaveLength(1);
     expect(env.agents.turns[0]?.input.text).toBe("fix the bug");
-    expect(env.agents.turns[0]?.handle.sessionKey).toBe("tacp/work");
+    expect(env.agents.turns[0]?.handle.sessionKey).toBe("acpbot/work");
 
     // Root /ping still a command, not a turn.
     const before = env.agents.turns.length;
@@ -112,13 +112,13 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
 
-    await daemon.handleUpdate(root("/new tacp refactor", 1));
-    await daemon.handleUpdate(root("/new tacp bugfix", 2));
+    await daemon.handleUpdate(root("/new acpbot refactor", 1));
+    await daemon.handleUpdate(root("/new acpbot bugfix", 2));
 
     const sessions = await daemon.listSessions();
     expect(sessions).toHaveLength(2);
@@ -128,10 +128,10 @@ describe("02 — sessions become topics and survive restart", () => {
     const a = sessions.find((s) => s.identity.name === "refactor")!;
     const b = sessions.find((s) => s.identity.name === "bugfix")!;
 
-    env.agents.queueTurn("tacp/refactor", {
+    env.agents.queueTurn("acpbot/refactor", {
       events: [{ type: "turn_started" }, { type: "turn_ended" }],
     });
-    env.agents.queueTurn("tacp/bugfix", {
+    env.agents.queueTurn("acpbot/bugfix", {
       events: [{ type: "turn_started" }, { type: "turn_ended" }],
     });
 
@@ -144,18 +144,18 @@ describe("02 — sessions become topics and survive restart", () => {
     ]);
   });
 
-  test("restart recovers session list and topic mapping from tacp store", async () => {
+  test("restart recovers session list and topic mapping from acpbot store", async () => {
     const store = memoryStore();
     const env1 = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp", other: "/configured/repos/other" },
+        repos: { acpbot: "/configured/repos/tacp", other: "/configured/repos/other" },
       },
       store,
     });
     const d1 = createDaemon(env1);
-    await d1.handleUpdate(root("/new tacp one", 1));
+    await d1.handleUpdate(root("/new acpbot one", 1));
     await d1.handleUpdate(root("/new other two", 2));
     const before = await d1.listSessions();
     expect(before).toHaveLength(2);
@@ -165,7 +165,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp", other: "/configured/repos/other" },
+        repos: { acpbot: "/configured/repos/tacp", other: "/configured/repos/other" },
       },
       store,
     });
@@ -180,8 +180,8 @@ describe("02 — sessions become topics and survive restart", () => {
     );
 
     // Routing still works after restart.
-    const session = after.find((s) => s.sessionKey === "tacp/one")!;
-    env2.agents.queueTurn("tacp/one", {
+    const session = after.find((s) => s.sessionKey === "acpbot/one")!;
+    env2.agents.queueTurn("acpbot/one", {
       events: [{ type: "turn_started" }, { type: "turn_ended" }],
     });
     await d2.handleUpdate(topicMsg(session.messageThreadId, "still here", 3));
@@ -193,7 +193,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { demo: "/configured/repos/demo", tacp: "/configured/repos/tacp" },
+        repos: { demo: "/configured/repos/demo", acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
@@ -282,7 +282,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
@@ -309,7 +309,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
@@ -412,22 +412,22 @@ describe("02 — sessions become topics and survive restart", () => {
     ).toHaveLength(0);
   });
 
-  test("listing sessions returns tacp's own list, not telegram or agent host", async () => {
+  test("listing sessions returns acpbot's own list, not telegram or agent host", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp a", 1));
+    await daemon.handleUpdate(root("/new acpbot a", 1));
     await daemon.handleUpdate(root("/sessions", 2));
 
     // No getMe/getUpdates enumeration of topics — list is from store.
     const listReply = env.telegram
       .sentMessages()
-      .find((m) => m.text?.includes("tacp/a"));
+      .find((m) => m.text?.includes("acpbot/a"));
     expect(listReply).toBeDefined();
     expect(
       env.telegram.outbound.filter((c) => c.method === "createForumTopic"),
@@ -439,11 +439,11 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
     });
     const daemon = createDaemon(env);
-    await daemon.handleUpdate(root("/new tacp x", 1));
+    await daemon.handleUpdate(root("/new acpbot x", 1));
 
     // Ticket 03 scopes: no agent text is emitted at all. Structural guarantee:
     // every sendMessage from a topic path includes messageThreadId when used.

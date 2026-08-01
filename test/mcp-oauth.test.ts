@@ -67,7 +67,7 @@ describe("oauth-pkce", () => {
     const p = createPkcePair();
     const url = buildAuthorizeUrl({
       authorizationEndpoint: "https://auth.example/authorize",
-      clientId: "tacp",
+      clientId: "acpbot",
       redirectUri: "http://100.1.2.3:8788/oauth/callback",
       state: p.state,
       codeChallenge: p.codeChallenge,
@@ -165,10 +165,10 @@ describe("oauth-store", () => {
 
   test("assertNotRepoPath rejects .tacp token paths", () => {
     expect(() =>
-      assertNotRepoPath("/repo/.tacp/mcp-oauth/x.json", "/repo"),
+      assertNotRepoPath("/repo/.acpbot/mcp-oauth/x.json", "/repo"),
     ).toThrow(/refusing/);
     expect(() =>
-      assertNotRepoPath("/repo/.tacp/mcp.json", "/repo"),
+      assertNotRepoPath("/repo/.acpbot/mcp.json", "/repo"),
     ).toThrow(/refusing/);
   });
 
@@ -192,7 +192,7 @@ describe("oauth-store", () => {
         repoKey: "demo",
         repoRoot: repo,
         redirectUri: "http://127.0.0.1:9/oauth/callback",
-        clientId: "tacp",
+        clientId: "acpbot",
         authorizationEndpoint: "https://auth.example/authorize",
         tokenEndpoint: "https://auth.example/token",
         createdAt: old,
@@ -234,7 +234,7 @@ describe("oauth callback state validation", () => {
         repoKey: "demo",
         repoRoot: repo,
         redirectUri: "http://127.0.0.1:9/oauth/callback",
-        clientId: "tacp",
+        clientId: "acpbot",
         authorizationEndpoint: "https://auth.example/authorize",
         tokenEndpoint: "https://auth.example/token",
         createdAt: Date.now(),
@@ -255,7 +255,7 @@ describe("oauth callback state validation", () => {
         repoKey: "demo",
         repoRoot: repo,
         redirectUri: "http://127.0.0.1:9/oauth/callback",
-        clientId: "tacp",
+        clientId: "acpbot",
         authorizationEndpoint: "https://auth.example/authorize",
         tokenEndpoint: "https://auth.example/token",
         createdAt: Date.now(),
@@ -314,7 +314,7 @@ describe("oauth callback state validation", () => {
         repoKey: "demo",
         repoRoot: repo,
         redirectUri: "http://127.0.0.1:9/oauth/callback",
-        clientId: "tacp",
+        clientId: "acpbot",
         authorizationEndpoint: "https://auth.example/authorize",
         tokenEndpoint: "https://auth.example/token",
         createdAt: Date.now(),
@@ -590,7 +590,7 @@ describe("startMcpOAuth + oauth-http callback", () => {
         repoKey: "demo",
         repoRoot: repo,
         redirectUri: "http://127.0.0.1/oauth/callback",
-        clientId: "tacp",
+        clientId: "acpbot",
         authorizationEndpoint: "https://auth.example/authorize",
         tokenEndpoint: "https://auth.example/token",
         createdAt: Date.now(),

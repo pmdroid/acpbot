@@ -16,7 +16,7 @@
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  tacp worker  (bun run start / src/main.ts)                 │
+│  acpbot worker  (bun run start / src/main.ts)                 │
 │  · allowlist operator                                       │
 │  · lobby + topic command routing                            │
 │  · session store (TACP_STORE_PATH)                          │
@@ -55,7 +55,7 @@ Thin client over `@agentclientprotocol/sdk`:
 - `session/new` / `session/load`
 - `prompt`, permissions, elicitation, `_x.ai/ask_user_question`
 - Client `fs/*` + `terminal/*` (process-group aware terminal manager)
-- Injects MCP servers (repo + built-in `tacp`)
+- Injects MCP servers (repo + built-in `acpbot`)
 - Model / config options for `/model`
 
 ### acp-host (`src/acp-host/`, required)
@@ -81,15 +81,15 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 
 | Path | Contents |
 |---|---|
-| `TACP_STORE_PATH` | Durable tacp JSON (sessions registry, offsets, …) |
+| `TACP_STORE_PATH` | Durable acpbot JSON (sessions registry, offsets, …) |
 | `$TACP_STATE_DIR/sessions/` | ACP session records (for `session/load`) |
 | `$TACP_STATE_DIR/worker-api.sock` | Outbound worker HTTP API |
 | `$TACP_STATE_DIR/acp-host.sock` | Required host control socket |
 | `$TACP_STATE_DIR/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
-| `<repo>/.tacp/mcp.json` | Per-repo MCP servers |
-| `<repo>/.tacp/config.json` | Optional repo defaults / `mcpProfile` |
-| `<repo>/.tacp/schedules/` | Durable schedule jobs |
-| `<repo>/.tacp-inbox/` | Inbound media drop (gitignored pattern) |
+| `<repo>/.acpbot/mcp.json` | Per-repo MCP servers |
+| `<repo>/.acpbot/config.json` | Optional repo defaults / `mcpProfile` |
+| `<repo>/.acpbot/schedules/` | Durable schedule jobs |
+| `<repo>/.acpbot-inbox/` | Inbound media drop (gitignored pattern) |
 
 **Always use an absolute `TACP_STATE_DIR`** when running worker + acp-host together so OAuth pending state and sockets agree regardless of CWD.
 

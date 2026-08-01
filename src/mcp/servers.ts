@@ -21,11 +21,11 @@ export type BuildTacpMcpServersOptions = {
   enabled?: boolean;
   /** Override absolute path to src/mcp/server.ts (tests). */
   serverEntry?: string;
-  /** Override spawn command (default: process.execPath — bun when tacp runs under bun). */
+  /** Override spawn command (default: process.execPath — bun when acpbot runs under bun). */
   command?: string;
   /** Extra env vars for the MCP child process. */
   env?: Array<{ name: string; value: string }>;
-  /** tacp sessionKey so outbound tools target the right Telegram topic. */
+  /** acpbot sessionKey so outbound tools target the right Telegram topic. */
   sessionKey?: string;
   /** State dir for worker-api sock (defaults to TACP_STATE_DIR). */
   stateDir?: string;
@@ -72,23 +72,29 @@ export function buildTacpMcpServers(
   const command = options.command ?? process.execPath;
   const stateDir =
     options.stateDir?.trim() ||
+    process.env.ACPBOT_STATE_DIR?.trim() ||
     process.env.TACP_STATE_DIR?.trim() ||
-    "./data/tacp-state";
+    "./data/acpbot-state";
   const sockPath = workerApiSockPath(stateDir);
 
   const env: Array<{ name: string; value: string }> = [
+    { name: "ACPBOT_STATE_DIR", value: stateDir },
     { name: "TACP_STATE_DIR", value: stateDir },
+    { name: "ACPBOT_WORKER_API_SOCK", value: sockPath },
     { name: "TACP_WORKER_API_SOCK", value: sockPath },
     ...speechEnvFromProcess(),
     ...(options.sessionKey
-      ? [{ name: "TACP_SESSION_KEY", value: options.sessionKey }]
+      ? [
+          { name: "ACPBOT_SESSION_KEY", value: options.sessionKey },
+          { name: "TACP_SESSION_KEY", value: options.sessionKey },
+        ]
       : []),
     ...(options.env ?? []),
   ];
 
   return [
     {
-      name: "tacp",
+      name: "acpbot",
       command,
       args: [entry],
       env,

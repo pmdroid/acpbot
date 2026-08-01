@@ -78,7 +78,7 @@ Modes use ACP session mode APIs when the agent advertises them.
 
 ## Skills
 
-tacp ships **telegram** and **schedules** under package [`skills/`](../skills/). Install globally so every agent CLI sees them:
+acpbot ships **telegram** and **schedules** under package [`skills/`](../skills/). Install globally so every agent CLI sees them:
 
 ```bash
 bun run skills:install   # once — not on every worker start

@@ -5,16 +5,16 @@ Agents can create **durable jobs** as JSON files under the session repo. The lon
 ## Storage
 
 ```text
-<repo>/.tacp/schedules/<id>.json
+<repo>/.acpbot/schedules/<id>.json
 ```
 
 Optional scripts (relative to repo root):
 
 ```text
-.tacp/schedules/scripts/<name>
+.acpbot/schedules/scripts/<name>
 ```
 
-## MCP tools (server `tacp`)
+## MCP tools (server `acpbot`)
 
 | Tool | Action |
 |---|---|
@@ -23,7 +23,7 @@ Optional scripts (relative to repo root):
 | `schedule_cancel` | Soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
 | `schedule_run_now` | Set `nextRunAt=now` so the host fires on the next tick |
 
-`script` must be **relative to the repo root** (no `..` escapes). Prefer `.tacp/schedules/scripts/<name>`.
+`script` must be **relative to the repo root** (no `..` escapes). Prefer `.acpbot/schedules/scripts/<name>`.
 
 ## Cron
 
@@ -41,7 +41,7 @@ Requirements:
 
 Each tick:
 
-1. Scan each catalog repo’s `.tacp/schedules/`
+1. Scan each catalog repo’s `.acpbot/schedules/`
 2. Collect jobs with `enabled && nextRunAt <= now`
 3. **Claim on disk before** the agent turn:
    - `once` → `enabled: false`
@@ -64,6 +64,6 @@ Agent skill: package [`skills/schedules`](../skills/schedules/SKILL.md) — inst
 |---|---|
 | Store / types | `src/schedules/` |
 | Host ticker | `src/acp-host/scheduler.ts` |
-| MCP tools | `src/mcp/server.ts` (built-in `tacp`) |
+| MCP tools | `src/mcp/server.ts` (built-in `acpbot`) |
 | Agent skill | `skills/schedules/` |
 | Tests | `test/host-scheduler.test.ts`, `test/schedules-store.test.ts` |

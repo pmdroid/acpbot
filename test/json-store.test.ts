@@ -44,9 +44,9 @@ describe("createJsonFileStore (shipped production store)", () => {
 
     const sessions = {
       byKey: {
-        "tacp/a": {
-          sessionKey: "tacp/a",
-          identity: { repo: "tacp", name: "a" },
+        "acpbot/a": {
+          sessionKey: "acpbot/a",
+          identity: { repo: "acpbot", name: "a" },
           messageThreadId: 10,
           chatId: 1,
           status: "idle",
@@ -55,7 +55,7 @@ describe("createJsonFileStore (shipped production store)", () => {
           updatedAt: 1,
         },
       },
-      byThread: { "10": "tacp/a" },
+      byThread: { "10": "acpbot/a" },
     };
 
     await Promise.all([
@@ -69,7 +69,7 @@ describe("createJsonFileStore (shipped production store)", () => {
     const idx = await store.load<typeof sessions>(STORE_KEYS.sessions);
     const chat = await store.load<number>(STORE_KEYS.operatorChatId);
     expect(offset).toBe(43);
-    expect(idx?.byKey["tacp/a"]?.sessionKey).toBe("tacp/a");
+    expect(idx?.byKey["acpbot/a"]?.sessionKey).toBe("acpbot/a");
     expect(chat).toBe(99);
   });
 });
@@ -119,19 +119,19 @@ describe("daemon + createJsonFileStore durable path", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       }),
       clock: systemClock(),
       store,
     };
 
     const d1 = createDaemon(env, { pollTimeoutSec: 0, conflictBackoffMs: 1 });
-    await d1.handleUpdate(root("/new tacp durable", 1));
+    await d1.handleUpdate(root("/new acpbot durable", 1));
     // Persist offset the way the poll loop does after each update.
     await store.save(STORE_KEYS.updateOffset, 2);
 
@@ -152,8 +152,8 @@ describe("daemon + createJsonFileStore durable path", () => {
     const onDiskSessions = await store.load<{
       byKey: Record<string, { sessionKey: string; messageThreadId: number }>;
     }>(STORE_KEYS.sessions);
-    expect(onDiskSessions?.byKey["tacp/durable"]).toBeDefined();
-    expect(onDiskSessions?.byKey["tacp/durable"]?.messageThreadId).toBe(
+    expect(onDiskSessions?.byKey["acpbot/durable"]).toBeDefined();
+    expect(onDiskSessions?.byKey["acpbot/durable"]?.messageThreadId).toBe(
       threadId,
     );
 
@@ -164,12 +164,12 @@ describe("daemon + createJsonFileStore durable path", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       },
       telegram: telegram2,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { tacp: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/tacp" },
       }),
       clock: systemClock(),
       store: store2,
@@ -177,7 +177,7 @@ describe("daemon + createJsonFileStore durable path", () => {
     const d2 = createDaemon(env2);
     const recovered = await d2.listSessions();
     expect(recovered).toHaveLength(1);
-    expect(recovered[0]?.sessionKey).toBe("tacp/durable");
+    expect(recovered[0]?.sessionKey).toBe("acpbot/durable");
     expect(recovered[0]?.messageThreadId).toBe(threadId);
 
     const offset = await store2.load<number>(STORE_KEYS.updateOffset);

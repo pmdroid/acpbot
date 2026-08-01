@@ -1,13 +1,13 @@
-# MCP in tacp
+# MCP in acpbot
 
-tacp injects MCP servers into each ACP session on ensure / `session/new`:
+acpbot injects MCP servers into each ACP session on ensure / `session/new`:
 
-1. **Per-repo** servers from `<repo>/.tacp/mcp.json` (optional profile filter)
-2. **Built-in** server named **`tacp`** (host tools: speak, Telegram send, schedules)
+1. **Per-repo** servers from `<repo>/.acpbot/mcp.json` (optional profile filter)
+2. **Built-in** server named **`acpbot`** (host tools: speak, Telegram send, schedules)
 
-The name `tacp` is reserved.
+The name `acpbot` is reserved.
 
-## Built-in host tools (server `tacp`)
+## Built-in host tools (server `acpbot`)
 
 | Tool | Purpose |
 |---|---|
@@ -39,7 +39,7 @@ Disable host MCP entirely:
 TACP_MCP=0
 ```
 
-## Per-repo MCP (`.tacp/mcp.json`)
+## Per-repo MCP (`.acpbot/mcp.json`)
 
 Each session’s **cwd** (repo root) may declare:
 
@@ -49,7 +49,7 @@ Each session’s **cwd** (repo root) may declare:
     {
       "name": "local-tools",
       "command": "bun",
-      "args": ["run", ".tacp/tools/server.ts"],
+      "args": ["run", ".acpbot/tools/server.ts"],
       "env": { "FOO": "bar" }
     }
   ]
@@ -58,7 +58,7 @@ Each session’s **cwd** (repo root) may declare:
 
 ### Path resolution
 
-- Relative path-like tokens (`./…`, `.tacp/…`) resolve from the **repo root**
+- Relative path-like tokens (`./…`, `.acpbot/…`) resolve from the **repo root**
 - `..` escapes outside the repo are rejected
 - Absolute paths are allowed (system / shared tools)
 - npm specs (`@scope/pkg`), flags, and bare binaries are left unchanged
@@ -86,7 +86,7 @@ When a repo has more servers than a workflow needs, filter by profile.
 
 **Today `mcpProfile` is repo-global** — every session in that repo shares the filter. Per-topic selection is not wired yet (build path accepts an override for tests / future hooks).
 
-`<repo>/.tacp/config.json`:
+`<repo>/.acpbot/config.json`:
 
 ```json
 {
@@ -95,7 +95,7 @@ When a repo has more servers than a workflow needs, filter by profile.
 }
 ```
 
-`<repo>/.tacp/mcp.profiles.json`:
+`<repo>/.acpbot/mcp.profiles.json`:
 
 ```json
 {
@@ -108,8 +108,8 @@ Rules:
 
 | Case | Result |
 |---|---|
-| Profile set **and** key exists | Filter repo MCP to that name list, then merge built-in `tacp` |
-| Empty list `[]` | No repo MCP; `tacp` still added |
+| Profile set **and** key exists | Filter repo MCP to that name list, then merge built-in `acpbot` |
+| Empty list `[]` | No repo MCP; `acpbot` still added |
 | Allowlist name missing from `mcp.json` | Ignored |
 | Missing / unknown / unreadable config | **Fail-open**: no filter (all servers). Warn when a profile was requested but not applied |
 
@@ -118,7 +118,7 @@ Rules:
 ## Merge order
 
 1. Repo servers (after optional profile filter)
-2. Built-in `tacp` host server
+2. Built-in `acpbot` host server
 
 ## Related
 

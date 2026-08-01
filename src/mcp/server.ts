@@ -1,5 +1,5 @@
 /**
- * tacp MCP server (stdio) — tools the agent can call during a Telegram session.
+ * acpbot MCP server (stdio) — tools the agent can call during a Telegram session.
  *
  * Outbound Telegram (text / photo / file / speak) goes to the **worker API**
  * (HTTP over Unix socket). The daemon owns the bot token and topic map.
@@ -27,7 +27,7 @@ import {
 } from "./worker-api";
 
 const server = new FastMCP({
-  name: "tacp",
+  name: "acpbot",
   version: "0.1.0",
 });
 
