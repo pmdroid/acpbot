@@ -186,5 +186,19 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     config.mcpEnabled = true;
   }
 
+  // Remote http/sse MCP + OAuth (optional). Default off.
+  const remoteRaw = env.TACP_REMOTE_MCP?.trim().toLowerCase();
+  if (file.remoteMcpEnabled === true) {
+    config.remoteMcpEnabled = true;
+  } else if (file.remoteMcpEnabled === false) {
+    config.remoteMcpEnabled = false;
+  } else {
+    config.remoteMcpEnabled =
+      remoteRaw === "1" ||
+      remoteRaw === "true" ||
+      remoteRaw === "on" ||
+      remoteRaw === "yes";
+  }
+
   return config;
 }

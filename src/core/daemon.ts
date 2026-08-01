@@ -1189,7 +1189,7 @@ export function createDaemon(
 
   /**
    * /mcp [status|add|remove|auth|code] — repo `.tacp/mcp.json` registry + host OAuth.
-   * Uses session.cwd (topic-bound repo). Tokens never written to the repo.
+   * Remote add/auth require TACP_REMOTE_MCP=1. Tokens never written to the repo.
    */
   async function handleMcpCommand(
     session: PersistedSession,
@@ -1198,9 +1198,9 @@ export function createDaemon(
     const repoRoot = session.cwd;
     const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
     const oauthStateDir = stateDir;
-    const oauthConfigured = Boolean(
-      process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
-    );
+    const remotesOn = env.config.remoteMcpEnabled === true;
+    const oauthConfigured =
+      remotesOn && Boolean(process.env.TACP_OAUTH_CALLBACK_BASE?.trim());
     const sub = (args[0] ?? "status").toLowerCase();
 
     try {
@@ -1213,12 +1213,15 @@ export function createDaemon(
         const tokenIds = oauthConfigured
           ? await listOAuthTokenIds(oauthStateDir, repoKey)
           : [];
+        const statusBody = formatMcpRegistryStatus(config, repoRoot, {
+          tokenIds,
+          oauthEnabled: oauthConfigured,
+        });
         await sendInTopic(
           session,
-          formatMcpRegistryStatus(config, repoRoot, {
-            tokenIds,
-            oauthEnabled: oauthConfigured,
-          }),
+          remotesOn
+            ? statusBody
+            : `${statusBody}\n\n_Remote MCP (http/sse) + OAuth is **off**. Set \`TACP_REMOTE_MCP=1\` to enable._`,
         );
         return;
       }
@@ -1230,6 +1233,13 @@ export function createDaemon(
           await sendInTopic(
             session,
             "Usage: `/mcp add <id> <url>`\n\nOnly id and url are stored (no tokens).",
+          );
+          return;
+        }
+        if (!remotesOn) {
+          await sendInTopic(
+            session,
+            "Remote MCP is disabled.\n\nSet `TACP_REMOTE_MCP=1` and restart worker + acp-host.",
           );
           return;
         }
@@ -1285,6 +1295,13 @@ export function createDaemon(
           await sendInTopic(session, "Usage: `/mcp auth <id>`");
           return;
         }
+        if (!remotesOn) {
+          await sendInTopic(
+            session,
+            "Remote MCP / OAuth is disabled.\n\nSet `TACP_REMOTE_MCP=1` and restart worker + acp-host.",
+          );
+          return;
+        }
         const config = await readMcpConfig(repoRoot);
         const entry = config.mcpServers.find(
           (s) => typeof s.name === "string" && s.name.trim() === id.trim(),
@@ -1337,6 +1354,13 @@ export function createDaemon(
             "Usage: `/mcp code <callback-url-or-code> [id]`\n\n" +
               "Prefer the full redirect URL (code + state). " +
               "Fallback when the OAuth redirect cannot reach this host.",
+          );
+          return;
+        }
+        if (!remotesOn) {
+          await sendInTopic(
+            session,
+            "Remote MCP / OAuth is disabled.\n\nSet `TACP_REMOTE_MCP=1` and restart worker + acp-host.",
           );
           return;
         }
@@ -1615,10 +1639,9 @@ export function createDaemon(
           cwd: session.cwd,
           sessionKey: session.sessionKey,
           stateDir:
-            process.env.TACP_STATE_DIR?.trim() ||
-              process.env.TACP_STATE_DIR?.trim() ||
-              "./data/tacp-state",
+            process.env.TACP_STATE_DIR?.trim() || "./data/tacp-state",
           enabled: true,
+          remoteMcpEnabled: env.config.remoteMcpEnabled === true,
         });
         mcpCount = servers.length;
         mcpNames = servers.map((s) => {

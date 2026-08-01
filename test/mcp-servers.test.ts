@@ -523,6 +523,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           cwd: repo,
           enabled: true,
           sessionKey: "demo/main",
+          remoteMcpEnabled: true,
           // Public remote without OAuth — do not fail-closed.
           oauthFailClosed: false,
         });
