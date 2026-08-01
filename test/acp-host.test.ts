@@ -10,7 +10,6 @@ import {
   assertAcpHostReady,
   createAcpHostClient,
   resolveAcpHostSockPath,
-  shouldUseAcpHost,
 } from "../src/acp-host/client";
 import { createMemoryHostSessionStore } from "../src/acp/session-store";
 import type { SessionHost } from "../src/acp/session-host";
@@ -19,12 +18,6 @@ describe("acp-host protocol helpers", () => {
   test("default sock under state dir", () => {
     expect(defaultAcpHostSock("/tmp/x")).toBe("/tmp/x/acp-host.sock");
     expect(resolveAcpHostSockPath("/tmp/x", {})).toBe("/tmp/x/acp-host.sock");
-  });
-
-  test("shouldUseAcpHost is always true (host required)", () => {
-    expect(shouldUseAcpHost({})).toBe(true);
-    expect(shouldUseAcpHost({ TACP_ACP_HOST: "0" })).toBe(true);
-    expect(shouldUseAcpHost({ TACP_ACP_HOST: "false" })).toBe(true);
   });
 
   test("assertAcpHostReady fails when socket missing", async () => {

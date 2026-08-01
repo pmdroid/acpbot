@@ -43,11 +43,7 @@ export function reduceStatus(
  * Stable topic display name. Set once at createForumTopic; never rewritten for
  * status (work / wait live in the in-topic “⏳/❓” bubble instead).
  */
-export function topicName(
-  repo: string,
-  name: string,
-  _status?: SessionStatus,
-): string {
+export function topicName(repo: string, name: string): string {
   return `⏸ ${repo}/${name}`;
 }
 
