@@ -27,6 +27,11 @@ import {
   type SchedulerLoopHandle,
 } from "./scheduler";
 
+type QueuedHostPrompt = {
+  sock: Socket;
+  msg: Extract<WorkerToHost, { type: "prompt" }>;
+};
+
 type Slot = {
   slotKey: string;
   agent: string;
@@ -35,6 +40,8 @@ type Slot = {
   agentSessionId: string | null;
   owner: Socket | null;
   busy: boolean;
+  /** FIFO prompts while a turn is in flight (worker waits for prompt_ok/err). */
+  promptQueue: QueuedHostPrompt[];
   permissionResolvers: Map<
     string,
     (d: import("../env/types").PermissionDecision | undefined) => void
@@ -295,6 +302,7 @@ export async function startAcpHostServer(
         agentSessionId: hs.agentSessionId,
         owner: sock,
         busy: false,
+        promptQueue: [],
         permissionResolvers: new Map(),
         elicitationResolvers: new Map(),
         askResolvers: new Map(),
@@ -341,15 +349,24 @@ export async function startAcpHostServer(
       });
       return;
     }
+    // FIFO while a turn is running — worker awaits prompt_ok/err for this reqId.
     if (slot.busy) {
-      send(sock, {
-        type: "prompt_err",
-        reqId: msg.reqId,
+      slot.promptQueue.push({ sock, msg });
+      log.info("prompt queued (slot busy)", {
         slotKey: msg.slotKey,
-        error: `slot ${msg.slotKey} is busy`,
+        depth: slot.promptQueue.length,
+        reqId: msg.reqId,
       });
       return;
     }
+    await runHostPrompt(slot, sock, msg);
+  }
+
+  async function runHostPrompt(
+    slot: Slot,
+    sock: Socket,
+    msg: Extract<WorkerToHost, { type: "prompt" }>,
+  ): Promise<void> {
     slot.owner = sock;
     slot.busy = true;
     try {
@@ -389,6 +406,17 @@ export async function startAcpHostServer(
       }
     } finally {
       slot.busy = false;
+      // Drain next queued prompt (if any) for this slot.
+      const next = slot.promptQueue.shift();
+      if (next) {
+        log.info("prompt dequeued", {
+          slotKey: slot.slotKey,
+          remaining: slot.promptQueue.length,
+          reqId: next.msg.reqId,
+        });
+        // Don't await — keep handlePrompt stack shallow; next turn owns busy flag.
+        void runHostPrompt(slot, next.sock, next.msg);
+      }
     }
   }
 
@@ -463,6 +491,7 @@ export async function startAcpHostServer(
         agentSessionId: hs.agentSessionId,
         owner: null,
         busy: false,
+        promptQueue: [],
         permissionResolvers: new Map(),
         elicitationResolvers: new Map(),
         askResolvers: new Map(),
@@ -611,7 +640,21 @@ export async function startAcpHostServer(
         return;
       case "cancel": {
         const slot = slots.get(msg.slotKey);
-        if (slot) await slot.host.cancel(msg.slotKey);
+        if (slot) {
+          // Fail any prompts waiting behind the cancelled turn.
+          const pending = slot.promptQueue.splice(0);
+          for (const q of pending) {
+            if (!q.sock.destroyed) {
+              send(q.sock, {
+                type: "prompt_err",
+                reqId: q.msg.reqId,
+                slotKey: msg.slotKey,
+                error: "cancelled (queued prompt dropped)",
+              });
+            }
+          }
+          await slot.host.cancel(msg.slotKey);
+        }
         send(sock, {
           type: "cancel_ok",
           reqId: msg.reqId,
