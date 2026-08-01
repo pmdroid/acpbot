@@ -101,7 +101,7 @@ Opt out of acp-host (in-process agents): `TACP_ACP_HOST=0 bun run start`.
 
 ```text
 /ping
-/new demo hello
+/new tacp hello
 # open the new topic → type a prompt
 # /status  /model  /agent  /mode  /skills  /mcp  /cancel
 ```
@@ -140,7 +140,6 @@ src/
   schedules/        In-repo schedule store helpers
 test/               Acceptance + unit tests (bun test)
 skills/             Bundled agent skills (telegram, schedules) — installed globally on onboard
-demo/               Sample repo / media
 docs/               Operator & architecture docs
 ```
 

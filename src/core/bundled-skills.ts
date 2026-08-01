@@ -3,7 +3,7 @@
  *
  * - Always listed for `/skills` via skillRoots (bundled root).
  * - On worker start, installed into global agent skill dirs so Grok/Claude/etc.
- *   see them in every workspace (not only demo/).
+ *   see them in every workspace.
  */
 import { cp, lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { homedir } from "node:os";

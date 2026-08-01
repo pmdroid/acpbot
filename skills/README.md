@@ -1,7 +1,7 @@
 # Bundled tacp skills
 
 Operator skills shipped with tacp and installed **globally** for coding agents
-(Grok, Claude, Codex, …) — not only under `demo/`.
+(Grok, Claude, Codex, …) in every workspace.
 
 | Skill | Purpose |
 |-------|---------|

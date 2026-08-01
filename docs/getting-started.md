@@ -33,7 +33,7 @@ bun run skills:install
 
 `skills:install` symlinks (or copies) package skills into `~/.agents/skills`,
 `~/.grok/skills`, and `~/.claude/skills` so **all** coding agents see them, not
-only the demo repo. The worker also runs this on startup unless
+only a single workspace. The worker also runs this on startup unless
 `TACP_SKIP_SKILL_INSTALL=1`.
 
 Edit `.env` (paths are yours to choose — nothing assumes a fixed home layout):
@@ -44,7 +44,7 @@ TACP_OPERATOR_USER_ID=...
 TACP_STORE_PATH=./data/tacp-store.json
 # Prefer absolute so worker + acp-host always share the same dir
 TACP_ACPX_STATE_DIR=/absolute/path/to/tacp/data/acpx-state
-TACP_REPOS_JSON='{"demo":"/absolute/path/to/tacp/demo","tacp":"/absolute/path/to/tacp"}'
+TACP_REPOS_JSON='{"tacp":"/absolute/path/to/tacp"}'
 TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
 ```
 
@@ -74,7 +74,7 @@ In the private chat with the bot:
 
 ```text
 /ping          → pong
-/new demo hi   → creates a forum topic
+/new tacp hi   → creates a forum topic
 # open the topic, type a prompt → real agent turn
 ```
 

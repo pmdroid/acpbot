@@ -17,8 +17,5 @@ data/
 .tacp-inbox/
 **/.tacp-inbox/
 
-# Demo app deps & local runtime under demo/
-demo/node_modules/
-demo/dist/
-demo/.tacp/schedules/
-demo/.tacp-inbox/
+# Optional local sample workspace (not shipped)
+demo/
