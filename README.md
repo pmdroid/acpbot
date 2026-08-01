@@ -151,7 +151,7 @@ bun install
 bun test ./test          # full suite
 bun run typecheck        # tsc --noEmit
 bun run start            # worker
-bun run acp-host         # optional host
+bun run acp-host         # required host
 ```
 
 One seam: the `Environment` port (`telegram`, `agents`, `clock`, `store`). Core daemon code stays pure; fakes live under `src/env/` for tests.
