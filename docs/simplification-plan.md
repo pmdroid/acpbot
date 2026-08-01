@@ -40,7 +40,7 @@ Living checklist from the architecture review (2026-08-01).
 | 6 | Delete dead shims / aliases | **done** (2026-08-01) |
 | 7 | Extract turn runner from daemon | **done** (2026-08-01) |
 | 8 | Unify three wait-for-operator UIs | **done** (8a, 2026-08-01) |
-| 9 | Collapse dual SessionHost paths | pending (stance leans **host required**) |
+| 9 | Collapse dual SessionHost paths | **done** (9a, already by step 1) |
 | 10 | Optional boundary for OAuth / heavy MCP | pending |
 | 11 | AgentsPort surface split (optional) | pending |
 
@@ -299,7 +299,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 9b | In-process only: deprecate acp-host process (schedules/OAuth move to worker) |
 | 9c | Keep both indefinitely (wontfix simplification) |
 
-**Status:** pending — ask if/how
+**Status:** **done (9a)** — production `realAgents` only uses `createAcpHostClient`; `createSessionHost` lives in acp-host process + test inject. Step 1 delivered this; step 9 closes the plan item.
 
 ---
 
@@ -357,6 +357,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 6 done: dead shims removed (renameTopic, Runtime*, extractSpeak, shouldUseAcpHost, …). |
 | 2026-08-01 | Step 7 done: extract turn-runner + working-status from daemon. |
 | 2026-08-01 | Step 8a done: shared awaitInlineDecision for permission/elicit/ask-user. |
+| 2026-08-01 | Step 9a done: dual production SessionHost path closed (host-only; inject for tests). |
 
 ---
 
