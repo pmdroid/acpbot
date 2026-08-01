@@ -46,6 +46,10 @@ Agent-supplied paths are resolved with `resolvePathUnderRepo` (`src/mcp/repo-pat
 
 MCP tools call this API **directly** (HTTP over the Unix socket). There is no disk queue.
 
+On worker start, any leftover pre-API dirs under the state directory
+(`telegram-queue/`, `speak-queue/`) are **removed** once so stale `.req.json`
+jobs do not hang forever.
+
 Start the API by starting the worker:
 
 ```bash

@@ -35,7 +35,7 @@ Living checklist from the architecture review (2026-08-01).
 | 1 | acp-host required only (no in-process path) | **done** (2026-08-01) |
 | 2 | Skill install: not every boot | **done** (2026-08-01) |
 | 3 | Working bubble durability | **open — explain first, no decision yet** |
-| 4 | One-time outbound queue cleanup | pending |
+| 4 | One-time outbound queue cleanup | **done** (2026-08-01) |
 | 5 | Rename acpx → state (naming debt) | pending |
 | 6 | Delete dead shims / aliases | pending |
 | 7 | Extract turn runner from daemon | pending |
@@ -202,7 +202,7 @@ No options chosen. Do not implement until you decide.
 **Touch:** `main.ts` or small `src/core/legacy-cleanup.ts`  
 **Verify:** test with temp dir containing fake queue files  
 
-**Status:** pending — ask if/how
+**Status:** **done** — `cleanupLegacyOutboundQueues` removes `telegram-queue` / `speak-queue` under state dir at boot (4a).
 
 ---
 
@@ -358,6 +358,7 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | 2026-08-01 | Step 0 partial: **acp-host required**; **no skill install every boot**. Working bubble left open + deep-dive added. |
 | 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `TACP_ACP_HOST=0`. |
 | 2026-08-01 | Step 2 done: no skill install on boot; safe installer (no clobber of real skill dirs). |
+| 2026-08-01 | Step 4 done: boot removes legacy `telegram-queue` / `speak-queue` under state dir. |
 
 ---
 

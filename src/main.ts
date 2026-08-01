@@ -5,6 +5,7 @@ import {
 } from "./acp-host/client";
 import { loadConfig } from "./config";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
+import { cleanupLegacyOutboundQueues } from "./core/legacy-cleanup";
 import { systemClock } from "./env/clock";
 import { createLogger } from "./env/logger";
 import { realAgents } from "./env/real-agents";
@@ -32,6 +33,14 @@ async function main(): Promise<void> {
       return;
     }
     throw err;
+  }
+
+  // Drop pre-worker-API disk queues (no longer drained).
+  const legacy = await cleanupLegacyOutboundQueues(acpxStateDirAbs, { log });
+  if (legacy.removed.length > 0) {
+    console.error(
+      `tacp cleanup: removed legacy queue dir(s): ${legacy.removed.join(", ")}`,
+    );
   }
 
   const store = await createJsonFileStore(cfg.storePath);
