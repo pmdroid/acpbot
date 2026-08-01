@@ -20,7 +20,23 @@ export const CALLBACK = {
   modelPrefix: "M:",
   /** Agent binary pick: A:<token>:<agentIndex> (-1 = cancel) */
   agentPrefix: "A:",
+  /** Remove queued prompt: Q:<token> */
+  queuePrefix: "Q:",
 } as const;
+
+export function encodeQueueRemoveCallback(token: string): string {
+  const data = `${CALLBACK.queuePrefix}${token}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseQueueRemoveCallback(data: string): string | undefined {
+  if (!data.startsWith(CALLBACK.queuePrefix)) return undefined;
+  const token = data.slice(CALLBACK.queuePrefix.length).trim();
+  return token || undefined;
+}
 
 export function encodePermissionCallback(
   token: string,

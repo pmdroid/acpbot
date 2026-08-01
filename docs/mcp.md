@@ -12,7 +12,7 @@ The name `acpbot` is reserved.
 | Tool | Purpose |
 |---|---|
 | `speak` | TTS → voice note in the topic |
-| `update` | Edit the live **working bubble** (`⏳ …`) — one message, no spam |
+| **`update`** | **Primary mid-turn progress channel** — edits the live **working bubble** (`⏳ …`), not a new spam message |
 | `telegram_send` | Permanent mid-turn text (not the working bubble) |
 | `telegram_send_photo` | Image under the session repo |
 | `telegram_send_file` | Document under the session repo |
@@ -24,10 +24,12 @@ The name `acpbot` is reserved.
 ### Working bubble vs permanent messages
 
 - On turn start the worker posts `⏳ Working…` in the topic.
-- **`update`** edits that same message (progress text). Prefer short 1–3 sentence pings.
+- **`update` is the default progress tool.** Call it after major steps, long waits, or plan changes so the operator sees progress without waiting for the final reply. Prefer short 1–3 sentence pings; do not dump the final answer into `update`, and do not call on every tiny tool step.
 - When the turn needs the operator (permission / question), the bubble becomes `❓ Waiting for…`.
 - When the turn ends, the worker **deletes** the bubble, then delivers the final assistant reply.
 - Use **`telegram_send`** for content that should stay in the chat history (links, intermediate results).
+
+Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegram/SKILL.md`).
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [worker-api.md](worker-api.md).
 

@@ -80,16 +80,20 @@ In a topic:
 
 | Command | Effect |
 |---|---|
-| type text | Start an ACP turn |
+| type text | Start an ACP turn (or **queue** if a turn is already running) |
+| `/steer <text>` | **Interrupt** the current turn and inject guidance now |
+| `/queue` / `/unqueue` | List / remove waiting prompts |
 | `/status` | Agent, model, mode, cwd, MCP |
 | `/model` | LLM picker (or `/model <id>`) |
 | `/agent` | Switch agent process for this session |
 | `/plan` / `/build` / `/mode` | Session mode |
 | `/skills` | Skill picker then prompt |
 | `/mcp` | Per-repo remote MCP registry + OAuth |
-| `/cancel` | Stop current turn (session kept) |
+| `/cancel` | Stop current turn **and clear the queue** (session kept) |
 
-While a turn runs you will see a single **`⏳ Working…`** (or **`❓ Waiting…`**) message in the topic. MCP `update` rewrites that bubble; the final agent reply appears after it is removed. Forum topic titles stay fixed (`⏸ repo/name`).
+While a turn runs you will see a single **`⏳ Working…`** (or **`❓ Waiting…`**) message in the topic. Agents should call MCP **`update`** so that bubble shows progress; the final agent reply appears after it is removed. Forum topic titles stay fixed (`⏸ repo/name`).
+
+**Busy-turn UX:** free-text is queued (non-interrupt) with a **Remove** button on the ack; `/steer …` interrupts. Telegram does not notify message deletes — use Remove or `/unqueue`.
 
 Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](architecture.md#turn-ux-working-bubble).
 

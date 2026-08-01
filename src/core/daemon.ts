@@ -23,6 +23,7 @@ import {
   encodeModeCallback,
   encodeModelCallback,
   encodeNewRepoCallback,
+  encodeQueueRemoveCallback,
   keyboardFromButtons,
   newToken,
   parseAgentCallback,
@@ -32,6 +33,7 @@ import {
   parseModelCallback,
   parseNewRepoCallback,
   parsePermissionCallback,
+  parseQueueRemoveCallback,
   parseSkillCallback,
 } from "./callbacks";
 import {
@@ -192,13 +194,25 @@ export function createDaemon(
   const turnAbort = new Map<string, AbortController>();
   /**
    * Operator prompts waiting while a turn is in flight for the same session.
-   * Drained FIFO after each turn completes (or cancelled via /cancel).
+   * FIFO after turn end (non-interrupt). /steer interrupts instead.
+   * /cancel clears the queue. Remove via button or /unqueue.
    */
   type QueuedTopicPrompt = {
+    id: string;
     text: string;
     attachments: PromptAttachment[];
+    kind: "prompt" | "steer";
+    /** Bot ack message with Remove button (for edit after remove). */
+    botMessageId?: number;
   };
   const promptQueues = new Map<string, QueuedTopicPrompt[]>();
+  /** queue item id → sessionKey (for Remove callback). */
+  const queueItemSessions = new Map<string, string>();
+  /**
+   * When set, the next drain finally must NOT pump the queue (steer is about
+   * to start a turn immediately after interrupt).
+   */
+  const skipQueuePump = new Set<string>();
   const MAX_PROMPT_QUEUE = 32;
   const permissions: PermissionBroker = createPermissionBroker();
   const elicitations: ElicitationBroker = createElicitationBroker();
@@ -1081,15 +1095,17 @@ export function createDaemon(
   }
 
   function clearPromptQueue(sessionKey: string): number {
-    const n = promptQueues.get(sessionKey)?.length ?? 0;
+    const q = promptQueues.get(sessionKey) ?? [];
+    for (const item of q) queueItemSessions.delete(item.id);
     promptQueues.delete(sessionKey);
-    return n;
+    return q.length;
   }
 
   function enqueueTopicPrompt(
     sessionKey: string,
-    item: QueuedTopicPrompt,
-  ): { depth: number; dropped: boolean } {
+    item: Omit<QueuedTopicPrompt, "id"> & { id?: string },
+    opts?: { front?: boolean },
+  ): { item: QueuedTopicPrompt; depth: number; dropped: boolean } {
     let q = promptQueues.get(sessionKey);
     if (!q) {
       q = [];
@@ -1097,11 +1113,266 @@ export function createDaemon(
     }
     let dropped = false;
     if (q.length >= MAX_PROMPT_QUEUE) {
-      q.shift();
+      const old = q.shift();
+      if (old) queueItemSessions.delete(old.id);
       dropped = true;
     }
-    q.push(item);
-    return { depth: q.length, dropped };
+    const full: QueuedTopicPrompt = {
+      id: item.id ?? newToken(),
+      text: item.text,
+      attachments: item.attachments,
+      kind: item.kind ?? "prompt",
+      ...(item.botMessageId !== undefined
+        ? { botMessageId: item.botMessageId }
+        : {}),
+    };
+    if (opts?.front) q.unshift(full);
+    else q.push(full);
+    queueItemSessions.set(full.id, sessionKey);
+    return { item: full, depth: q.length, dropped };
+  }
+
+  function removeQueuedById(
+    sessionKey: string,
+    id: string,
+  ): QueuedTopicPrompt | undefined {
+    const q = promptQueues.get(sessionKey);
+    if (!q) return undefined;
+    const idx = q.findIndex((x) => x.id === id);
+    if (idx < 0) return undefined;
+    const [removed] = q.splice(idx, 1);
+    queueItemSessions.delete(id);
+    if (q.length === 0) promptQueues.delete(sessionKey);
+    return removed;
+  }
+
+  function removeQueuedByIndex(
+    sessionKey: string,
+    index1Based: number,
+  ): QueuedTopicPrompt | undefined {
+    const q = promptQueues.get(sessionKey);
+    if (!q || index1Based < 1 || index1Based > q.length) return undefined;
+    const [removed] = q.splice(index1Based - 1, 1);
+    queueItemSessions.delete(removed!.id);
+    if (q.length === 0) promptQueues.delete(sessionKey);
+    return removed;
+  }
+
+  function formatQueueList(sessionKey: string): string {
+    const q = promptQueues.get(sessionKey) ?? [];
+    if (q.length === 0) {
+      return "Queue empty. Free-text while a turn runs is queued (non-interrupt). Use `/steer <text>` to interrupt.";
+    }
+    const lines = [
+      `**Queue** (${q.length}) — runs after the current turn ends:`,
+      "",
+    ];
+    q.forEach((item, i) => {
+      const tag = item.kind === "steer" ? "steer" : "msg";
+      const preview = item.text.replace(/\s+/g, " ").slice(0, 80);
+      lines.push(`${i + 1}. \`[${tag}]\` ${preview}${item.text.length > 80 ? "…" : ""}`);
+    });
+    lines.push(
+      "",
+      "Remove: button on the queue ack · `/unqueue` · `/unqueue <n>` · `/unqueue all`",
+    );
+    return lines.join("\n");
+  }
+
+  /**
+   * Abort in-flight turn without clearing the prompt queue.
+   * Sets skipQueuePump so the cancelled drain's finally does not dequeue
+   * free-text before the caller starts a steer turn.
+   */
+  async function interruptCurrentTurn(
+    session: PersistedSession,
+    reason: string,
+  ): Promise<void> {
+    const key = session.sessionKey;
+    skipQueuePump.add(key);
+    const pending = drainTasks.get(key);
+    const ac = turnAbort.get(key);
+    ac?.abort();
+    turnAbort.delete(key);
+    if (env.agents.cancelTurn) {
+      await env.agents.cancelTurn(key, reason).catch(() => {});
+    }
+    if (pending) await pending.catch(() => {});
+    // Ensure flags clear even if drain never registered
+    drainTasks.delete(key);
+    turnAbort.delete(key);
+    // Drain finally consumes skipQueuePump; clear leftover if no drain ran.
+    skipQueuePump.delete(key);
+    await working.clear(session).catch(() => {});
+  }
+
+  function maybePumpAfterTurn(sessionKey: string): void {
+    if (skipQueuePump.has(sessionKey)) {
+      skipQueuePump.delete(sessionKey);
+      return;
+    }
+    void pumpPromptQueue(sessionKey);
+  }
+
+  async function markQueueAckRemoved(
+    session: PersistedSession,
+    item: QueuedTopicPrompt,
+    note?: string,
+  ): Promise<void> {
+    if (item.botMessageId === undefined) return;
+    const preview = item.text.replace(/\s+/g, " ").slice(0, 60);
+    const body = formatForTelegram(
+      note ??
+        `🗑 Removed from queue: ${preview}${item.text.length > 60 ? "…" : ""}`,
+    );
+    try {
+      await env.telegram.editMessageText({
+        chatId: session.chatId,
+        messageId: item.botMessageId,
+        text: body.text,
+        parseMode: body.parseMode,
+        replyMarkup: { inline_keyboard: [] },
+      });
+    } catch {
+      /* ignore — message may be gone */
+    }
+  }
+
+  async function handleQueueCommand(session: PersistedSession): Promise<void> {
+    await sendInTopic(session, formatQueueList(session.sessionKey), undefined, {
+      html: true,
+    });
+  }
+
+  async function handleUnqueueCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const key = session.sessionKey;
+    const q = promptQueues.get(key) ?? [];
+    if (q.length === 0) {
+      await sendInTopic(session, "Queue is empty — nothing to remove.");
+      return;
+    }
+    const raw = (args[0] ?? "").trim().toLowerCase();
+    if (raw === "all") {
+      const n = clearPromptQueue(key);
+      await sendInTopic(
+        session,
+        `🗑 Cleared ${n} queued message${n === 1 ? "" : "s"}.`,
+      );
+      return;
+    }
+    let removed: QueuedTopicPrompt | undefined;
+    if (raw === "" || raw === "last") {
+      removed = removeQueuedByIndex(key, q.length);
+    } else if (/^\d+$/.test(raw)) {
+      removed = removeQueuedByIndex(key, Number(raw));
+      if (!removed) {
+        await sendInTopic(
+          session,
+          `No queue item #${raw}. Use \`/queue\` to list.`,
+          undefined,
+          { html: true },
+        );
+        return;
+      }
+    } else {
+      await sendInTopic(
+        session,
+        "Usage: `/unqueue` · `/unqueue <n>` · `/unqueue all`",
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+    if (removed) {
+      await markQueueAckRemoved(session, removed);
+      await sendInTopic(
+        session,
+        `🗑 Removed from queue (${promptQueues.get(key)?.length ?? 0} left).`,
+      );
+    }
+  }
+
+  async function handleSteerCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const text = args.join(" ").trim();
+    if (!text) {
+      await sendInTopic(
+        session,
+        "Usage: `/steer <guidance>` — interrupts the current turn.",
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+    log.info("action: /steer", {
+      sessionKey: session.sessionKey,
+      busy: sessionTurnBusy(session.sessionKey),
+      textLen: text.length,
+    });
+    if (sessionTurnBusy(session.sessionKey)) {
+      await sendInTopic(session, "🎯 Steering…", undefined, { html: true });
+      await interruptCurrentTurn(session, "operator /steer");
+    }
+    await beginTopicTurn(session, text, []);
+  }
+
+  async function handleQueueRemoveCallback(
+    data: string,
+    callbackQueryId: string,
+    message: TelegramMessage | undefined,
+  ): Promise<void> {
+    const token = parseQueueRemoveCallback(data);
+    if (!token) return;
+    const sessionKey = queueItemSessions.get(token);
+    if (!sessionKey) {
+      await env.telegram.answerCallbackQuery({
+        callbackQueryId,
+        text: "Already removed or expired",
+        showAlert: false,
+      }).catch(() => {});
+      if (message?.message_id !== undefined && message.chat?.id !== undefined) {
+        try {
+          await env.telegram.editMessageText({
+            chatId: message.chat.id,
+            messageId: message.message_id,
+            text: "🗑 Already removed from queue.",
+            replyMarkup: { inline_keyboard: [] },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    const session = sessionIndex.byKey[sessionKey];
+    const removed = removeQueuedById(sessionKey, token);
+    await env.telegram.answerCallbackQuery({
+      callbackQueryId,
+      text: removed ? "Removed from queue" : "Already removed",
+      showAlert: false,
+    }).catch(() => {});
+    if (removed && session) {
+      await markQueueAckRemoved(session, {
+        ...removed,
+        botMessageId: removed.botMessageId ?? message?.message_id,
+      });
+    } else if (message?.message_id !== undefined && message.chat?.id !== undefined) {
+      try {
+        await env.telegram.editMessageText({
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          text: "🗑 Removed from queue.",
+          replyMarkup: { inline_keyboard: [] },
+        });
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   async function cancelSessionTurn(session: PersistedSession): Promise<void> {
@@ -2275,6 +2546,18 @@ export function createDaemon(
         await cancelSessionTurn(session);
         return;
       }
+      if (slash.name === "/steer") {
+        await handleSteerCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/queue") {
+        await handleQueueCommand(session);
+        return;
+      }
+      if (slash.name === "/unqueue") {
+        await handleUnqueueCommand(session, slash.args);
+        return;
+      }
       if (slash.name === "/skills") {
         clearSkillFlow(session.sessionKey, "new /skills");
         await offerSkillPicker(session, slash.args[0]);
@@ -2378,11 +2661,12 @@ export function createDaemon(
       }
     }
 
-    // Serialize turns: if a prompt is already in flight, queue this one.
+    // Serialize turns: if a prompt is already in flight, queue this one (non-interrupt).
     if (sessionTurnBusy(session.sessionKey)) {
-      const { depth, dropped } = enqueueTopicPrompt(session.sessionKey, {
+      const { item, depth, dropped } = enqueueTopicPrompt(session.sessionKey, {
         text: agentText,
         attachments,
+        kind: "prompt",
       });
       log.info("action: queue prompt (turn busy)", {
         sessionKey: session.sessionKey,
@@ -2390,16 +2674,24 @@ export function createDaemon(
         dropped,
         textLen: agentText.length,
         attachments: attachments.length,
+        id: item.id,
       });
       const dropNote = dropped
         ? "\n_(oldest queued message dropped — queue full)_"
         : "";
-      await sendInTopic(
+      const sent = await sendInTopic(
         session,
-        `📥 Queued (#${depth}). Will run after the current turn.${dropNote}`,
-        undefined,
+        `📥 Queued (#${depth}). Will run after the current turn.${dropNote}\n_Remove: button · \`/unqueue\`_`,
+        keyboardFromButtons([
+          {
+            text: "Remove",
+            callback_data: encodeQueueRemoveCallback(item.id),
+          },
+        ]),
         { html: true },
       );
+      // Stash ack message id for later edit-on-remove
+      item.botMessageId = sent.message_id;
       return;
     }
 
@@ -2449,8 +2741,9 @@ export function createDaemon(
         .finally(() => {
           drainTasks.delete(session.sessionKey);
           turnAbort.delete(session.sessionKey);
-          // Kick the next queued operator message (if any).
-          void pumpPromptQueue(session.sessionKey);
+          // Kick the next queued operator message (if any), unless /steer is
+          // about to start immediately after interrupt.
+          maybePumpAfterTurn(session.sessionKey);
         });
       drainTasks.set(session.sessionKey, drain);
       void turn.done.catch(() => {});
@@ -2459,12 +2752,13 @@ export function createDaemon(
       drainTasks.delete(session.sessionKey);
       turnAbort.delete(session.sessionKey);
       // Still try to run queued work after a failed start.
-      void pumpPromptQueue(session.sessionKey);
+      maybePumpAfterTurn(session.sessionKey);
       throw err;
     }
   }
 
   async function pumpPromptQueue(sessionKey: string): Promise<void> {
+    if (skipQueuePump.has(sessionKey)) return;
     if (sessionTurnBusy(sessionKey)) return;
     const q = promptQueues.get(sessionKey);
     if (!q || q.length === 0) {
@@ -2803,6 +3097,12 @@ export function createDaemon(
     const agentCb = parseAgentCallback(cq.data);
     if (agentCb) {
       await handleAgentCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const queueToken = parseQueueRemoveCallback(cq.data);
+    if (queueToken) {
+      await handleQueueRemoveCallback(cq.data, cq.id, cq.message);
       return;
     }
 

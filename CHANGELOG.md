@@ -13,6 +13,8 @@ First public release as **acpbot** (formerly tacp).
 - GitHub Actions CI + Release (Bun compile multi-platform + GHCR images)
 - Static landing page under `website/` (acpbot.app)
 - MIT license, README disclaimer, SECURITY.md
+- Free-text while a turn is busy is **queued** (FIFO, non-interrupt); **`/steer <text>`** interrupts and injects guidance now; **`/queue`**, **`/unqueue`**, and a **Remove** button on the queue ack manage waiting items (Telegram message delete is not supported)
+- Stronger MCP **`update`** tool description + telegram skill habit so agents keep the ⏳ Working… bubble useful mid-turn
 
 ### Notes
 - Env vars prefer `ACPBOT_*`; `TACP_*` remains a legacy alias
