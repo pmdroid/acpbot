@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="website/assets/acpbot-logo.png" alt="acpbot" width="420" />
+</p>
+
 # acpbot
 
 **Telegram control surface for ACP coding agents.**  
