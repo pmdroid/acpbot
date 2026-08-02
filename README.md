@@ -71,17 +71,27 @@ sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 acpbot setup          # re-run anytime
 ```
 
-Walks through bot token, operator (claim on first DM or paste user id), default agent, workspace repo, **OpenAI / ElevenLabs API keys**, optional OAuth, and can install a **macOS LaunchAgent** or **Linux systemd user** service for host + worker.
+Walks through bot token, operator, agent, workspace, speech keys, OAuth, then optionally installs **both** background services:
+
+| Service | Binary | Role |
+|---|---|---|
+| Host | `acpbot-host` | Agents, schedules, OAuth |
+| Worker | `acpbot` | Telegram |
+
+- **macOS:** `app.acpbot.host` + `app.acpbot.worker` LaunchAgents (`KeepAlive`)  
+- **Linux:** `acpbot-host.service` + `acpbot.service` (systemd user)
+
+Same `config.toml` for both. Logs: `~/.local/share/acpbot/logs/` (macOS) or `journalctl --user -u acpbot-host -u acpbot` (Linux).  
+Details: [docs/configuration.md](docs/configuration.md#background-services-host--worker).
 
 If you skip the daemon step:
 
 ```bash
-acpbot-host    # terminal 1
+acpbot-host    # terminal 1 — required first
 acpbot         # terminal 2
 ```
 
-First plain `acpbot` start also opens the TUI when no bot token is set.  
-Config: `~/.config/acpbot/config.toml`. Details: [docs/configuration.md](docs/configuration.md).
+First plain `acpbot` start also opens the TUI when no bot token is set.
 
 ### 4. Telegram
 

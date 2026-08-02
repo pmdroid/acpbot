@@ -35,18 +35,32 @@ bun run skills:install   # once — global agent skills
 **Config is created automatically** on first start (no manual `mkdir` / `cp`).  
 Full reference: [configuration.md](configuration.md).
 
-## 3. Start host + worker (real ACP)
+## 3. Setup + start host and worker
 
-**acp-host is required.** The worker fails at boot if the host socket is missing or does not answer ping.
+**You need both processes:** host (agents) and worker (Telegram). The worker fails at boot if the host socket is missing.
+
+### Recommended (binaries)
 
 ```bash
-# Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
-bun run acp-host
-# or: acpbot-host
+acpbot setup
+# Guided TUI: config + API keys.
+# Daemon step installs BOTH:
+#   • acpbot-host  (LaunchAgent / systemd user unit)
+#   • acpbot       (LaunchAgent / systemd user unit)
+```
 
-# Terminal 2 — first run opens setup wizard (bot token, user id, optional repo)
-bun run start
-# or: acpbot
+If you skip the daemon step in setup:
+
+```bash
+acpbot-host    # terminal 1 — agent stdio, schedules, OAuth
+acpbot         # terminal 2 — Telegram worker
+```
+
+### From source (dev)
+
+```bash
+bun run acp-host    # terminal 1
+bun run start       # terminal 2
 ```
 
 In the private chat with the bot:
@@ -59,7 +73,7 @@ In the private chat with the bot:
 
 On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
 
-Start `bun run acp-host` first so `acp-host.sock` exists; then `bun run start`.
+Background service paths and logs: [configuration.md](configuration.md#background-services-host--worker).
 
 In a topic:
 

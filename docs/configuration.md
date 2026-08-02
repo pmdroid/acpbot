@@ -32,12 +32,7 @@ Interactive (@clack) walkthrough:
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | OAuth | Optional `callback_base` for remote MCP |
-| Daemon | **macOS** LaunchAgents or **Linux** systemd user units for host + worker |
-
-Services run as your user (no root). Logs:
-
-- macOS: `~/.local/share/acpbot/logs/`
-- Linux: `journalctl --user -u acpbot-host -u acpbot -f`
+| Daemon | Installs **both** host and worker as background services (see below) |
 
 First plain `acpbot` start also opens the TUI if `bot_token` is still a placeholder.  
 Non-interactive boots need a real `bot_token` already in the file.
@@ -45,6 +40,68 @@ Non-interactive boots need a real `bot_token` already in the file.
 **`operator_user_id`** is the allowlist (only that Telegram account can control the bot).
 
 Worker and **acp-host must use the same file** (or the same `state_dir`).
+
+## Background services (host + worker)
+
+acpbot is **two processes**. Setup installs **both** when you accept the daemon step
+(requires `acpbot` and `acpbot-host` on `PATH`):
+
+| Service | Binary | Role |
+|---|---|---|
+| **Host** | `acpbot-host` | Agent stdio owner, schedule ticker, OAuth HTTP |
+| **Worker** | `acpbot` | Telegram long-poll, worker API, topics |
+
+They share the same `config.toml` / `state_dir`. The worker fails boot if the host
+socket is missing; with restart policies both recover if one starts slightly late.
+
+### macOS (LaunchAgents)
+
+Written under `~/Library/LaunchAgents/` (user session, no root):
+
+| Plist | Process |
+|---|---|
+| `app.acpbot.host.plist` | `acpbot-host --config …` |
+| `app.acpbot.worker.plist` | `acpbot --config …` |
+
+Both use `RunAtLoad` + `KeepAlive`. Logs: `~/.local/share/acpbot/logs/`  
+(`host.out.log` / `host.err.log` / `worker.out.log` / `worker.err.log`).
+
+```bash
+# status
+launchctl print gui/$(id -u)/app.acpbot.host
+launchctl print gui/$(id -u)/app.acpbot.worker
+
+# stop
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/app.acpbot.host.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/app.acpbot.worker.plist
+```
+
+### Linux (systemd user)
+
+Written under `~/.config/systemd/user/`:
+
+| Unit | Process |
+|---|---|
+| `acpbot-host.service` | `acpbot-host --config …` |
+| `acpbot.service` | `acpbot --config …` |
+
+```bash
+systemctl --user enable --now acpbot-host acpbot
+systemctl --user status acpbot-host acpbot
+journalctl --user -u acpbot-host -u acpbot -f
+
+# optional: keep running after logout
+loginctl enable-linger $USER
+```
+
+### Manual (no daemon)
+
+```bash
+# terminal 1
+acpbot-host --config ~/.config/acpbot/config.toml
+# terminal 2
+acpbot --config ~/.config/acpbot/config.toml
+```
 
 ## Defaults (no config keys required for paths)
 
@@ -109,19 +166,6 @@ stt_provider = "auto"
 ```
 
 Full annotated template: [`config.example.toml`](../config.example.toml).
-
-## launchd / systemd
-
-Point both processes at the same config:
-
-```bash
-# macOS launchd ProgramArguments example
-/usr/local/bin/acpbot-host --config /Users/you/.config/acpbot/config.toml
-/usr/local/bin/acpbot --config /Users/you/.config/acpbot/config.toml
-```
-
-No env file is required. Optional: set only `ACPBOT_CONFIG` if you prefer not to
-pass `--config`.
 
 ## Docker
 
