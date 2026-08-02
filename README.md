@@ -84,7 +84,19 @@ Walks through bot token, operator, agent, workspace, speech keys, OAuth, then op
 Same `config.toml` for both. Logs: `~/.local/share/acpbot/logs/` (macOS) or `journalctl --user -u acpbot-host -u acpbot` (Linux).  
 Details: [docs/configuration.md](docs/configuration.md#background-services-host--worker).
 
-If you skip the daemon step:
+Day-to-day service control (on **either** binary; default = **both** host + worker):
+
+```bash
+acpbot-host install    # write + enable LaunchAgents / systemd units
+acpbot-host start
+acpbot-host stop
+acpbot-host restart
+acpbot-host status
+# same: acpbot start|stop|restart|status
+# one side only: acpbot start --host   ·   acpbot stop --worker
+```
+
+Foreground (no service):
 
 ```bash
 acpbot-host    # terminal 1 — required first

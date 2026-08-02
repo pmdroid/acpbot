@@ -94,7 +94,31 @@ journalctl --user -u acpbot-host -u acpbot -f
 loginctl enable-linger $USER
 ```
 
-### Manual (no daemon)
+### Service CLI (`install` / `start` / `stop` / `restart`)
+
+Works on **both** `acpbot` and `acpbot-host` (same commands). By default each
+action applies to **host and worker**.
+
+```bash
+acpbot-host install     # write units + enable/start both services
+acpbot-host start       # start both
+acpbot-host stop        # stop both (worker first)
+acpbot-host restart     # stop then start
+acpbot-host status      # show running state
+acpbot-host uninstall   # stop + remove unit files
+
+# same on the worker binary:
+acpbot install | start | stop | restart | status | uninstall
+
+# host or worker only:
+acpbot start --host
+acpbot stop --worker
+```
+
+Requires binaries on `PATH` for `install`. Prefer `acpbot setup` the first time
+(config + optional install), then use `start` / `stop` / `restart` day-to-day.
+
+### Manual (foreground, no daemon)
 
 ```bash
 # terminal 1

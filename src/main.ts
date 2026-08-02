@@ -18,8 +18,33 @@ import { realTelegram } from "./env/real-telegram";
 import { speechFromConfig } from "./env/speech";
 import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
+import {
+  isServiceCliCommand,
+  runServiceCli,
+  serviceCliHelp,
+} from "./setup/service-cli";
 
 async function main(): Promise<void> {
+  // Service control: install | start | stop | restart | status | uninstall
+  if (isServiceCliCommand(process.argv)) {
+    const code = await runServiceCli(process.argv);
+    process.exitCode = code;
+    return;
+  }
+
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h") || args[0] === "help") {
+    console.error(`acpbot — Telegram worker for ACP agents
+
+  acpbot              Run worker (foreground)
+  acpbot setup        Guided setup TUI
+  acpbot install      Install host + worker as background services
+  acpbot start|stop|restart|status|uninstall
+
+${serviceCliHelp()}`);
+    return;
+  }
+
   // Explicit onboarding TUI: `acpbot setup` | `acpbot init` | `acpbot --setup`
   if (isSetupCliCommand(process.argv)) {
     await runSetupCommand();

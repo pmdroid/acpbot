@@ -142,6 +142,13 @@ acpbot         # terminal 2 — Telegram</code></pre>
             <code>~/.local/share/acpbot/logs/</code> on macOS, or
             <code>journalctl --user -u acpbot-host -u acpbot</code> on Linux.
           </p>
+          <p>Day-to-day service control (on <code>acpbot</code> or <code>acpbot-host</code>):</p>
+          <pre class="code-block"><code>acpbot-host install    # write + start both services
+acpbot-host start
+acpbot-host stop
+acpbot-host restart
+acpbot-host status
+# host only: acpbot start --host</code></pre>
         </section>
 
         <section id="telegram" class="docs-section">

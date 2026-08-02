@@ -47,6 +47,10 @@ acpbot setup
 # Daemon step installs BOTH:
 #   • acpbot-host  (LaunchAgent / systemd user unit)
 #   • acpbot       (LaunchAgent / systemd user unit)
+
+# Later:
+acpbot-host start | stop | restart | status
+# (same commands on `acpbot`; --host / --worker for one side)
 ```
 
 If you skip the daemon step in setup:
@@ -54,6 +58,7 @@ If you skip the daemon step in setup:
 ```bash
 acpbot-host    # terminal 1 — agent stdio, schedules, OAuth
 acpbot         # terminal 2 — Telegram worker
+# or: acpbot-host install && acpbot-host start
 ```
 
 ### From source (dev)

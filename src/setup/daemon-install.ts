@@ -15,6 +15,9 @@ import { spawnSync } from "node:child_process";
 
 export type DaemonPlatform = "darwin" | "linux" | "unsupported";
 
+/** Which service(s) to control. */
+export type ServiceTarget = "host" | "worker" | "all";
+
 export function detectDaemonPlatform(
   platform: NodeJS.Platform = process.platform,
 ): DaemonPlatform {
@@ -22,6 +25,72 @@ export function detectDaemonPlatform(
   if (platform === "linux") return "linux";
   return "unsupported";
 }
+
+function guiDomain(env: NodeJS.ProcessEnv = process.env): string {
+  const uid = process.getuid?.() ?? (Number(env.UID) || 501);
+  return `gui/${uid}`;
+}
+
+export function servicePaths(
+  options: { label?: string; env?: NodeJS.ProcessEnv } = {},
+): {
+  platform: DaemonPlatform;
+  hostLabel: string;
+  workerLabel: string;
+  hostPlist: string;
+  workerPlist: string;
+  hostUnit: string;
+  workerUnit: string;
+  logDir: string;
+} {
+  const platform = detectDaemonPlatform();
+  const home = options.env?.HOME ?? homedir();
+  const label = options.label ?? "app.acpbot";
+  const hostLabel = `${label}.host`;
+  const workerLabel = `${label}.worker`;
+  const agentsDir = join(home, "Library", "LaunchAgents");
+  const unitDir = join(home, ".config", "systemd", "user");
+  const logDir = join(home, ".local", "share", "acpbot", "logs");
+  return {
+    platform,
+    hostLabel,
+    workerLabel,
+    hostPlist: join(agentsDir, `${hostLabel}.plist`),
+    workerPlist: join(agentsDir, `${workerLabel}.plist`),
+    hostUnit: join(unitDir, "acpbot-host.service"),
+    workerUnit: join(unitDir, "acpbot.service"),
+    logDir,
+  };
+}
+
+function targetsFor(
+  target: ServiceTarget,
+  paths: ReturnType<typeof servicePaths>,
+): { kind: "host" | "worker"; darwinPlist: string; darwinLabel: string; linuxUnit: string; linuxName: string }[] {
+  const host = {
+    kind: "host" as const,
+    darwinPlist: paths.hostPlist,
+    darwinLabel: paths.hostLabel,
+    linuxUnit: paths.hostUnit,
+    linuxName: "acpbot-host.service",
+  };
+  const worker = {
+    kind: "worker" as const,
+    darwinPlist: paths.workerPlist,
+    darwinLabel: paths.workerLabel,
+    linuxUnit: paths.workerUnit,
+    linuxName: "acpbot.service",
+  };
+  if (target === "host") return [host];
+  if (target === "worker") return [worker];
+  return [host, worker];
+}
+
+export type ControlResult = {
+  platform: DaemonPlatform;
+  messages: string[];
+  ok: boolean;
+};
 
 /** Resolve absolute path to an executable on PATH or an absolute path. */
 export function resolveExecutable(
@@ -56,6 +125,8 @@ export type InstallDaemonOptions = {
   /** If true, load/start immediately */
   start?: boolean;
   logDir?: string;
+  /** Which services to install/start (default all). */
+  target?: ServiceTarget;
 };
 
 export type InstallDaemonResult = {
@@ -326,38 +397,256 @@ export function installUserDaemons(
   };
 }
 
-export function uninstallUserDaemons(
-  options: { label?: string; env?: NodeJS.ProcessEnv } = {},
-): string[] {
-  const platform = detectDaemonPlatform();
-  const home = options.env?.HOME ?? homedir();
-  const label = options.label ?? "app.acpbot";
-  const msgs: string[] = [];
+export function startUserDaemons(
+  options: {
+    label?: string;
+    env?: NodeJS.ProcessEnv;
+    target?: ServiceTarget;
+  } = {},
+): ControlResult {
+  const paths = servicePaths(options);
+  const messages: string[] = [];
+  const env = options.env ?? process.env;
+  const list = targetsFor(options.target ?? "all", paths);
 
-  if (platform === "darwin") {
-    const agentsDir = join(home, "Library", "LaunchAgents");
-    for (const suffix of ["host", "worker"]) {
-      const plist = join(agentsDir, `${label}.${suffix}.plist`);
-      if (existsSync(plist)) {
-        spawnSync("launchctl", ["bootout", `gui/${process.getuid?.() ?? 501}`, plist]);
-        spawnSync("launchctl", ["unload", "-w", plist]);
+  if (paths.platform === "darwin") {
+    const domain = guiDomain(env);
+    let ok = true;
+    // Host first so worker can connect
+    for (const t of list) {
+      if (!existsSync(t.darwinPlist)) {
+        messages.push(
+          `Missing ${t.darwinPlist} — run: acpbot-host install  (or acpbot setup)`,
+        );
+        ok = false;
+        continue;
+      }
+      spawnSync("launchctl", ["bootout", domain, t.darwinPlist], {
+        encoding: "utf8",
+      });
+      let r = spawnSync("launchctl", ["bootstrap", domain, t.darwinPlist], {
+        encoding: "utf8",
+      });
+      if (r.status !== 0) {
+        r = spawnSync("launchctl", ["load", "-w", t.darwinPlist], {
+          encoding: "utf8",
+        });
+      }
+      if (r.status !== 0) {
+        messages.push(
+          `Failed to start ${t.darwinLabel}: ${r.stderr || r.stdout || "unknown"}`,
+        );
+        ok = false;
+      } else {
+        messages.push(`Started ${t.darwinLabel}`);
+      }
+    }
+    return { platform: paths.platform, messages, ok };
+  }
+
+  if (paths.platform === "linux") {
+    let ok = true;
+    for (const t of list) {
+      if (!existsSync(t.linuxUnit)) {
+        messages.push(
+          `Missing ${t.linuxUnit} — run: acpbot-host install  (or acpbot setup)`,
+        );
+        ok = false;
+        continue;
+      }
+    }
+    spawnSync("systemctl", ["--user", "daemon-reload"], { encoding: "utf8" });
+    const names = list.map((t) => t.linuxName);
+    // enable host first
+    const ordered =
+      options.target === "worker"
+        ? names
+        : options.target === "host"
+          ? names
+          : ["acpbot-host.service", "acpbot.service"].filter((n) =>
+              names.includes(n),
+            );
+    const r = spawnSync(
+      "systemctl",
+      ["--user", "enable", "--now", ...ordered],
+      { encoding: "utf8" },
+    );
+    if (r.status !== 0) {
+      messages.push(
+        `systemctl start failed: ${r.stderr || r.stdout || "unknown"}`,
+      );
+      messages.push("  Tip: loginctl enable-linger $USER");
+      ok = false;
+    } else {
+      for (const n of ordered) messages.push(`Started ${n}`);
+    }
+    return { platform: paths.platform, messages, ok };
+  }
+
+  return {
+    platform: paths.platform,
+    messages: ["Service control not supported on this OS."],
+    ok: false,
+  };
+}
+
+export function stopUserDaemons(
+  options: {
+    label?: string;
+    env?: NodeJS.ProcessEnv;
+    target?: ServiceTarget;
+  } = {},
+): ControlResult {
+  const paths = servicePaths(options);
+  const messages: string[] = [];
+  const env = options.env ?? process.env;
+  const list = targetsFor(options.target ?? "all", paths);
+  // Stop worker first so it does not flap while host is still up
+  const ordered = [...list].reverse();
+
+  if (paths.platform === "darwin") {
+    const domain = guiDomain(env);
+    let ok = true;
+    for (const t of ordered) {
+      if (!existsSync(t.darwinPlist)) {
+        messages.push(`Not installed: ${t.darwinLabel}`);
+        continue;
+      }
+      const r = spawnSync("launchctl", ["bootout", domain, t.darwinPlist], {
+        encoding: "utf8",
+      });
+      if (r.status !== 0) {
+        spawnSync("launchctl", ["unload", "-w", t.darwinPlist], {
+          encoding: "utf8",
+        });
+      }
+      messages.push(`Stopped ${t.darwinLabel}`);
+    }
+    return { platform: paths.platform, messages, ok };
+  }
+
+  if (paths.platform === "linux") {
+    const names = ordered.map((t) => t.linuxName);
+    const r = spawnSync("systemctl", ["--user", "stop", ...names], {
+      encoding: "utf8",
+    });
+    if (r.status !== 0) {
+      messages.push(`systemctl stop: ${r.stderr || r.stdout || "ok/partial"}`);
+    }
+    for (const n of names) messages.push(`Stopped ${n}`);
+    return { platform: paths.platform, messages, ok: true };
+  }
+
+  return {
+    platform: paths.platform,
+    messages: ["Service control not supported on this OS."],
+    ok: false,
+  };
+}
+
+export function statusUserDaemons(
+  options: {
+    label?: string;
+    env?: NodeJS.ProcessEnv;
+    target?: ServiceTarget;
+  } = {},
+): ControlResult {
+  const paths = servicePaths(options);
+  const messages: string[] = [];
+  const env = options.env ?? process.env;
+  const list = targetsFor(options.target ?? "all", paths);
+  let ok = true;
+
+  if (paths.platform === "darwin") {
+    const domain = guiDomain(env);
+    for (const t of list) {
+      if (!existsSync(t.darwinPlist)) {
+        messages.push(`${t.kind}: not installed (${t.darwinPlist})`);
+        ok = false;
+        continue;
+      }
+      const r = spawnSync(
+        "launchctl",
+        ["print", `${domain}/${t.darwinLabel}`],
+        { encoding: "utf8" },
+      );
+      if (r.status === 0) {
+        const state =
+          r.stdout?.match(/state = (\w+)/)?.[1] ??
+          (r.stdout?.includes("pid =") ? "running" : "loaded");
+        const pid = r.stdout?.match(/pid = (\d+)/)?.[1];
+        messages.push(
+          `${t.kind}: ${state}${pid ? ` (pid ${pid})` : ""} — ${t.darwinLabel}`,
+        );
+      } else {
+        messages.push(`${t.kind}: not loaded — ${t.darwinLabel}`);
+        ok = false;
+      }
+    }
+    messages.push(`Logs: ${paths.logDir}`);
+    return { platform: paths.platform, messages, ok };
+  }
+
+  if (paths.platform === "linux") {
+    for (const t of list) {
+      if (!existsSync(t.linuxUnit)) {
+        messages.push(`${t.kind}: not installed (${t.linuxUnit})`);
+        ok = false;
+        continue;
+      }
+      const r = spawnSync(
+        "systemctl",
+        ["--user", "is-active", t.linuxName],
+        { encoding: "utf8" },
+      );
+      const state = (r.stdout || r.stderr || "unknown").trim();
+      messages.push(`${t.kind}: ${state} — ${t.linuxName}`);
+      if (state !== "active") ok = false;
+    }
+    messages.push("Logs: journalctl --user -u acpbot-host -u acpbot -f");
+    return { platform: paths.platform, messages, ok };
+  }
+
+  return {
+    platform: paths.platform,
+    messages: ["Service status not supported on this OS."],
+    ok: false,
+  };
+}
+
+export function uninstallUserDaemons(
+  options: {
+    label?: string;
+    env?: NodeJS.ProcessEnv;
+    target?: ServiceTarget;
+  } = {},
+): string[] {
+  const stop = stopUserDaemons(options);
+  const msgs = [...stop.messages];
+  const paths = servicePaths(options);
+  const list = targetsFor(options.target ?? "all", paths);
+
+  if (paths.platform === "darwin") {
+    for (const t of list) {
+      if (existsSync(t.darwinPlist)) {
         try {
-          unlinkSync(plist);
-          msgs.push(`Removed ${plist}`);
+          unlinkSync(t.darwinPlist);
+          msgs.push(`Removed ${t.darwinPlist}`);
         } catch {
-          msgs.push(`Could not remove ${plist}`);
+          msgs.push(`Could not remove ${t.darwinPlist}`);
         }
       }
     }
-  } else if (platform === "linux") {
-    spawnSync("systemctl", ["--user", "disable", "--now", "acpbot.service", "acpbot-host.service"]);
-    const unitDir = join(home, ".config", "systemd", "user");
-    for (const name of ["acpbot.service", "acpbot-host.service"]) {
-      const p = join(unitDir, name);
-      if (existsSync(p)) {
+  } else if (paths.platform === "linux") {
+    const names = list.map((t) => t.linuxName);
+    spawnSync("systemctl", ["--user", "disable", ...names], {
+      encoding: "utf8",
+    });
+    for (const t of list) {
+      if (existsSync(t.linuxUnit)) {
         try {
-          unlinkSync(p);
-          msgs.push(`Removed ${p}`);
+          unlinkSync(t.linuxUnit);
+          msgs.push(`Removed ${t.linuxUnit}`);
         } catch {
           /* */
         }
