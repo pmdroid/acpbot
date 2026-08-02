@@ -18,6 +18,7 @@
     "build:compile": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts && bun build --compile --outfile=dist/acpbot-host src/acp-host/main.ts",
     "build:compile:host": "mkdir -p dist && bun build --compile --outfile=dist/acpbot-host src/acp-host/main.ts",
     "build:compile:worker": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts",
+    "release:darwin": "bash scripts/release-darwin.sh",
     "docker:build": "docker build -t acpbot:local .",
     "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down"

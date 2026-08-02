@@ -1,10 +1,13 @@
-# Build versioned binaries + Docker images when a GitHub Release is published
+# Build versioned Linux binaries + Docker images when a GitHub Release is published
 # (or when a v* tag is pushed). Artifacts are named with the release tag.
 #
 # Create a release in the GitHub UI (tag v0.1.0) — this workflow:
 #   1. Tests
-#   2. Cross-compiles worker + host binaries → attach to the release
+#   2. Compiles Linux worker + host binaries → attach to the release
 #   3. Builds/pushes multi-arch Docker image → ghcr.io/<owner>/acpbot:<tag>
+#
+# macOS (darwin-arm64 / darwin-x64): build + Developer ID sign by hand on a Mac:
+#   ./scripts/release-darwin.sh v0.1.0 --upload
 name: Release
 
 on:
@@ -95,11 +98,11 @@ jobs:
           mkdir -p dist
           # Embed version stamp (optional runtime import of version.gen.ts)
           printf 'export const ACPBOT_VERSION = "%s";\n' "${VERSION}" > src/version.gen.ts
+          # Darwin is NOT built here — codesign requires a Mac + Developer ID.
+          # See scripts/release-darwin.sh
           targets=(
             "bun-linux-x64:linux-x64"
             "bun-linux-arm64:linux-arm64"
-            "bun-darwin-arm64:darwin-arm64"
-            "bun-darwin-x64:darwin-x64"
           )
           for entry in "${targets[@]}"; do
             target="${entry%%:*}"
@@ -240,7 +243,11 @@ jobs:
             | `acpbot-${{ needs.meta.outputs.version }}-<platform>.tar.gz` | Telegram worker |
             | `acpbot-host-${{ needs.meta.outputs.version }}-<platform>.tar.gz` | ACP agent host |
 
-            Platforms: `linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`.
+            Platforms from CI: `linux-x64`, `linux-arm64`.
+
+            **macOS** binaries are built and Developer ID–signed on a Mac, then
+            attached with `./scripts/release-darwin.sh <tag> --upload`
+            (`darwin-arm64`, `darwin-x64`).
 
             ### Docker (GHCR)
             ```bash

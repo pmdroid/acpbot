@@ -51,7 +51,7 @@ In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in privat
 
 ### 2. Download host + worker
 
-From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **both** binaries for your platform (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`):
+From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **both** binaries for your platform (`linux-x64`, `linux-arm64`, or signed `darwin-arm64` / `darwin-x64`):
 
 ```bash
 # example: v0.1.0 on Apple Silicon — use the latest tag from Releases
