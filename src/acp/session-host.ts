@@ -21,7 +21,11 @@ import { resolveAgentLaunchForSpawn } from "./agent-launch";
 import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { AcpbotConfig } from "../env/types";
-import { extractSessionModes, pickSessionModeId } from "./session-mode";
+import {
+  extractSessionModes,
+  isEffortLikeModeId,
+  pickSessionModeId,
+} from "./session-mode";
 import {
   findEffortConfigOption,
   findModeConfigOption,
@@ -163,11 +167,6 @@ function contentText(block: unknown): string | undefined {
   const b = block as { type?: string; text?: string };
   if (b.type === "text" && typeof b.text === "string") return b.text;
   return undefined;
-}
-
-/** Grok effort ids that were historically mis-stored as modeId. */
-function isEffortLikeId(id: string): boolean {
-  return /^(high|medium|low|xhigh|minimal|max)$/i.test(id.trim());
 }
 
 function isEffortConfigId(configId: string): boolean {
@@ -841,24 +840,32 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       configOptions = [...configOptions, ...effortOpts];
     }
 
-    // Permission modes: ACP session.modes (Codex/Claude) or configOptions mode (OpenCode).
-    // Never treat Grok high/medium/low effort as modes.
-    let modeView = extractSessionModes({
+    // Permission modes: ACP session.modes (Codex/Claude), configOptions mode
+    // (OpenCode), or Grok built-in default/plan/ask (not advertised on session/new
+    // — see xai-org/grok-build SessionMode). Never treat effort high/medium/low as modes.
+    const modeView = extractSessionModes({
       modes: session.modes ?? loadSideModes,
       configOptions,
+      agent: input.agent,
+      priorModeId: prior?.modeId,
     });
-    let available = modeView.availableModeIds;
+    const available = modeView.availableModeIds;
     // Ignore prior.modeId when it looks like Grok effort leftover (high/medium/low).
     const priorModeOk =
       prior?.modeId &&
       available.includes(prior.modeId) &&
-      !isEffortLikeId(prior.modeId)
+      !isEffortLikeModeId(prior.modeId)
         ? prior.modeId
         : undefined;
     let modeId: string | undefined =
       priorModeOk ??
       modeView.currentModeId ??
-      (available.length > 0 ? pickSessionModeId(available) : undefined);
+      (available.length > 0
+        ? // Grok builtin prefers default (agent), not "ask" from pickSessionModeId.
+          modeView.source === "grok.builtin"
+          ? "default"
+          : pickSessionModeId(available)
+        : undefined);
     if (available.length > 0 && modeId) {
       try {
         await connection.agent.request(acp.methods.agent.session.setMode, {

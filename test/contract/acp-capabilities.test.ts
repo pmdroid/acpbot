@@ -74,8 +74,10 @@ const EXPECT: Record<SupportedAgent, AgentCapExpect> = {
   "grok-build": {
     mustModels: true,
     modelValueRe: /grok/i,
-    // Grok advertises high/medium/low as effort (/effort), not ACP permission modes.
-    mustModes: false,
+    // Grok does not put modes on session/new; acpbot seeds default/plan/ask
+    // from xai-org/grok-build SessionMode (session/set_mode).
+    mustModes: true,
+    modeMustInclude: ["default", "plan", "ask"],
     mustLoad: true,
   },
   claude: {

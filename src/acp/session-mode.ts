@@ -5,6 +5,9 @@
  * 1. Codex/Claude ACP `session.modes`
  * 2. OpenCode (and similar) `configOptions` select with id/category `"mode"`
  *    (build / plan — not reasoning effort)
+ * 3. Grok Build built-in catalog (default / plan / ask) — **not** advertised on
+ *    session/new.modes, but implemented by session/set_mode in xai-org/grok-build
+ *    (`SessionMode` in xai-grok-tools). Effort stays on `/effort`.
  *
  * Grok reasoning effort (`x.ai/sessionConfig` category "mode" → high/medium/low)
  * is **not** a session mode — see session-config + `/effort`.
@@ -16,12 +19,19 @@ import {
   type SessionConfigOptionView,
 } from "./session-config";
 
+/**
+ * Grok Build ACP session modes (wire ids).
+ * Source: github.com/xai-org/grok-build `xai-grok-tools` SessionMode enum.
+ * NewSessionResponse does **not** include `modes`; clients must seed these.
+ */
+export const GROK_BUILTIN_SESSION_MODES = ["default", "plan", "ask"] as const;
+
 /** Normalized mode list + current id from ACP. */
 export type SessionModeView = {
   currentModeId?: string | undefined;
   availableModeIds: string[];
   /** Where the modes were found (for logs/tests). */
-  source: "acp.modes" | "configOptions" | "none";
+  source: "acp.modes" | "configOptions" | "grok.builtin" | "none";
 };
 
 /**
@@ -30,6 +40,7 @@ export type SessionModeView = {
  * Sources (in order):
  * 1. Standard ACP `modes: { availableModes, currentModeId }` (Codex, Claude)
  * 2. configOptions select id/category `"mode"` (OpenCode build/plan)
+ * 3. Optional Grok built-in catalog when `agent` is grok-build
  *
  * Grok effort levels are never treated as modes.
  */
@@ -39,6 +50,13 @@ export function extractSessionModes(input: {
   meta?: Record<string, unknown> | null | undefined;
   /** ACP configOptions (OpenCode puts Session Mode here) */
   configOptions?: unknown;
+  /**
+   * Canonical agent id (e.g. grok-build). When set and no modes found,
+   * seed Grok's documented session/set_mode ids.
+   */
+  agent?: string | undefined;
+  /** Last known mode id (e.g. from store) when seeding Grok builtins. */
+  priorModeId?: string | undefined;
 }): SessionModeView {
   const fromAcp = extractAcpModes(input.modes);
   if (fromAcp.availableModeIds.length > 0) {
@@ -48,7 +66,39 @@ export function extractSessionModes(input: {
   if (fromCfg.availableModeIds.length > 0) {
     return { ...fromCfg, source: "configOptions" };
   }
+  if (isGrokBuildAgent(input.agent)) {
+    return grokBuiltInSessionModes(input.priorModeId);
+  }
   return { availableModeIds: [], source: "none" };
+}
+
+export function isGrokBuildAgent(agent: string | undefined): boolean {
+  if (!agent) return false;
+  const n = agent.trim().toLowerCase();
+  return n === "grok-build" || n === "grok" || n === "xai";
+}
+
+/** Seed modes Grok implements but does not advertise on session/new. */
+export function grokBuiltInSessionModes(
+  priorModeId?: string | undefined,
+): SessionModeView {
+  const availableModeIds = [...GROK_BUILTIN_SESSION_MODES];
+  const prior =
+    priorModeId &&
+    (GROK_BUILTIN_SESSION_MODES as readonly string[]).includes(priorModeId) &&
+    !isEffortLikeModeId(priorModeId)
+      ? priorModeId
+      : undefined;
+  return {
+    availableModeIds,
+    currentModeId: prior ?? "default",
+    source: "grok.builtin",
+  };
+}
+
+/** Effort-like ids that must never be treated as Grok permission modes. */
+export function isEffortLikeModeId(id: string): boolean {
+  return /^(high|medium|low|xhigh|minimal|max)$/i.test(id.trim());
 }
 
 function extractModesFromConfigOptions(
@@ -254,7 +304,7 @@ export function formatModeStatus(input: {
   if (available.length === 0) {
     lines.push(
       "_This agent did not advertise ACP permission modes._",
-      "_Reasoning level: `/effort` (when advertised) · `/plan` / `/build` only work when modes are listed above._",
+      "_Reasoning level: `/effort` (when advertised)._",
     );
   } else {
     lines.push("Available:");
@@ -312,18 +362,13 @@ export function formatSessionStatus(input: {
     agentLine,
     `Launch: \`${launch}\``,
   ];
-  // Permission mode (ACP session.modes / OpenCode config mode) — separate from effort.
+  // Permission mode (ACP session.modes / OpenCode config / Grok builtin) — not effort.
   if (input.mode) {
     lines.push(`Mode: \`${input.mode}\``);
   } else if (input.availableModes && input.availableModes.length > 0) {
     lines.push(`Mode: _(none selected)_`);
   } else {
-    // Grok Build: session/new has modes:undefined; only effort is advertised.
-    lines.push(
-      input.effort
-        ? `Mode: _(not advertised — permission modes N/A; see Effort)_`
-        : `Mode: _(not advertised)_`,
-    );
+    lines.push(`Mode: _(not advertised)_`);
   }
   if (input.model) {
     lines.push(`Model: \`${input.model}\``);

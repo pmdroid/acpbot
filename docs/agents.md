@@ -71,10 +71,21 @@ Usage:
 
 | Field | Meaning |
 |---|---|
-| **Mode** | ACP permission / session mode (`session.modes` or config `mode`) — e.g. Codex `agent`, OpenCode `build`/`plan` |
-| **Effort** | Reasoning effort level when advertised — e.g. Grok `high`/`medium`/`low` |
+| **Mode** | Permission / plan mode — Codex/Claude `session.modes`, OpenCode config `mode`, or Grok built-in `default`/`plan`/`ask` |
+| **Effort** | Reasoning effort when advertised — e.g. Grok `high`/`medium`/`low` |
 
-Grok Build’s ACP `session/new` does **not** include `modes` (verified): only effort under `_meta["x.ai/sessionConfig"]`. Status correctly reports Mode as not advertised and Effort separately.
+### Grok Build (source of truth)
+
+From [xai-org/grok-build](https://github.com/xai-org/grok-build):
+
+| Wire surface | Meaning |
+|---|---|
+| `_meta["x.ai/sessionConfig"]` options with `category: "mode"` | **Reasoning effort** only (`high`/`medium`/`low`…) — not permission mode |
+| `session/new.modes` | **Not set** (NewSessionResponse is models + meta only) |
+| `session/set_mode` | Real session modes: **`default`**, **`plan`**, **`ask`** (`SessionMode` in `xai-grok-tools`) |
+| `current_mode_update` | Emitted when plan/default/ask changes |
+
+acpbot seeds Grok’s mode catalog as `default` / `plan` / `ask` so `/mode`, `/plan`, and `/build` work. Effort stays on `/effort`.
 
 ## Modes (permission)
 
