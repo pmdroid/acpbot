@@ -84,6 +84,11 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Pick LLM model (ACP config) or /model <value>",
   },
   {
+    name: "/effort",
+    scope: "topic",
+    summary: "Pick reasoning effort, or /effort <level>",
+  },
+  {
     name: "/agent",
     scope: "topic",
     summary: "Switch agent process (respawn) or /agent <id>",

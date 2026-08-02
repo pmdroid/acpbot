@@ -23,9 +23,12 @@ import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { AcpbotConfig } from "../env/types";
 import { extractSessionModes, pickSessionModeId } from "./session-mode";
 import {
+  findEffortConfigOption,
+  findModeConfigOption,
   findModelConfigOption,
   modelsStateToConfigOptions,
   normalizeConfigOptions,
+  sessionConfigEffortToConfigOptions,
   type SessionConfigOptionView,
 } from "./session-config";
 import { TerminalManager } from "./terminal-manager";
@@ -160,6 +163,39 @@ function contentText(block: unknown): string | undefined {
   const b = block as { type?: string; text?: string };
   if (b.type === "text" && typeof b.text === "string") return b.text;
   return undefined;
+}
+
+/** Grok effort ids that were historically mis-stored as modeId. */
+function isEffortLikeId(id: string): boolean {
+  return /^(high|medium|low|xhigh|minimal|max)$/i.test(id.trim());
+}
+
+function isEffortConfigId(configId: string): boolean {
+  return (
+    configId === "effort" ||
+    /effort|thought_level/i.test(configId)
+  );
+}
+
+/** Populate mode state from configOptions mode select (OpenCode). */
+function syncModesFromConfigOptions(entry: {
+  currentModeId: string | undefined;
+  availableModeIds: string[];
+  configOptions: SessionConfigOptionView[];
+}): void {
+  if (entry.availableModeIds.length > 0) {
+    const modeCfg = findModeConfigOption(entry.configOptions);
+    if (modeCfg && entry.currentModeId) {
+      modeCfg.currentValue = entry.currentModeId;
+    }
+    return;
+  }
+  const view = extractSessionModes({ configOptions: entry.configOptions });
+  if (view.availableModeIds.length === 0) return;
+  entry.availableModeIds = view.availableModeIds;
+  if (!entry.currentModeId && view.currentModeId) {
+    entry.currentModeId = view.currentModeId;
+  }
 }
 
 /**
@@ -745,11 +781,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     agentIdToKey.set(session.sessionId, input.sessionKey);
     agentIdToKey.set(input.sessionKey, input.sessionKey);
 
-    // Model + meta first (Grok modes live under _meta x.ai/sessionConfig).
+    // Model + meta first.
     // 1) Grok-style session.models / SessionModelState (session/set_model)
     // 2) configOptions select with category/id model (OpenCode, etc.)
     // 3) session/load side payload (when SDK omits models on ActiveSession)
     // 4) buffered _x.ai/models/update that arrived during session/new|load
+    // 5) Grok effort from _meta x.ai/sessionConfig (not ACP permission modes)
     const boot = sessionNewPayload(session);
     const bootMeta =
       boot.meta ??
@@ -757,45 +794,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         ? (loadSideMeta as Record<string, unknown>)
         : null);
 
-    // Modes: standard ACP session.modes (Codex) or Grok sessionConfig effort.
-    const modeView = extractSessionModes({
-      modes: session.modes ?? loadSideModes,
-      meta: bootMeta,
-    });
-    const available = modeView.availableModeIds;
-    let modeId: string | undefined =
-      (prior?.modeId && available.includes(prior.modeId)
-        ? prior.modeId
-        : undefined) ??
-      modeView.currentModeId ??
-      (available.length > 0 ? pickSessionModeId(available) : undefined);
-    if (available.length > 0 && modeId) {
-      try {
-        await connection.agent.request(acp.methods.agent.session.setMode, {
-          sessionId: session.sessionId,
-          modeId,
-        });
-        log.info("setMode", {
-          sessionKey: input.sessionKey,
-          modeId,
-          source: modeView.source,
-          available,
-        });
-      } catch (err) {
-        log.warn("setMode failed", {
-          sessionKey: input.sessionKey,
-          modeId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    } else {
-      log.info("session modes", {
-        sessionKey: input.sessionKey,
-        source: modeView.source,
-        available,
-        current: modeId ?? null,
-      });
-    }
+    // Config options first (OpenCode puts Session Mode + model + effort here).
     let configOptions = modelsStateToConfigOptions(
       boot.models ?? loadSideModels,
     );
@@ -815,6 +814,19 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         modelSource = "configOptions";
       }
     }
+    // If modelsState path won but agent also sent configOptions (OpenCode mode),
+    // merge non-model selects so mode/effort are not dropped.
+    if (modelSource === "session.models") {
+      const fromBoot = normalizeConfigOptions(
+        boot.configOptions ?? loadSideConfig,
+      );
+      for (const o of fromBoot) {
+        if (findModelConfigOption([o])) continue;
+        if (!configOptions.some((c) => c.id === o.id)) {
+          configOptions = [...configOptions, o];
+        }
+      }
+    }
     const buffered = pendingModelConfig.get(input.sessionKey);
     if (buffered && findModelConfigOption(buffered)) {
       if (!findModelConfigOption(configOptions)) {
@@ -823,10 +835,95 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       }
       pendingModelConfig.delete(input.sessionKey);
     }
+    // Merge Grok reasoning effort as synthetic configOption (category effort).
+    const effortOpts = sessionConfigEffortToConfigOptions(bootMeta);
+    if (effortOpts.length > 0 && !findEffortConfigOption(configOptions)) {
+      configOptions = [...configOptions, ...effortOpts];
+    }
+
+    // Permission modes: ACP session.modes (Codex/Claude) or configOptions mode (OpenCode).
+    // Never treat Grok high/medium/low effort as modes.
+    let modeView = extractSessionModes({
+      modes: session.modes ?? loadSideModes,
+      configOptions,
+    });
+    let available = modeView.availableModeIds;
+    // Ignore prior.modeId when it looks like Grok effort leftover (high/medium/low).
+    const priorModeOk =
+      prior?.modeId &&
+      available.includes(prior.modeId) &&
+      !isEffortLikeId(prior.modeId)
+        ? prior.modeId
+        : undefined;
+    let modeId: string | undefined =
+      priorModeOk ??
+      modeView.currentModeId ??
+      (available.length > 0 ? pickSessionModeId(available) : undefined);
+    if (available.length > 0 && modeId) {
+      try {
+        await connection.agent.request(acp.methods.agent.session.setMode, {
+          sessionId: session.sessionId,
+          modeId,
+        });
+        const modeCfg = findModeConfigOption(configOptions);
+        if (modeCfg) modeCfg.currentValue = modeId;
+        log.info("setMode", {
+          sessionKey: input.sessionKey,
+          modeId,
+          source: modeView.source,
+          available,
+        });
+      } catch (err) {
+        // OpenCode also accepts mode via set_config_option.
+        const modeCfg = findModeConfigOption(configOptions);
+        if (modeCfg && typeof modeId === "string") {
+          try {
+            await connection.agent.request(
+              acp.methods.agent.session.setConfigOption,
+              {
+                sessionId: session.sessionId,
+                configId: modeCfg.id,
+                value: modeId,
+              } as never,
+            );
+            modeCfg.currentValue = modeId;
+            log.info("setMode via configOption", {
+              sessionKey: input.sessionKey,
+              modeId,
+              configId: modeCfg.id,
+            });
+          } catch (cfgErr) {
+            log.warn("setMode failed", {
+              sessionKey: input.sessionKey,
+              modeId,
+              error: err instanceof Error ? err.message : String(err),
+              configError:
+                cfgErr instanceof Error ? cfgErr.message : String(cfgErr),
+            });
+          }
+        } else {
+          log.warn("setMode failed", {
+            sessionKey: input.sessionKey,
+            modeId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } else {
+      log.info("session modes", {
+        sessionKey: input.sessionKey,
+        source: modeView.source,
+        available,
+        current: modeId ?? null,
+      });
+    }
     log.info("session models/config", {
       sessionKey: input.sessionKey,
       modelCount: findModelConfigOption(configOptions)?.options.length ?? 0,
       current: findModelConfigOption(configOptions)?.currentValue ?? null,
+      effort: findEffortConfigOption(configOptions)?.currentValue ?? null,
+      mode: modeId ?? null,
+      modeCount: available.length,
       source: modelSource,
     });
 
@@ -1156,11 +1253,57 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       if (!entry) {
         throw new Error(`no live session for ${sessionKey}`);
       }
-      await entry.connection.agent.request(acp.methods.agent.session.setMode, {
-        sessionId: entry.session.sessionId,
-        modeId,
-      });
+      // Refresh available modes from configOptions if ACP modes were empty (OpenCode).
+      syncModesFromConfigOptions(entry);
+      let applied = false;
+      try {
+        await entry.connection.agent.request(acp.methods.agent.session.setMode, {
+          sessionId: entry.session.sessionId,
+          modeId,
+        });
+        applied = true;
+      } catch (setModeErr) {
+        const modeCfg = findModeConfigOption(entry.configOptions);
+        if (modeCfg) {
+          try {
+            await entry.connection.agent.request(
+              acp.methods.agent.session.setConfigOption,
+              {
+                sessionId: entry.session.sessionId,
+                configId: modeCfg.id,
+                value: modeId,
+              } as never,
+            );
+            applied = true;
+            log.info("setMode via configOption", {
+              sessionKey,
+              modeId,
+              configId: modeCfg.id,
+            });
+          } catch {
+            throw setModeErr instanceof Error
+              ? setModeErr
+              : new Error(String(setModeErr));
+          }
+        } else {
+          throw setModeErr instanceof Error
+            ? setModeErr
+            : new Error(String(setModeErr));
+        }
+      }
+      if (!applied) {
+        throw new Error(`failed to set mode ${modeId}`);
+      }
       entry.currentModeId = modeId;
+      const modeCfg = findModeConfigOption(entry.configOptions);
+      if (modeCfg) modeCfg.currentValue = modeId;
+      if (
+        entry.availableModeIds.length === 0 &&
+        modeCfg &&
+        modeCfg.options.length > 0
+      ) {
+        entry.availableModeIds = modeCfg.options.map((o) => o.value);
+      }
       await persistRecord({
         sessionKey: entry.sessionKey,
         agentSessionId: entry.session.sessionId,
@@ -1178,6 +1321,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     async getModeState(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return undefined;
+      syncModesFromConfigOptions(entry);
       return {
         currentModeId: entry.currentModeId,
         availableModeIds: entry.availableModeIds,
@@ -1187,6 +1331,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     async getAvailableModes(sessionKey) {
       const entry = live.get(sessionKey);
       if (!entry) return [];
+      syncModesFromConfigOptions(entry);
       if (entry.availableModeIds.length > 0) return [...entry.availableModeIds];
       const modes = entry.session.modes;
       return (
@@ -1202,6 +1347,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       if (!entry) return [];
       // Prefer latest from session/new payload when it includes a model select.
       const boot = sessionNewPayload(entry.session);
+      const prevEffort = findEffortConfigOption(entry.configOptions);
+      const prevMode = findModeConfigOption(entry.configOptions);
       const fromAgent = normalizeConfigOptions(boot.configOptions);
       if (findModelConfigOption(fromAgent)) {
         entry.configOptions = fromAgent;
@@ -1211,6 +1358,29 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           entry.configOptions = fromModels;
         }
       }
+      // Keep OpenCode mode select if model refresh dropped non-model options.
+      if (!findModeConfigOption(entry.configOptions)) {
+        if (fromAgent.length > 0) {
+          for (const o of fromAgent) {
+            if (findModelConfigOption([o])) continue;
+            if (!entry.configOptions.some((c) => c.id === o.id)) {
+              entry.configOptions = [...entry.configOptions, o];
+            }
+          }
+        } else if (prevMode) {
+          entry.configOptions = [...entry.configOptions, prevMode];
+        }
+      }
+      // Re-merge Grok effort if model refresh dropped it.
+      if (!findEffortConfigOption(entry.configOptions)) {
+        const fromMeta = sessionConfigEffortToConfigOptions(boot.meta);
+        if (fromMeta.length > 0) {
+          entry.configOptions = [...entry.configOptions, ...fromMeta];
+        } else if (prevEffort) {
+          entry.configOptions = [...entry.configOptions, prevEffort];
+        }
+      }
+      syncModesFromConfigOptions(entry);
       // Otherwise keep entry.configOptions (session.models / _x.ai/models/update).
       return [...entry.configOptions];
     },
@@ -1225,7 +1395,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       // https://github.com/xai-org/grok-build — SetSessionModelRequest
       if (
         typeof value === "string" &&
-        (configId === "model" || /model/i.test(configId))
+        (configId === "model" || /model/i.test(configId)) &&
+        !isEffortConfigId(configId)
       ) {
         try {
           const resp = await entry.connection.agent.request(
@@ -1241,7 +1412,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             (resp as { _meta?: { modelState?: unknown } })?._meta?.modelState;
           const fromResp = modelsStateToConfigOptions(respModels);
           if (fromResp.length > 0) {
+            // Preserve effort option if models response replaces the list.
+            const prevEffort = findEffortConfigOption(entry.configOptions);
             entry.configOptions = fromResp;
+            if (prevEffort && !findEffortConfigOption(entry.configOptions)) {
+              entry.configOptions = [...entry.configOptions, prevEffort];
+            }
           } else {
             const hit = findModelConfigOption(entry.configOptions);
             if (hit) hit.currentValue = value;
@@ -1258,6 +1434,123 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               setModelErr instanceof Error
                 ? setModelErr.message
                 : String(setModelErr),
+          });
+        }
+      }
+
+      // OpenCode Session Mode config select → keep live mode state in sync.
+      if (
+        typeof value === "string" &&
+        (configId === "mode" || configId === "session_mode")
+      ) {
+        try {
+          const resp = await entry.connection.agent.request(
+            acp.methods.agent.session.setConfigOption,
+            {
+              sessionId: entry.session.sessionId,
+              configId,
+              value,
+            } as never,
+          );
+          const nextRaw =
+            (resp as { configOptions?: unknown })?.configOptions ??
+            sessionNewPayload(entry.session).configOptions;
+          if (nextRaw) {
+            const prevEffort = findEffortConfigOption(entry.configOptions);
+            entry.configOptions = normalizeConfigOptions(nextRaw);
+            if (prevEffort && !findEffortConfigOption(entry.configOptions)) {
+              entry.configOptions = [...entry.configOptions, prevEffort];
+            }
+          }
+          const modeCfg = findModeConfigOption(entry.configOptions);
+          if (modeCfg) modeCfg.currentValue = value;
+          entry.currentModeId = value;
+          if (modeCfg && modeCfg.options.length > 0) {
+            entry.availableModeIds = modeCfg.options.map((o) => o.value);
+          }
+          await persistRecord({
+            sessionKey: entry.sessionKey,
+            agentSessionId: entry.session.sessionId,
+            agent: entry.agent,
+            cwd: entry.cwd,
+            modeId: value,
+          });
+          log.info("setConfigOption mode ok", { sessionKey, modeId: value });
+          return [...entry.configOptions];
+        } catch (modeCfgErr) {
+          // Fall through to set_mode path below / native path
+          log.debug("set_config mode failed; trying set_mode", {
+            sessionKey,
+            error:
+              modeCfgErr instanceof Error
+                ? modeCfgErr.message
+                : String(modeCfgErr),
+          });
+          try {
+            await entry.connection.agent.request(
+              acp.methods.agent.session.setMode,
+              {
+                sessionId: entry.session.sessionId,
+                modeId: value,
+              },
+            );
+            entry.currentModeId = value;
+            const modeCfg = findModeConfigOption(entry.configOptions);
+            if (modeCfg) modeCfg.currentValue = value;
+            log.info("set mode via set_mode after config fail", {
+              sessionKey,
+              modeId: value,
+            });
+            return [...entry.configOptions];
+          } catch {
+            /* native path below */
+          }
+        }
+      }
+
+      // Grok reasoning effort is advertised under sessionConfig category "mode"
+      // and applied via session/set_mode (same RPC as permission modes on Codex).
+      if (typeof value === "string" && isEffortConfigId(configId)) {
+        try {
+          await entry.connection.agent.request(
+            acp.methods.agent.session.setMode,
+            {
+              sessionId: entry.session.sessionId,
+              modeId: value,
+            },
+          );
+          const effort = findEffortConfigOption(entry.configOptions);
+          if (effort) {
+            effort.currentValue = value;
+          } else {
+            entry.configOptions = [
+              ...entry.configOptions,
+              {
+                id: "effort",
+                name: "Effort",
+                type: "select",
+                category: "effort",
+                currentValue: value,
+                options: [
+                  { value: "high", name: "high" },
+                  { value: "medium", name: "medium" },
+                  { value: "low", name: "low" },
+                ],
+              },
+            ];
+          }
+          log.info("set effort ok (session/set_mode)", {
+            sessionKey,
+            effort: value,
+          });
+          return [...entry.configOptions];
+        } catch (effortErr) {
+          log.debug("session/set_mode for effort failed; trying set_config", {
+            sessionKey,
+            error:
+              effortErr instanceof Error
+                ? effortErr.message
+                : String(effortErr),
           });
         }
       }
@@ -1283,7 +1576,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       const nextRaw =
         (resp as { configOptions?: unknown })?.configOptions ??
         sessionNewPayload(entry.session).configOptions;
+      const prevEffort = findEffortConfigOption(entry.configOptions);
       entry.configOptions = normalizeConfigOptions(nextRaw);
+      if (prevEffort && !findEffortConfigOption(entry.configOptions)) {
+        entry.configOptions = [...entry.configOptions, prevEffort];
+      }
       const hit = entry.configOptions.find((o) => o.id === configId);
       if (hit) hit.currentValue = value;
       log.info("setConfigOption ok (ACP)", {
