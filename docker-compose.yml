@@ -2,15 +2,16 @@
 # internal except OAuth (optional) and outbound HTTPS for Telegram/agents.
 #
 # Local build:
-#   cp .env.example .env   # set ACPBOT_BOT_TOKEN, OPERATOR id, REPOS_JSON, …
+#   cp config.example.toml config.toml   # bot_token, operator_user_id, [repos]
+#   # set store_path/state_dir under /data inside the TOML for containers
 #   docker compose up --build
 #
 # From a GitHub Release image (tag = release tag, e.g. v0.1.0):
 #   export ACPBOT_IMAGE=ghcr.io/<owner>/<repo>:v0.1.0
 #   docker compose up -d
 #
-# Repos: map host paths into /repos and set ACPBOT_REPOS_JSON accordingly, e.g.
-#   ACPBOT_REPOS_JSON='{"demo":"/repos/demo"}'
+# Repos: map host paths into /repos and set [repos] in config.toml, e.g.
+#   demo = "/repos/demo"
 #
 # WARNING: Agents may run arbitrary tools against mounted repos. You are
 # solely responsible for what they do. See README disclaimer + LICENSE.
@@ -21,29 +22,17 @@ services:
     image: ${ACPBOT_IMAGE:-acpbot:local}
     command: ["host"]
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
+      ACPBOT_CONFIG: /data/config.toml
+      # Optional legacy overrides if not set in TOML:
       ACPBOT_STATE_DIR: /data/state
       TACP_STATE_DIR: /data/state
-      # Bind OAuth for remote MCP (optional; set ACPBOT_OAUTH_CALLBACK_BASE in .env)
-      TACP_OAUTH_LISTEN_HOST: 0.0.0.0
-      ACPBOT_OAUTH_LISTEN_HOST: 0.0.0.0
     volumes:
       - acpbot-data:/data
-      # Mount your workspaces (read-write — agents can edit files):
-      # Mount workspaces yourself, e.g. ACPBOT_REPOS_HOST=/path/to/repos
+      - ${ACPBOT_CONFIG_HOST:-./config.toml}:/data/config.toml:ro
       - ${ACPBOT_REPOS_HOST:-./repos}:/repos
     ports:
-      # OAuth callback (only if you use remote MCP OAuth)
       - "${ACPBOT_OAUTH_PUBLISH_PORT:-8788}:8788"
-    # Host needs enough privileges to spawn agent CLIs if installed in-image
-    # or bind-mounted. Prefer mounting agent binaries read-only.
-    # Extra agent mounts (examples — uncomment / adjust):
-    # - ${HOME}/.grok/bin/grok:/usr/local/bin/grok:ro
-    # - ${HOME}/.local/bin/claude:/usr/local/bin/claude:ro
-    # - ${HOME}/.local/bin/codex:/usr/local/bin/codex:ro
-    # - ${HOME}/.opencode/bin/opencode:/usr/local/bin/opencode:ro
     networks:
       - acpbot
     healthcheck:
@@ -65,17 +54,15 @@ services:
     depends_on:
       acp-host:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
+      ACPBOT_CONFIG: /data/config.toml
       ACPBOT_STATE_DIR: /data/state
       TACP_STATE_DIR: /data/state
       ACPBOT_STORE_PATH: /data/store.json
       TACP_STORE_PATH: /data/store.json
-      # Point repo keys at container paths (override in .env if you mount more):
-      # ACPBOT_REPOS_JSON: '{"demo":"/repos/demo"}'
     volumes:
       - acpbot-data:/data
+      - ${ACPBOT_CONFIG_HOST:-./config.toml}:/data/config.toml:ro
       - ${ACPBOT_REPOS_HOST:-./repos}:/repos
     networks:
       - acpbot

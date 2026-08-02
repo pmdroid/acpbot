@@ -1,33 +1,104 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config";
+import { readFileSync } from "node:fs";
+import {
+  applyConfigToEnv,
+  defaultConfigPath,
+  defaultStateDir,
+  defaultStorePath,
+  loadConfig,
+  normalizeToml,
+  parseTomlConfig,
+} from "../src/config";
 
-describe("loadConfig (shipped entry config)", () => {
-  test("requires bot token, operator id, store path, state dir", () => {
-    expect(() => loadConfig({ env: {} })).toThrow(/bot token/i);
+describe("loadConfig (TOML + defaults)", () => {
+  test("requires bot token and operator for worker role", () => {
     expect(() =>
-      loadConfig({ env: { TACP_BOT_TOKEN: "t" } }),
-    ).toThrow(/operator/i);
-    expect(() =>
-      loadConfig({
-        env: { TACP_BOT_TOKEN: "t", TACP_OPERATOR_USER_ID: "1" },
-      }),
-    ).toThrow(/store path/i);
+      loadConfig({ env: { HOME: "/tmp/acpbot-home-test" }, skipFile: true }),
+    ).toThrow(/bot_token|bot token/i);
     expect(() =>
       loadConfig({
         env: {
-          TACP_BOT_TOKEN: "t",
-          TACP_OPERATOR_USER_ID: "1",
-          TACP_STORE_PATH: "/tmp/x.json",
+          HOME: "/tmp/acpbot-home-test",
+          ACPBOT_BOT_TOKEN: "t",
         },
+        skipFile: true,
       }),
-    ).toThrow(/state dir/i);
+    ).toThrow(/operator_user_id|operator/i);
   });
 
-  test("loads complete config without assuming host layout", () => {
+  test("defaults store + state under XDG data home", () => {
+    const home = "/tmp/acpbot-xdg-home";
     const cfg = loadConfig({
       env: {
+        HOME: home,
+        ACPBOT_BOT_TOKEN: "tok",
+        ACPBOT_OPERATOR_USER_ID: "7",
+      },
+      skipFile: true,
+    });
+    expect(cfg.storePath).toBe(join(home, ".local/share/acpbot/store.json"));
+    expect(cfg.stateDir).toBe(join(home, ".local/share/acpbot/state"));
+    expect(cfg.defaultAgent).toBe("grok-build");
+    expect(cfg.mcpEnabled).toBe(true);
+    expect(cfg.ttsMode).toBe("agent");
+  });
+
+  test("loads complete config from TOML file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "acpbot-cfg-"));
+    const path = join(dir, "config.toml");
+    writeFileSync(
+      path,
+      `
+bot_token = "tok-toml"
+operator_user_id = 99
+store_path = "${dir}/store.json"
+state_dir = "${dir}/state"
+default_agent = "codex"
+log_level = "warn"
+
+[repos]
+demo = "${dir}/repo"
+
+[features]
+mcp = false
+tts_mode = "off"
+
+[oauth]
+callback_base = "https://ex.ts.net"
+listen_port = 9999
+
+[schedule]
+tick_ms = 15000
+`,
+      "utf8",
+    );
+
+    const cfg = loadConfig({
+      configPath: path,
+      env: { HOME: dir },
+    });
+    expect(cfg.botToken).toBe("tok-toml");
+    expect(cfg.operatorUserId).toBe(99);
+    expect(cfg.storePath).toBe(join(dir, "store.json"));
+    expect(cfg.stateDir).toBe(join(dir, "state"));
+    expect(cfg.repos?.demo).toBe(join(dir, "repo"));
+    expect(cfg.defaultAgent).toBe("codex");
+    expect(cfg.logLevel).toBe("warn");
+    expect(cfg.mcpEnabled).toBe(false);
+    expect(cfg.ttsMode).toBe("off");
+    expect(cfg.oauthCallbackBase).toBe("https://ex.ts.net");
+    expect(cfg.oauthListenPort).toBe(9999);
+    expect(cfg.scheduleTickMs).toBe(15000);
+    expect(cfg.configPath).toBe(path);
+  });
+
+  test("legacy env still works without TOML", () => {
+    const cfg = loadConfig({
+      env: {
+        HOME: "/tmp/x",
         TACP_BOT_TOKEN: "tok-abc",
         TACP_OPERATOR_USER_ID: "42",
         TACP_STORE_PATH: "/cfg/store.json",
@@ -35,6 +106,7 @@ describe("loadConfig (shipped entry config)", () => {
         TACP_REPOS_JSON: JSON.stringify({ tacp: "/cfg/repos/tacp" }),
         TACP_DEFAULT_AGENT: "codex",
       },
+      skipFile: true,
     });
     expect(cfg.botToken).toBe("tok-abc");
     expect(cfg.operatorUserId).toBe(42);
@@ -42,7 +114,57 @@ describe("loadConfig (shipped entry config)", () => {
     expect(cfg.stateDir).toBe("/cfg/state");
     expect(cfg.repos?.tacp).toBe("/cfg/repos/tacp");
     expect(cfg.defaultAgent).toBe("codex");
-    expect("agentBackend" in cfg).toBe(false);
+  });
+
+  test("host role does not require bot token", () => {
+    const cfg = loadConfig({
+      requireTelegram: false,
+      env: { HOME: "/tmp/host-home" },
+      skipFile: true,
+    });
+    expect(cfg.stateDir).toContain("acpbot");
+    expect(cfg.botToken).toBe("");
+  });
+
+  test("applyConfigToEnv publishes state + repos", () => {
+    const env: Record<string, string | undefined> = {};
+    const cfg = loadConfig({
+      env: {
+        HOME: "/tmp/apply",
+        ACPBOT_BOT_TOKEN: "t",
+        ACPBOT_OPERATOR_USER_ID: "1",
+        ACPBOT_REPOS_JSON: JSON.stringify({ d: "/tmp/d" }),
+      },
+      skipFile: true,
+    });
+    applyConfigToEnv(cfg, env as NodeJS.ProcessEnv);
+    expect(env.ACPBOT_STATE_DIR).toBe(cfg.stateDir);
+    expect(env.TACP_STATE_DIR).toBe(cfg.stateDir);
+    expect(JSON.parse(env.ACPBOT_REPOS_JSON!)).toEqual({ d: "/tmp/d" });
+  });
+
+  test("normalizeToml accepts snake_case tables", () => {
+    const n = normalizeToml(
+      parseTomlConfig(`
+bot_token = "x"
+operator_user_id = 1
+[features]
+mcp = true
+[repos]
+a = "/b"
+`),
+    );
+    expect(n.botToken).toBe("x");
+    expect(n.operatorUserId).toBe(1);
+    expect(n.mcpEnabled).toBe(true);
+    expect(n.repos?.a).toBe("/b");
+  });
+
+  test("default paths helpers", () => {
+    const env = { HOME: "/h" };
+    expect(defaultConfigPath(env)).toBe("/h/.config/acpbot/config.toml");
+    expect(defaultStorePath(env)).toBe("/h/.local/share/acpbot/store.json");
+    expect(defaultStateDir(env)).toBe("/h/.local/share/acpbot/state");
   });
 });
 
@@ -51,32 +173,42 @@ describe("main entry wiring (structural + import)", () => {
     const mainPath = join(import.meta.dir, "../src/main.ts");
     const src = readFileSync(mainPath, "utf8");
     expect(src).toContain("loadConfig");
+    expect(src).toContain("applyConfigToEnv");
     expect(src).toContain("realTelegram");
     expect(src).toContain("realAgents");
     expect(src).not.toContain("echoAgents");
     expect(src).toContain("createJsonFileStore");
     expect(src).toContain("systemClock");
     expect(src).toContain("createDaemon");
-    // No hardcoded bot tokens or home paths.
     expect(src).not.toMatch(/[0-9]{8,}:[A-Za-z0-9_-]{20,}/);
     expect(src).not.toMatch(/\/Users\//);
-    expect(src).not.toMatch(/process\.env\.HOME/);
   });
 
-  test("main entry fails clearly when required env is missing", async () => {
+  test("main entry fails clearly when required config is missing", async () => {
     const env = { ...process.env };
     for (const k of [
+      "ACPBOT_BOT_TOKEN",
       "TACP_BOT_TOKEN",
+      "ACPBOT_OPERATOR_USER_ID",
       "TACP_OPERATOR_USER_ID",
+      "ACPBOT_STORE_PATH",
       "TACP_STORE_PATH",
+      "ACPBOT_STATE_DIR",
       "TACP_STATE_DIR",
+      "ACPBOT_CONFIG",
+      "TACP_CONFIG",
       "BOT_TOKEN",
       "OPERATOR_USER_ID",
     ]) {
       delete env[k];
     }
-    // Bun auto-loads cwd .env — point at an empty env-file so the real
-    // missing-config path is exercised, not a live poll with project secrets.
+    // Isolated HOME so we don't pick up the developer's real config.toml
+    const home = mkdtempSync(join(tmpdir(), "acpbot-empty-home-"));
+    mkdirSync(join(home, ".config", "acpbot"), { recursive: true });
+    env.HOME = home;
+    env.XDG_CONFIG_HOME = join(home, ".config");
+    env.XDG_DATA_HOME = join(home, ".local", "share");
+
     const emptyEnv = join(import.meta.dir, "fixtures/empty.env");
     const proc = Bun.spawn(
       ["bun", `--env-file=${emptyEnv}`, "run", "src/main.ts"],
@@ -94,8 +226,7 @@ describe("main entry wiring (structural + import)", () => {
     ]);
     expect(exitCode).not.toBe(0);
     const out = `${stdout}\n${stderr}`;
-    expect(out).toMatch(/Missing bot token|TACP_BOT_TOKEN/i);
-    // Module resolution must succeed (not "Cannot find module").
+    expect(out).toMatch(/bot_token|bot token|Missing/i);
     expect(out).not.toMatch(/Cannot find module/i);
   });
 });

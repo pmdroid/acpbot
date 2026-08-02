@@ -1,154 +1,205 @@
 # Configuration
 
-> **Env names:** prefer `ACPBOT_*`. `TACP_*` remains accepted as a legacy alias.
+acpbot is configured with a **TOML file** and sensible defaults for binary /
+launchd / systemd installs. You do **not** need a wall of environment variables.
 
-All values come from process env (or a JSON config object in tests).  
-Nothing assumes a fixed host path or TTY. Source of truth for comments: `.env.example`.
+## Config file location
 
-## Required (real Telegram run)
-
-| Variable | Purpose |
+| Priority | Path |
 |---|---|
-| `TACP_BOT_TOKEN` | Bot token from @BotFather (alias: `BOT_TOKEN`) |
-| `TACP_OPERATOR_USER_ID` | Allowlisted Telegram user id (alias: `OPERATOR_USER_ID`) |
-| `TACP_STORE_PATH` | Durable acpbot JSON store file path |
-| `TACP_STATE_DIR` | Host state directory — **prefer absolute** |
-
-`TACP_STATE_DIR` holds:
-
-- ACP session records: `sessions/<sessionKey>.json`
-- OAuth tokens / pending PKCE: `mcp-oauth/`
-- Sockets: `worker-api.sock`, `acp-host.sock`
-
-Keep it private (owner-only). Default `data/` is gitignored.
-
-## Repos & schedules
-
-| Variable | Purpose |
-|---|---|
-| `TACP_REPOS_JSON` | `{"repoKey":"/absolute/cwd",…}` — `/new` picker + acp-host schedule scan |
-| `TACP_SCHEDULE_TICK_MS` | Schedule scan interval (default `20000`) |
-
-Quote the JSON value in `.env` so shells/dotenv keep it intact.
-
-## Agents
-
-| Variable | Purpose |
-|---|---|
-| `TACP_DEFAULT_AGENT` | Default agent id (`grok-build`, `claude`, `codex`, `opencode`, …) |
-| `TACP_AGENT_COMMAND_JSON` | Spawn overrides: `{"id":{"command":"…","args":[…]}}` |
-| `TACP_CLAUDE_ACP_PKG` | Full npm package pin for Claude ACP, e.g. `@agentclientprotocol/claude-agent-acp@0.64.0` |
-| `TACP_CODEX_ACP_PKG` | Full npm package pin for Codex ACP, e.g. `@agentclientprotocol/codex-acp@1.1.7` |
-
-## Remote MCP + OAuth
-
-Remote http/sse MCP from `.acpbot/mcp.json` is always allowed. OAuth is optional infra:
-
-| Variable | Purpose |
-|---|---|
-| `TACP_OAUTH_CALLBACK_BASE` | Public callback URL so `/mcp auth` can complete in-browser |
-| `TACP_OAUTH_LISTEN_HOST` / `PORT` | acp-host OAuth HTTP bind when callback base is set |
-
-Public remotes work without OAuth. Authenticated remotes need the callback (or `/mcp code` paste).
-
-## acp-host (required)
-
-Agent processes always run in **acp-host**. The worker has no in-process agent path.
-
-| Variable | Purpose |
-|---|---|
-| `TACP_ACP_HOST_SOCK` | Optional override of host Unix socket (default `$TACP_STATE_DIR/acp-host.sock`) |
-
-Worker boot **fails** if the socket is missing or does not answer `ping`.
+| 1 | `--config PATH` / `-c PATH` |
+| 2 | `$ACPBOT_CONFIG` |
+| 3 | `~/.config/acpbot/config.toml` (or `$XDG_CONFIG_HOME/acpbot/config.toml`) |
+| 4 | `./config.toml` (cwd) if present |
 
 ```bash
-# Terminal 1
-bun run acp-host
-
-# Terminal 2
-bun run start
+mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+cp config.example.toml ~/.config/acpbot/config.toml
+chmod 600 ~/.config/acpbot/config.toml
 ```
 
-## Operator chat
+Worker and **acp-host must use the same file** (or the same `state_dir`).
 
-| Variable | Purpose |
+## Defaults (no config keys required for paths)
+
+| Setting | Default |
 |---|---|
-| `TACP_OPERATOR_CHAT_ID` | Optional fixed private chat id |
+| `store_path` | `~/.local/share/acpbot/store.json` |
+| `state_dir` | `~/.local/share/acpbot/state` |
+| `default_agent` | `grok-build` |
+| `log_level` | `info` |
+| `features.mcp` | `true` |
+| `features.tts_mode` | `agent` |
 
-## Skills
+`state_dir` holds sockets (`acp-host.sock`, `worker-api.sock`), ACP session
+records, and OAuth tokens. Keep it private (owner-only).
 
-| Variable | Purpose |
-|---|---|
-| `TACP_SKILL_ROOTS` | Extra skill dirs, colon/semicolon/comma-separated |
+`$XDG_DATA_HOME` / `$XDG_CONFIG_HOME` are honored when set.
 
-Always included: package `skills/` (bundled **telegram** + **schedules**).
+## Required keys (Telegram worker)
 
-Install into global agent skill dirs **once** (not on worker boot):
+```toml
+bot_token = "…"           # @BotFather
+operator_user_id = 12345  # your Telegram user id
+```
+
+**acp-host** does not require the bot token; it only needs the shared `state_dir`
+and optional `[repos]` / `[oauth]` / `[schedule]`.
+
+## Example
+
+```toml
+bot_token = "123456:ABC…"
+operator_user_id = 42
+default_agent = "grok-build"
+log_level = "info"
+
+[repos]
+demo = "/Users/you/code/demo"
+
+[features]
+mcp = true
+tts_mode = "agent"           # when the agent may speak: agent | always | off
+
+[oauth]
+# callback_base = "https://your-host.ts.net"
+# listen_port = 8788
+
+[schedule]
+# tick_ms = 20000
+
+[speech]
+tts_provider = "auto"        # auto | openai | elevenlabs | off
+stt_provider = "auto"
+
+[speech.openai]
+# api_key = "sk-…"
+# tts_voice = "alloy"
+```
+
+Full annotated template: [`config.example.toml`](../config.example.toml).
+
+## launchd / systemd
+
+Point both processes at the same config:
 
 ```bash
-bun run skills:install
+# macOS launchd ProgramArguments example
+/usr/local/bin/acpbot-host --config /Users/you/.config/acpbot/config.toml
+/usr/local/bin/acpbot --config /Users/you/.config/acpbot/config.toml
 ```
 
-The installer never overwrites a real directory that is not a acpbot symlink.
+No env file is required. Optional: set only `ACPBOT_CONFIG` if you prefer not to
+pass `--config`.
 
-Defaults (when `HOME` is known): `~/.grok/skills`, `~/.grok/bundled/skills`, `~/.agents/skills`, `~/.claude/skills`.
+## Docker
 
-Onboard / refresh global agent skills:
+Mount a config file and set `ACPBOT_CONFIG`:
 
-```bash
-bun run skills:install
+```yaml
+environment:
+  ACPBOT_CONFIG: /data/config.toml
+volumes:
+  - ./config.toml:/data/config.toml:ro
+  - acpbot-data:/data
 ```
 
-See [skills.md](skills.md).
+Override `store_path` / `state_dir` inside the TOML to paths under `/data`
+(see compose defaults in `docker-compose.yml`).
 
-## Media & speech
+## Speech (TTS / STT providers)
 
-| Variable | Purpose |
+TTS and STT are chosen **independently**.
+
+| `tts_provider` / `stt_provider` | Meaning |
 |---|---|
-| `ELEVENLABS_API_KEY` | Preferred STT/TTS |
-| `ELEVENLABS_VOICE_ID` | TTS voice |
-| `ELEVENLABS_TTS_MODEL` | default `eleven_multilingual_v2` |
-| `ELEVENLABS_STT_MODEL` | default `scribe_v1` |
-| `ELEVENLABS_BASE_URL` | default `https://api.elevenlabs.io` |
-| `OPENAI_API_KEY` | Whisper STT fallback; OpenAI TTS only if no ElevenLabs |
-| `TACP_OPENAI_BASE_URL` | default `https://api.openai.com/v1` |
-| `TACP_STT` | `1` on (default when a key is set), `0` off |
-| `TACP_TTS_MODE` | `agent` (default) \| `always` \| `off` |
-| `TACP_MCP` | `1` host MCP on (default), `0` disable |
-| `TACP_ACP_MEDIA_ATTACHMENTS` | `1` send images/audio as ACP content blocks (default off — many agents lack `promptCapabilities.image`; media goes to `.acpbot-inbox/`) |
-| `TACP_WORKER_API_SOCK` | Override worker Unix socket path |
+| `auto` (default) | ElevenLabs if its key is set, else OpenAI |
+| `openai` | OpenAI (or OpenAI-compatible `base_url`) |
+| `elevenlabs` | ElevenLabs |
+| `off` | That side disabled |
 
-## Remote MCP OAuth
+### OpenAI (first-class)
 
-| Variable | Purpose |
-|---|---|
-| `TACP_OAUTH_CALLBACK_BASE` | URL the **phone browser** can reach (Tailscale Serve recommended) |
-| `TACP_OAUTH_LISTEN_HOST` | default `0.0.0.0` |
-| `TACP_OAUTH_LISTEN_PORT` | default `8788` |
+```toml
+[speech]
+tts_provider = "openai"
+stt_provider = "openai"
 
-No per-gateway `CLIENT_ID` / `AUTH_URL` env vars — discovery + DCR only. See [oauth.md](oauth.md).
-
-## Logging
-
-| Variable | Purpose |
-|---|---|
-| `TACP_LOG_LEVEL` | `debug` \| `info` \| `warn` \| `error` \| `silent` |
-| `TACP_VERBOSE` | `1` → debug |
-
-## Minimal examples
-
-### Real Grok + host (default path)
-
-```bash
-TACP_BOT_TOKEN=…
-TACP_OPERATOR_USER_ID=…
-TACP_STORE_PATH=./data/acpbot-store.json
-TACP_STATE_DIR=/abs/path/data/acpbot-state
-TACP_REPOS_JSON='{"acpbot":"/abs/path/to/acpbot"}'
-TACP_DEFAULT_AGENT=grok-build
+[speech.openai]
+api_key = "sk-…"
+# base_url = "https://api.openai.com/v1"   # or Azure / compatible proxy
+tts_model = "tts-1"          # tts-1 | tts-1-hd | gpt-4o-mini-tts
+tts_voice = "alloy"          # alloy | ash | ballad | coral | echo | fable | nova | onyx | sage | shimmer | verse
+tts_format = "opus"          # opus preferred for Telegram voice notes; mp3 also fine
+stt_model = "whisper-1"      # whisper-1 | gpt-4o-mini-transcribe | gpt-4o-transcribe
 ```
 
-```bash
-bun run acp-host
-bun run start
+### ElevenLabs
+
+```toml
+[speech]
+tts_provider = "elevenlabs"
+stt_provider = "elevenlabs"
+
+[speech.elevenlabs]
+api_key = "…"
+voice_id = "…"               # premade/cloned voice id
+# tts_model = "eleven_multilingual_v2"
+# stt_model = "scribe_v1"
+# base_url = "https://api.elevenlabs.io"
 ```
+
+### Mixed providers
+
+```toml
+[speech]
+tts_provider = "openai"
+stt_provider = "elevenlabs"
+```
+
+### Nested form (optional)
+
+```toml
+[speech.tts]
+provider = "openai"
+model = "tts-1-hd"
+voice = "nova"
+format = "opus"
+
+[speech.stt]
+provider = "openai"
+model = "whisper-1"
+```
+
+### When vs which
+
+| Setting | Controls |
+|---|---|
+| `features.tts_mode` | **When** the agent speaks: `agent` (MCP `speak` only) \| `always` \| `off` |
+| `speech.tts_provider` / `stt_provider` | **Which API** synthesizes / transcribes |
+
+## Legacy environment variables
+
+Still accepted as **overrides** (CI, old scripts), but not required:
+
+| Env (prefer `ACPBOT_*`) | TOML equivalent |
+|---|---|
+| `ACPBOT_BOT_TOKEN` | `bot_token` |
+| `ACPBOT_OPERATOR_USER_ID` | `operator_user_id` |
+| `ACPBOT_STORE_PATH` | `store_path` |
+| `ACPBOT_STATE_DIR` | `state_dir` |
+| `ACPBOT_REPOS_JSON` | `[repos]` |
+| `ACPBOT_DEFAULT_AGENT` | `default_agent` |
+| `ACPBOT_LOG_LEVEL` | `log_level` |
+| `ACPBOT_OAUTH_CALLBACK_BASE` | `[oauth].callback_base` |
+| `ACPBOT_CONFIG` | path to TOML |
+| `ACPBOT_TTS_PROVIDER` / `ACPBOT_STT_PROVIDER` | `auto` \| `elevenlabs` \| `openai` \| `off` |
+| `OPENAI_API_KEY` / `ELEVENLABS_API_KEY` | speech secrets |
+
+`TACP_*` remains a legacy alias for the same keys.
+
+## Related
+
+- [Getting started](getting-started.md)
+- [Architecture](architecture.md) — state dir layout
+- [OAuth](oauth.md)

@@ -16,10 +16,11 @@
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  acpbot worker  (bun run start / src/main.ts)                 │
+│  acpbot worker  (acpbot / bun run start)                      │
+│  · config.toml (TOML-first)                                 │
 │  · allowlist operator                                       │
 │  · lobby + topic command routing                            │
-│  · session store (TACP_STORE_PATH)                          │
+│  · session store (store_path)                               │
 │  · worker-api.sock  (HTTP over Unix — outbound media)       │
 │  · always talks to acp-host.sock (required)                 │
 └───────────────┬─────────────────────────────┬───────────────┘
@@ -46,7 +47,7 @@
 - Maps chat + `message_thread_id` → session
 - Slash commands never forward to the agent
 - Buffers agent text during a turn; flushes at end (Telegram chunk limits)
-- Serves **worker API** on `$TACP_STATE_DIR/worker-api.sock`
+- Serves **worker API** on `$state_dir/worker-api.sock`
 
 ### ACP session host (`src/acp/`)
 
@@ -62,10 +63,10 @@ Thin client over `@agentclientprotocol/sdk`:
 
 Long-lived process that **owns agent stdio** so the Telegram worker can restart without killing agents. The worker fails boot if the host socket is missing. Also:
 
-- Scans each `TACP_REPOS_JSON` repo for due schedules
-- Serves OAuth callback HTTP when `TACP_OAUTH_CALLBACK_BASE` is set
+- Scans each `[repos]` entry for due schedules
+- Serves OAuth callback HTTP when `[oauth].callback_base` is set
 
-Socket: `$TACP_STATE_DIR/acp-host.sock`  
+Socket: `$state_dir/acp-host.sock`  
 Design note: [ideas/agent-host-keepalive.md](ideas/agent-host-keepalive.md).
 
 ## Environment port
@@ -81,17 +82,18 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 
 | Path | Contents |
 |---|---|
-| `TACP_STORE_PATH` | Durable acpbot JSON (sessions registry, offsets, …) |
-| `$TACP_STATE_DIR/sessions/` | ACP session records (for `session/load`) |
-| `$TACP_STATE_DIR/worker-api.sock` | Outbound worker HTTP API |
-| `$TACP_STATE_DIR/acp-host.sock` | Required host control socket |
-| `$TACP_STATE_DIR/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
+| `~/.config/acpbot/config.toml` | Primary process config (TOML) |
+| `store_path` (default `~/.local/share/acpbot/store.json`) | Durable acpbot JSON (sessions registry, offsets, …) |
+| `$state_dir/sessions/` | ACP session records (for `session/load`) |
+| `$state_dir/worker-api.sock` | Outbound worker HTTP API |
+| `$state_dir/acp-host.sock` | Required host control socket |
+| `$state_dir/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
 | `<repo>/.acpbot/mcp.json` | Per-repo MCP servers |
 | `<repo>/.acpbot/config.json` | Optional repo defaults / `mcpProfile` |
 | `<repo>/.acpbot/schedules/` | Durable schedule jobs |
 | `<repo>/.acpbot-inbox/` | Inbound media drop (gitignored pattern) |
 
-**Always use an absolute `TACP_STATE_DIR`** when running worker + acp-host together so OAuth pending state and sockets agree regardless of CWD.
+Default `state_dir` is `~/.local/share/acpbot/state` (absolute after load). Worker and acp-host must share the same config / `state_dir`.
 
 ## Session model
 
@@ -136,7 +138,7 @@ Host `promptQueue` (acp-host) remains a separate serialization for concurrent ho
 
 ## Security notes
 
-- Single-operator allowlist (`TACP_OPERATOR_USER_ID`)
+- Single-operator allowlist (`operator_user_id` in config.toml)
 - Bot token only in the worker process
 - Repo path containment for photo/file tools ([worker-api.md](worker-api.md))
 - OAuth tokens never written under the repo tree

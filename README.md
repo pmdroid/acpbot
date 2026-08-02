@@ -62,21 +62,24 @@ Full docs: [`docs/`](docs/).
 
 In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id.
 
-### 2. Configure
+### 2. Configure (TOML)
 
 ```bash
-cp .env.example .env
-# edit .env — prefer ACPBOT_* (TACP_* still works as legacy alias)
+mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+cp config.example.toml ~/.config/acpbot/config.toml
+chmod 600 ~/.config/acpbot/config.toml
+# edit: bot_token, operator_user_id, [repos]
 ```
 
-| Variable | Purpose |
+| Key | Purpose |
 |---|---|
-| `ACPBOT_BOT_TOKEN` | Bot token |
-| `ACPBOT_OPERATOR_USER_ID` | Your user id (allowlist) |
-| `ACPBOT_STORE_PATH` | Durable JSON store path |
-| `ACPBOT_STATE_DIR` | Shared state dir (sessions, OAuth, sockets) — **absolute** preferred |
-| `ACPBOT_REPOS_JSON` | `{"repoKey":"/absolute/cwd",…}` |
-| `ACPBOT_DEFAULT_AGENT` | e.g. `grok-build`, `claude`, `codex`, `opencode` |
+| `bot_token` | Bot token from @BotFather |
+| `operator_user_id` | Your Telegram user id (allowlist) |
+| `default_agent` | e.g. `grok-build`, `claude`, `codex`, `opencode` |
+| `[repos]` | `key = "/absolute/cwd"` for `/new` + schedules |
+
+**Defaults:** store + state under `~/.local/share/acpbot/`. Override with `store_path` / `state_dir` or `--config PATH`.  
+Full reference: [`docs/configuration.md`](docs/configuration.md).
 
 ### 3. Run
 
@@ -85,9 +88,9 @@ bun install
 bun run skills:install   # once
 bun test ./test          # optional
 
-set -a && source .env && set +a
 bun run acp-host         # terminal 1 — required
 bun run start            # terminal 2 — worker
+# binaries: acpbot-host --config …   &   acpbot --config …
 ```
 
 ### 4. Telegram
@@ -107,10 +110,10 @@ bun run start            # terminal 2 — worker
 Two containers share a state volume; only the host publishes OAuth (optional). Agents are **not** fully baked into the image — mount CLIs and repos yourself.
 
 ```bash
-cp .env.example .env
-# set ACPBOT_BOT_TOKEN, ACPBOT_OPERATOR_USER_ID, and repos, e.g.:
-# ACPBOT_REPOS_JSON='{"demo":"/repos/demo"}'
+cp config.example.toml config.toml
+# edit bot_token, operator_user_id, [repos]; set store_path/state_dir under /data
 # ACPBOT_REPOS_HOST=./demo   # host path mounted at /repos/demo
+# ACPBOT_CONFIG_HOST=./config.toml
 
 docker compose up --build
 ```
@@ -181,7 +184,7 @@ Workflows: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/wor
 | [docs/schedules.md](docs/schedules.md) | Delayed/recurring jobs |
 | [docs/skills.md](docs/skills.md) | Bundled skills |
 | [docs/oauth.md](docs/oauth.md) | Remote MCP OAuth |
-| [docs/configuration.md](docs/configuration.md) | Env reference |
+| [docs/configuration.md](docs/configuration.md) | TOML config, speech providers, paths |
 | [website/](website/) | Landing page for acpbot.app |
 
 ---

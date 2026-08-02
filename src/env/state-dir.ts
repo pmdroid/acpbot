@@ -1,10 +1,11 @@
 /**
  * Shared runtime state directory (sockets, ACP sessions, OAuth).
- * Env: `ACPBOT_STATE_DIR` or `TACP_STATE_DIR` (required for loadConfig).
+ * Prefer TOML `state_dir` (default `~/.local/share/acpbot/state`).
+ * Legacy env: `ACPBOT_STATE_DIR` / `TACP_STATE_DIR`.
  */
 import { resolve } from "node:path";
 
-/** Default relative path when env is unset (code fallbacks only). */
+/** Last-resort relative path when nothing else is set (tests / odd boots). */
 export const DEFAULT_STATE_DIR = "./data/acpbot-state";
 
 /**

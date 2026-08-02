@@ -1,6 +1,10 @@
 /**
- * OpenAI Whisper STT + TTS for acpbot.
- * Enabled when OPENAI_API_KEY or TACP_OPENAI_API_KEY is set.
+ * OpenAI STT + TTS for acpbot (first-class provider).
+ *
+ * STT: Whisper / gpt-4o-transcribe family via /audio/transcriptions
+ * TTS: tts-1, tts-1-hd, gpt-4o-mini-tts via /audio/speech
+ *
+ * Select with speech.tts_provider / speech.stt_provider = "openai".
  */
 
 import type { SpeechPort } from "./types";
@@ -11,13 +15,22 @@ export type OpenAiSpeechOptions = {
   apiKey: string;
   /** Default https://api.openai.com/v1 */
   baseUrl?: string;
-  /** TTS voice id */
+  /**
+   * TTS voice: alloy | ash | ballad | coral | echo | fable | nova | onyx |
+   * sage | shimmer | verse (model-dependent).
+   */
   ttsVoice?: string;
-  /** whisper-1 */
+  /**
+   * STT model. Default whisper-1.
+   * Also: gpt-4o-mini-transcribe, gpt-4o-transcribe when available.
+   */
   sttModel?: string;
-  /** tts-1 or tts-1-hd */
+  /**
+   * TTS model. Default tts-1.
+   * Also: tts-1-hd, gpt-4o-mini-tts.
+   */
   ttsModel?: string;
-  /** mp3 is widely supported; Telegram accepts it as voice with sendVoice */
+  /** Prefer opus for Telegram voice notes; mp3 is a safe fallback. */
   ttsFormat?: "mp3" | "opus" | "aac" | "flac" | "wav" | "pcm";
   log?: Logger;
   fetchImpl?: typeof fetch;
@@ -29,10 +42,11 @@ export function openAiSpeech(options: OpenAiSpeechOptions): SpeechPort {
     "",
   );
   const fetchImpl = options.fetchImpl ?? fetch;
-  const log = (options.log ?? silentLogger()).child("speech");
+  const log = (options.log ?? silentLogger()).child("speech-openai");
   const sttModel = options.sttModel ?? "whisper-1";
   const ttsModel = options.ttsModel ?? "tts-1";
   const ttsVoice = options.ttsVoice ?? "alloy";
+  // opus is ideal for Telegram sendVoice; some OpenAI models prefer mp3
   const ttsFormat = options.ttsFormat ?? "opus";
 
   return {

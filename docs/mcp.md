@@ -37,9 +37,12 @@ Agent guidance for these tools is in bundled skills **telegram** and **schedules
 
 Disable host MCP entirely:
 
-```bash
-TACP_MCP=0
+```toml
+[features]
+mcp = false
 ```
+
+(Legacy: `ACPBOT_MCP=0`.)
 
 ## Per-repo MCP (`.acpbot/mcp.json`)
 
@@ -65,7 +68,7 @@ Each session’s **cwd** (repo root) may declare:
 - Absolute paths are allowed (system / shared tools)
 - npm specs (`@scope/pkg`), flags, and bare binaries are left unchanged
 - Containment is **lexical** (no symlink follow for the escape check)
-- Injected env: `TACP_SESSION_KEY`, `TACP_REPO_ROOT`, `TACP_STATE_DIR`
+- Injected env into MCP children: `TACP_SESSION_KEY`, `TACP_REPO_ROOT`, `TACP_STATE_DIR` (session runtime, not operator config)
 
 Missing or invalid JSON → built-in only (warn on invalid).
 
@@ -115,7 +118,7 @@ Rules:
 | Allowlist name missing from `mcp.json` | Ignored |
 | Missing / unknown / unreadable config | **Fail-open**: no filter (all servers). Warn when a profile was requested but not applied |
 
-`defaultAgent` in config is read for future per-repo defaults; session create still uses global `TACP_DEFAULT_AGENT` today.
+`defaultAgent` in per-repo config is read for future defaults; session create still uses global `default_agent` from `config.toml` today.
 
 ## Merge order
 

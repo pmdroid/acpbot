@@ -4,8 +4,8 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 
 ## Start here
 
-1. [Getting started](getting-started.md) — bot, `.env`, first topic
-2. [Configuration](configuration.md) — every env var
+1. [Getting started](getting-started.md) — bot, TOML config, first topic
+2. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
 3. [Commands](commands.md) — lobby vs topic slash surface
 
 ## How it works

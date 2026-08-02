@@ -18,7 +18,7 @@
 2. Enable **topics in private chats** for that bot
 3. Note your Telegram **user id** (e.g. `@userinfobot`)
 
-acpbot only accepts updates from `TACP_OPERATOR_USER_ID`. Everyone else is ignored.
+acpbot only accepts updates from `operator_user_id` in your config. Everyone else is ignored.
 
 ## 2. Install & configure
 
@@ -26,7 +26,13 @@ acpbot only accepts updates from `TACP_OPERATOR_USER_ID`. Everyone else is ignor
 git clone https://github.com/pmdroid/acpbot.git
 cd acpbot
 bun install
-cp .env.example .env
+
+mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+cp config.example.toml ~/.config/acpbot/config.toml
+chmod 600 ~/.config/acpbot/config.toml
+# edit: bot_token, operator_user_id, [repos]
+$EDITOR ~/.config/acpbot/config.toml
+
 # Install operator skills (telegram + schedules) into global agent skill dirs
 bun run skills:install
 ```
@@ -36,32 +42,32 @@ bun run skills:install
 only a single workspace. Run it after clone or skill upgrades — the worker does
 **not** install skills on boot.
 
-Edit `.env` (paths are yours to choose — nothing assumes a fixed home layout):
+Minimal `~/.config/acpbot/config.toml`:
 
-```bash
-TACP_BOT_TOKEN=...
-TACP_OPERATOR_USER_ID=...
-TACP_STORE_PATH=./data/acpbot-store.json
-# Prefer absolute so worker + acp-host always share the same dir
-TACP_STATE_DIR=/absolute/path/to/acpbot/data/acpbot-state
-TACP_REPOS_JSON='{"acpbot":"/absolute/path/to/acpbot"}'
-TACP_DEFAULT_AGENT=grok-build   # or claude | codex | opencode
+```toml
+bot_token = "…"
+operator_user_id = 12345
+default_agent = "grok-build"
+
+[repos]
+acpbot = "/absolute/path/to/acpbot"
 ```
 
-Full reference: [configuration.md](configuration.md).
+Paths default to `~/.local/share/acpbot/{store.json,state}` — no env file required.
+Full reference: [configuration.md](configuration.md) and [`config.example.toml`](../config.example.toml).
 
 ## 3. Start host + worker (real ACP)
 
 **acp-host is required.** The worker fails at boot if the host socket is missing or does not answer ping.
 
 ```bash
-set -a && source .env && set +a
-
 # Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
 bun run acp-host
+# or: acpbot-host --config ~/.config/acpbot/config.toml
 
 # Terminal 2 — Telegram worker + worker API
 bun run start
+# or: acpbot --config ~/.config/acpbot/config.toml
 ```
 
 In the private chat with the bot:
@@ -101,23 +107,37 @@ Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](a
 
 | Direction | Behavior |
 |---|---|
-| Photo / document → agent | Saved under `.acpbot-inbox/` (or ACP content blocks if `TACP_ACP_MEDIA_ATTACHMENTS=1`) |
-| Voice → agent | STT when ElevenLabs / OpenAI keys are set |
-| Agent → voice | MCP `speak` → TTS → `sendVoice` |
+| Photo / document → agent | Saved under `.acpbot-inbox/` (or ACP content blocks if `features.acp_media_attachments = true`) |
+| Voice → agent | STT via configured provider (`auto` / `openai` / `elevenlabs`) |
+| Agent → voice | MCP `speak` → TTS (same provider selection) → `sendVoice` |
 | Agent → photo / file | MCP `telegram_send_photo` / `telegram_send_file` (path under session repo) |
 
-Speech env vars are documented in [configuration.md](configuration.md). Outbound path: [worker-api.md](worker-api.md).
+OpenAI-only example:
+
+```toml
+[speech]
+tts_provider = "openai"
+stt_provider = "openai"
+
+[speech.openai]
+api_key = "sk-…"
+tts_voice = "alloy"
+```
+
+Full provider options: [configuration.md](configuration.md#speech-tts--stt-providers). Outbound path: [worker-api.md](worker-api.md).
 
 ## Common failures
 
 | Symptom | Likely cause |
 |---|---|
 | Boot fails: topics disabled | Enable private-chat topics in @BotFather |
-| No reply from non-you | `TACP_OPERATOR_USER_ID` mismatch |
+| No reply from non-you | `operator_user_id` mismatch in `config.toml` |
+| Missing bot token | Create `~/.config/acpbot/config.toml` (see `config.example.toml`) |
 | Agent picker empty | No agent CLIs on `PATH` (`grok`, `claude`, …) |
 | Spawn dies immediately | Check agent login / adapter; stderr is logged |
-| OAuth / host diverge | Relative `TACP_STATE_DIR` + different CWDs — use absolute |
+| OAuth / host diverge | Worker and host must share the same `state_dir` / config file |
 | `acp-host` exits on boot | OAuth listen port in use, or missing shared state dir |
+| Speech silent / no STT | Set `[speech.openai]` or `[speech.elevenlabs]` keys; check `tts_provider` / `stt_provider` |
 
 ## Tests
 

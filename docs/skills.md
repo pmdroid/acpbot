@@ -31,7 +31,7 @@ Install targets (symlink preferred, copy fallback). Never overwrites a real dire
 | `~/.agents/skills`, `~/.grok/skills`, `~/.claude/skills` | Global agent CLIs after install |
 | Session cwd `.agents/skills` (etc.) | Per-repo overrides |
 
-Extra roots: `TACP_SKILL_ROOTS` (colon / semicolon / comma separated). See [configuration.md](configuration.md).
+Extra roots: `[skills].roots` in `config.toml`, or legacy `ACPBOT_SKILL_ROOTS` (colon / semicolon / comma separated). See [configuration.md](configuration.md).
 
 ## Telegram `/skills`
 

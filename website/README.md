@@ -1,24 +1,15 @@
-# acpbot.app
+# acpbot.app static site
 
-Static landing page for **[acpbot.app](https://acpbot.app)**.
+Landing page assets for [acpbot.app](https://acpbot.app). Serve `index.html` + `styles.css` + `assets/`.
 
-## Install acpbot (binary — recommended)
+## Binary install (primary)
 
-Release builds ship standalone Bun-compiled binaries. You do **not** need Bun or a source checkout for normal use.
+### 1. Download release binaries
 
-### 1. Download
-
-From the [GitHub Releases](https://github.com/pmdroid/acpbot/releases) page, grab the assets for your platform (tag `vX.Y.Z`):
-
-| Asset | Role |
-|-------|------|
-| `acpbot-vX.Y.Z-<platform>.tar.gz` | Telegram **worker** |
-| `acpbot-host-vX.Y.Z-<platform>.tar.gz` | **acp-host** (agents + schedules) |
-
-Platforms: `linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`.
+From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) — grab worker + host for your platform.
 
 ```bash
-# example (darwin arm64, v0.1.0)
+# example: v0.1.0 on Apple Silicon
 curl -sL -o acpbot.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
 curl -sL -o acpbot-host.tar.gz \
@@ -30,41 +21,55 @@ sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 ```
 
-### 2. Configure
+### 2. Configure (TOML)
 
 ```bash
-# minimum env (ACPBOT_* preferred; TACP_* still works)
-export ACPBOT_BOT_TOKEN=...
-export ACPBOT_OPERATOR_USER_ID=...
-export ACPBOT_STORE_PATH="$PWD/data/store.json"
-export ACPBOT_STATE_DIR="$PWD/data/state"   # absolute path recommended
-export ACPBOT_REPOS_JSON='{"demo":"/absolute/path/to/repo"}'
-export ACPBOT_DEFAULT_AGENT=grok-build
-mkdir -p "$ACPBOT_STATE_DIR"
+mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+# copy config.example.toml from the repo release notes / source tree
+cp config.example.toml ~/.config/acpbot/config.toml
+chmod 600 ~/.config/acpbot/config.toml
 ```
 
-Install agent CLIs you want (e.g. `grok`, `claude` + adapter, `codex` + adapter, `opencode`) on `PATH`.
+Minimal `config.toml`:
+
+```toml
+bot_token = "…"
+operator_user_id = 12345
+default_agent = "grok-build"
+
+[repos]
+demo = "/absolute/path/to/repo"
+
+# Optional speech (OpenAI):
+# [speech]
+# tts_provider = "openai"
+# stt_provider = "openai"
+# [speech.openai]
+# api_key = "sk-…"
+```
+
+Store/state default under `~/.local/share/acpbot/`. Same file for host + worker.
+
+Install agent CLIs you want (`grok`, `claude`, `codex`, `opencode`) on `PATH`.
 
 ### 3. Run (two processes)
 
 ```bash
 # terminal 1 — required
-acpbot-host
+acpbot-host --config ~/.config/acpbot/config.toml
 
 # terminal 2
-acpbot
+acpbot --config ~/.config/acpbot/config.toml
 ```
 
-Worker fails boot if the host socket is missing. Same `ACPBOT_STATE_DIR` on both.
+Worker fails boot if the host socket is missing.
 
 ### Docker (optional)
-
-Release images are published to GHCR with the same tag:
 
 ```bash
 docker pull ghcr.io/pmdroid/acpbot:v0.1.0
 export ACPBOT_IMAGE=ghcr.io/pmdroid/acpbot:v0.1.0
-# then use the repo docker-compose.yml with your .env
+# mount config.toml — see repo docker-compose.yml
 ```
 
 ### From source (dev only)
@@ -72,25 +77,9 @@ export ACPBOT_IMAGE=ghcr.io/pmdroid/acpbot:v0.1.0
 ```bash
 git clone https://github.com/pmdroid/acpbot.git
 cd acpbot && bun install
+cp config.example.toml ~/.config/acpbot/config.toml
 bun run acp-host   # terminal 1
 bun run start      # terminal 2
 ```
 
----
-
-## Landing page (this folder)
-
-### Preview
-
-```bash
-# from repo root
-bunx serve website -p 4321
-# open http://127.0.0.1:4321
-```
-
-### Deploy
-
-Publish this `website/` directory as the site root for `acpbot.app`
-(Cloudflare Pages, Netlify, GitHub Pages, nginx, etc.).
-
-Include `assets/acpbot-logo.png` and enable HTTPS.
+Full docs: [docs/configuration.md](../docs/configuration.md), [docs/getting-started.md](../docs/getting-started.md).
