@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>acpbot docs — quick start</title>
+    <meta
+      name="description"
+      content="Install acpbot binaries, write config.toml, run host + worker. Simple quick start."
+    />
+    <meta name="theme-color" content="#05070c" />
+    <link rel="icon" type="image/png" href="assets/acpbot-logo.png" />
+    <link rel="canonical" href="https://acpbot.app/docs.html" />
+    <meta property="og:title" content="acpbot docs" />
+    <meta property="og:description" content="Quick start for acpbot." />
+    <meta property="og:image" content="https://acpbot.app/assets/acpbot-logo.png" />
+    <meta property="og:url" content="https://acpbot.app/docs.html" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow bg-glow-a" aria-hidden="true"></div>
+
+    <header class="nav">
+      <a class="nav-brand" href="index.html">
+        <img src="assets/acpbot-logo.png" alt="" width="36" height="36" />
+        <span>acpbot</span>
+      </a>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a class="nav-current" href="docs.html" aria-current="page">Docs</a>
+        <a href="https://github.com/pmdroid/acpbot/releases">Releases</a>
+        <a class="btn btn-sm btn-gold" href="https://github.com/pmdroid/acpbot/releases"
+          >Download</a
+        >
+      </nav>
+    </header>
+
+    <main class="docs-main">
+      <header class="docs-hero">
+        <p class="eyebrow">Documentation</p>
+        <h1>Quick start</h1>
+        <p class="lede docs-lede">
+          Binary install, one TOML file, two processes. About five minutes if
+          you already have a Telegram bot and an agent CLI on <code>PATH</code>.
+        </p>
+      </header>
+
+      <nav class="docs-toc" aria-label="On this page">
+        <a href="#prereqs">Prereqs</a>
+        <a href="#install">Install</a>
+        <a href="#config">Config</a>
+        <a href="#run">Run</a>
+        <a href="#telegram">Telegram</a>
+        <a href="#speech">Speech</a>
+        <a href="#more">More</a>
+      </nav>
+
+      <article class="docs-article">
+        <section id="prereqs" class="docs-section">
+          <h2>1. Prerequisites</h2>
+          <ul class="docs-list">
+            <li>
+              Telegram bot from
+              <a href="https://t.me/BotFather">@BotFather</a> with
+              <strong>topics in private chats</strong> enabled
+            </li>
+            <li>Your Telegram <strong>user id</strong> (allowlist)</li>
+            <li>
+              At least one agent CLI on <code>PATH</code>:
+              <code>grok</code>, <code>claude</code>, <code>codex</code>, or
+              <code>opencode</code>
+            </li>
+          </ul>
+        </section>
+
+        <section id="install" class="docs-section">
+          <h2>2. Download binaries</h2>
+          <p>
+            From
+            <a href="https://github.com/pmdroid/acpbot/releases">GitHub Releases</a>
+            grab <strong>worker</strong> + <strong>host</strong> for your
+            platform:
+            <code>linux-x64</code>, <code>linux-arm64</code>,
+            <code>darwin-arm64</code>, <code>darwin-x64</code>.
+          </p>
+          <pre class="code-block"><code># example: v0.1.0 on Apple Silicon
+curl -sL -o acpbot.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
+curl -sL -o acpbot-host.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
+tar -xzf acpbot.tar.gz &amp;&amp; tar -xzf acpbot-host.tar.gz
+chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64
+
+# optional — install on PATH
+sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
+sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host</code></pre>
+        </section>
+
+        <section id="config" class="docs-section">
+          <h2>3. Config file</h2>
+          <p>
+            Defaults live under XDG paths. Create a TOML config (mode
+            <code>600</code> — it holds secrets):
+          </p>
+          <pre class="code-block"><code>mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+# copy config.example.toml from the repo / release notes
+cp config.example.toml ~/.config/acpbot/config.toml
+chmod 600 ~/.config/acpbot/config.toml</code></pre>
+          <p>Minimal <code>~/.config/acpbot/config.toml</code>:</p>
+          <pre class="code-block"><code>bot_token = "123456:ABC…"          # from @BotFather
+operator_user_id = 12345           # your Telegram user id
+default_agent = "grok-build"       # or claude | codex | opencode
+
+[repos]
+demo = "/absolute/path/to/your/repo"</code></pre>
+          <p class="docs-note">
+            <strong>Defaults</strong> (no extra keys needed): store
+            <code>~/.local/share/acpbot/store.json</code>, state
+            <code>~/.local/share/acpbot/state</code>. Worker and host must use the
+            <strong>same</strong> config file.
+          </p>
+        </section>
+
+        <section id="run" class="docs-section">
+          <h2>4. Run host + worker</h2>
+          <p>
+            <strong>acp-host is required.</strong> The worker exits at boot if
+            the host socket is missing.
+          </p>
+          <pre class="code-block"><code># terminal 1 — owns agent processes + schedules
+acpbot-host --config ~/.config/acpbot/config.toml
+
+# terminal 2 — Telegram worker
+acpbot --config ~/.config/acpbot/config.toml</code></pre>
+          <p>
+            If the binaries are still in the download directory, run them by
+            path instead of short names.
+          </p>
+        </section>
+
+        <section id="telegram" class="docs-section">
+          <h2>5. Use Telegram</h2>
+          <pre class="code-block"><code>/ping
+/new demo hello
+# open the new forum topic → type a prompt
+
+# useful topic commands
+/status   /model   /agent   /mode   /skills   /mcp   /cancel
+# while a turn is busy: free-text is queued
+# /steer &lt;text&gt; interrupts · /queue · /unqueue</code></pre>
+        </section>
+
+        <section id="speech" class="docs-section">
+          <h2>Speech (optional)</h2>
+          <p>
+            TTS and STT are independent. Providers:
+            <code>auto</code> · <code>openai</code> · <code>elevenlabs</code> ·
+            <code>off</code>.
+          </p>
+          <pre class="code-block"><code>[speech]
+tts_provider = "openai"
+stt_provider = "openai"
+
+[speech.openai]
+api_key = "sk-…"
+tts_voice = "alloy"
+# tts_model = "tts-1"
+# stt_model = "whisper-1"</code></pre>
+        </section>
+
+        <section id="more" class="docs-section">
+          <h2>More detail</h2>
+          <div class="docs-links">
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/configuration.md">
+              <strong>Configuration</strong>
+              <span>Full TOML reference, OAuth, speech providers</span>
+            </a>
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/getting-started.md">
+              <strong>Getting started</strong>
+              <span>Dev from source, media, common failures</span>
+            </a>
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/commands.md">
+              <strong>Commands</strong>
+              <span>Lobby vs topic slash surface, queue / steer</span>
+            </a>
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/config.example.toml">
+              <strong>config.example.toml</strong>
+              <span>Annotated template</span>
+            </a>
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot">
+              <strong>Source &amp; issues</strong>
+              <span>github.com/pmdroid/acpbot</span>
+            </a>
+          </div>
+        </section>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <span class="footer-brand">acpbot</span>
+        <span class="footer-sep">·</span>
+        <a href="index.html">Home</a>
+        <span class="footer-sep">·</span>
+        <a href="https://github.com/pmdroid/acpbot">GitHub</a>
+        <span class="footer-sep">·</span>
+        <span>MIT</span>
+      </div>
+    </footer>
+  </body>
+</html>

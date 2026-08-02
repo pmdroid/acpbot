@@ -33,7 +33,7 @@
     <div class="bg-glow bg-glow-b" aria-hidden="true"></div>
 
     <header class="nav">
-      <a class="nav-brand" href="#top">
+      <a class="nav-brand" href="index.html">
         <img src="assets/acpbot-logo.png" alt="" width="36" height="36" />
         <span>acpbot</span>
       </a>
@@ -41,8 +41,8 @@
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
         <a href="#agents">Agents</a>
-        <a href="#install">Install</a>
-        <a class="btn btn-sm btn-gold" href="#install">Get started</a>
+        <a href="docs.html">Docs</a>
+        <a class="btn btn-sm btn-gold" href="docs.html">Get started</a>
       </nav>
     </header>
 
@@ -77,7 +77,7 @@
         </p>
 
         <div class="hero-cta">
-          <a class="btn btn-gold" href="#install">Get started</a>
+          <a class="btn btn-gold" href="docs.html">Get started</a>
           <a class="btn btn-ghost" href="#how">See the architecture</a>
         </div>
 
@@ -217,92 +217,6 @@ acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claud
         </div>
       </section>
 
-      <section id="install" class="section section-alt">
-        <div class="section-head">
-          <p class="eyebrow">Install</p>
-          <h2>Binary install. Two processes.</h2>
-          <p class="section-sub">
-            Download standalone release binaries — no Bun or source checkout
-            required for normal use.
-          </p>
-        </div>
-
-        <div class="install">
-          <ol class="steps">
-            <li>
-              <span class="step-num">1</span>
-              <div>
-                <h3>Download binaries</h3>
-                <p>
-                  From
-                  <a href="https://github.com/pmdroid/acpbot/releases"
-                    >GitHub Releases</a
-                  >, grab worker + host for your platform
-                  (<code>linux-x64</code>, <code>linux-arm64</code>,
-                  <code>darwin-arm64</code>, <code>darwin-x64</code>).
-                </p>
-                <pre class="code-block"><code># example: v0.1.0 on Apple Silicon
-curl -sL -o acpbot.tar.gz \
-  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
-curl -sL -o acpbot-host.tar.gz \
-  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
-tar -xzf acpbot.tar.gz &amp;&amp; tar -xzf acpbot-host.tar.gz
-chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
-              </div>
-            </li>
-            <li>
-              <span class="step-num">2</span>
-              <div>
-                <h3>Create the bot &amp; configure</h3>
-                <p>
-                  In BotFather: new bot, enable <strong>topics in private
-                  chats</strong>, note your user id. Write
-                  <code>~/.config/acpbot/config.toml</code>
-                  (<code>bot_token</code>, <code>operator_user_id</code>,
-                  optional <code>[repos]</code>). Store/state default under
-                  <code>~/.local/share/acpbot/</code>. Install agent CLIs on
-                  <code>PATH</code>.
-                </p>
-              </div>
-            </li>
-            <li>
-              <span class="step-num">3</span>
-              <div>
-                <h3>Run host + worker</h3>
-                <pre class="code-block"><code>./acpbot-host-v0.1.0-darwin-arm64   # terminal 1 — required
-./acpbot-v0.1.0-darwin-arm64        # terminal 2 — worker
-# or: … --config ~/.config/acpbot/config.toml</code></pre>
-                <p>
-                  Same config file on both. Worker fails boot if the host
-                  socket is missing.
-                </p>
-              </div>
-            </li>
-          </ol>
-
-          <aside class="install-note">
-            <p class="eyebrow">Binaries first</p>
-            <p>
-              Release assets are the supported install path. Docker images
-              (<code>ghcr.io/pmdroid/acpbot:&lt;tag&gt;</code>) and source
-              (<code>bun run</code>) are optional.
-            </p>
-            <p>
-              Configure with <code>~/.config/acpbot/config.toml</code>
-              (see <code>config.example.toml</code>). Env vars remain optional
-              overrides.
-            </p>
-            <p>
-              <a href="https://github.com/pmdroid/acpbot/releases"
-                >Releases</a
-              >
-              ·
-              <a href="https://github.com/pmdroid/acpbot">Source</a>
-            </p>
-          </aside>
-        </div>
-      </section>
-
       <section class="section cta-final">
         <div class="cta-panel">
           <img
@@ -312,8 +226,11 @@ chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
             class="cta-logo"
           />
           <h2>Ship from the chat you already live in.</h2>
-          <p>Open source. Local agents. Operator-grade control.</p>
-          <a class="btn btn-gold" href="#install">Launch acpbot</a>
+          <p>
+            Open source. Local agents. Binary install in minutes —
+            <a href="docs.html">quick start docs</a>.
+          </p>
+          <a class="btn btn-gold" href="docs.html">Get started</a>
         </div>
       </section>
     </main>
@@ -322,9 +239,11 @@ chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
       <div class="footer-inner">
         <span class="footer-brand">acpbot</span>
         <span class="footer-sep">·</span>
-        <span>Telegram × ACP</span>
+        <a href="docs.html">Docs</a>
         <span class="footer-sep">·</span>
-        <a href="https://agentclientprotocol.com">Agent Client Protocol</a>
+        <a href="https://github.com/pmdroid/acpbot">GitHub</a>
+        <span class="footer-sep">·</span>
+        <a href="https://agentclientprotocol.com">ACP</a>
         <span class="footer-sep">·</span>
         <span>MIT</span>
       </div>
