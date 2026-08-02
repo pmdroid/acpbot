@@ -27,7 +27,7 @@ import {
 import type { ScheduleJob } from "../src/schedules/types";
 
 async function withRepo<T>(fn: (repo: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "tacp-sched-host-"));
+  const dir = await mkdtemp(join(tmpdir(), "acpbot-sched-host-"));
   try {
     return await fn(dir);
   } finally {
@@ -39,17 +39,17 @@ describe("scheduler helpers", () => {
   test("parseReposFromEnv strips quotes and maps keys", () => {
     expect(
       parseReposFromEnv({
-        TACP_REPOS_JSON: `'{"life":"/repos/life","code":"/repos/code"}'`,
+        ACPBOT_REPOS_JSON: `'{"life":"/repos/life","code":"/repos/code"}'`,
       }),
     ).toEqual({ life: "/repos/life", code: "/repos/code" });
     expect(parseReposFromEnv({})).toEqual({});
-    expect(parseReposFromEnv({ TACP_REPOS_JSON: "not-json" })).toEqual({});
+    expect(parseReposFromEnv({ ACPBOT_REPOS_JSON: "not-json" })).toEqual({});
   });
 
   test("scheduleTickMs defaults and clamps", () => {
     expect(scheduleTickMs({})).toBe(20_000);
-    expect(scheduleTickMs({ TACP_SCHEDULE_TICK_MS: "15000" })).toBe(15_000);
-    expect(scheduleTickMs({ TACP_SCHEDULE_TICK_MS: "50" })).toBe(20_000);
+    expect(scheduleTickMs({ ACPBOT_SCHEDULE_TICK_MS: "15000" })).toBe(15_000);
+    expect(scheduleTickMs({ ACPBOT_SCHEDULE_TICK_MS: "50" })).toBe(20_000);
   });
 
   test("repoKeyFromSessionKey", () => {

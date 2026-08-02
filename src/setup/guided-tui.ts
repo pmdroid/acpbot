@@ -74,7 +74,7 @@ export function renderFullConfigToml(a: {
     ``,
     `bot_token = ${tomlString(a.botToken)}`,
     `# Allowlist — only this Telegram user controls the bot.`,
-    `# 0 = claim on first private message.`,
+    `# 0 = unclaimed; acpbot pair approve <code> after Telegram DM.`,
     `operator_user_id = ${a.operatorUserId}`,
     ``,
     `default_agent = ${tomlString(a.defaultAgent)}`,
@@ -207,9 +207,9 @@ export async function runGuidedSetupTui(
     message: "Who can control the bot? (security allowlist)",
     options: [
       {
-        value: "claim",
-        label: "Claim on first DM (recommended)",
-        hint: "first private message becomes the only operator",
+        value: "pair",
+        label: "CLI pairing code (recommended)",
+        hint: "DM bot → acpbot pair approve <code>",
       },
       {
         value: "id",
@@ -218,7 +218,7 @@ export async function runGuidedSetupTui(
       },
     ],
     initialValue:
-      existing && existing.operatorUserId > 0 ? "id" : "claim",
+      existing && existing.operatorUserId > 0 ? "id" : "pair",
   });
   if (cancelled(opMode)) abort();
 
@@ -504,7 +504,7 @@ export async function runGuidedSetupTui(
     `Config: ${layout.configPath}`,
     operatorUserId > 0
       ? `Operator: ${operatorUserId}`
-      : "Operator: claim on first DM — open the bot and send /ping",
+      : "Operator: DM the bot → acpbot pair approve <code>",
     `Agent: ${defaultAgent}`,
   ];
   if (!daemonResult?.installed) {

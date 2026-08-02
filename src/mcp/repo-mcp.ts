@@ -1,17 +1,17 @@
 /**
- * Load per-repo MCP servers from `<repo>/.tacp/mcp.json`.
+ * Load per-repo MCP servers from `<repo>/.acpbot/mcp.json`.
  *
  * Path policy (lexical only — no realpath/symlink follow):
  * - Absolute command/arg paths are allowed (system/shared tools).
- * - Relative path-like tokens (`./…`, `../…`, `.tacp/…`) resolve from repo root;
+ * - Relative path-like tokens (`./…`, `../…`, `.acpbot/…`) resolve from repo root;
  *   rejected if the resolved path escapes outside the repo.
  * - Symlinks are not resolved; containment is string-based after `path.resolve`.
  * - npm package specs (`@scope/pkg`), flags (`-y`, `--flag=…`), and URL schemes
- *   are left unchanged. Write repo-relative scripts as `./path` or `.tacp/…`.
+ *   are left unchanged. Write repo-relative scripts as `./path` or `.acpbot/…`.
  * - `~` / `~/…` expands to the process home directory (then treated as absolute).
  * - Built-in server name `acpbot` is reserved; repo entries with that name are skipped.
  *
- * Optional topic profiles (`.tacp/config.json` + `.tacp/mcp.profiles.json`):
+ * Optional topic profiles (`.acpbot/config.json` + `.acpbot/mcp.profiles.json`):
  * - When `mcpProfile` is set and the named profile exists, repo MCP is filtered
  *   to that allowlist before merge with built-in acpbot.
  * - Empty profile list `[]` → no repo MCP (built-in still added).
@@ -24,9 +24,9 @@ import type { McpServer } from "@agentclientprotocol/sdk";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import {
-  buildTacpMcpServers,
-  type BuildTacpMcpServersOptions,
-  type TacpMcpServer,
+  buildAcpbotMcpServers,
+  type BuildAcpbotMcpServersOptions,
+  type AcpbotMcpServer,
 } from "./servers";
 import { missingOAuthTokenMessage } from "./oauth-flow";
 import {
@@ -37,7 +37,7 @@ import {
 import { resolveRepoConfigDir } from "../env/repo-config-dir";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
-export type TacpMcpRemoteServer = {
+export type AcpbotMcpRemoteServer = {
   type: "http" | "sse";
   name: string;
   url: string;
@@ -45,28 +45,28 @@ export type TacpMcpRemoteServer = {
 };
 
 /** Stdio or remote MCP descriptor for a session (matches ACP McpServer shapes we emit). */
-export type SessionMcpServer = TacpMcpServer | TacpMcpRemoteServer;
+export type SessionMcpServer = AcpbotMcpServer | AcpbotMcpRemoteServer;
 
-/** Optional per-repo acpbot settings from `<repo>/.tacp/config.json`. */
-export type RepoTacpConfig = {
+/** Optional per-repo acpbot settings from `<repo>/.acpbot/config.json`. */
+export type RepoAcpbotConfig = {
   /** Preferred agent for sessions in this repo (not applied at create yet; reserved). */
   defaultAgent?: string;
-  /** Name of an allowlist in `.tacp/mcp.profiles.json`. */
+  /** Name of an allowlist in `.acpbot/mcp.profiles.json`. */
   mcpProfile?: string;
 };
 
-/** Map profile name → MCP server names from `<repo>/.tacp/mcp.profiles.json`. */
+/** Map profile name → MCP server names from `<repo>/.acpbot/mcp.profiles.json`. */
 export type RepoMcpProfiles = Record<string, string[]>;
 
 export type LoadRepoMcpServersOptions = {
   log?: Logger;
-  /** Override path to mcp.json (tests). Default: `<repoRoot>/.tacp/mcp.json`. */
+  /** Override path to mcp.json (tests). Default: `<repoRoot>/.acpbot/mcp.json`. */
   configPath?: string;
 };
 
-export type LoadRepoTacpConfigOptions = {
+export type LoadRepoAcpbotConfigOptions = {
   log?: Logger;
-  /** Override path to config.json (tests). Default: `<repoRoot>/.tacp/config.json`. */
+  /** Override path to config.json (tests). Default: `<repoRoot>/.acpbot/config.json`. */
   configPath?: string;
 };
 
@@ -76,7 +76,7 @@ export type LoadRepoMcpProfilesOptions = {
   profilesPath?: string;
 };
 
-export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
+export type BuildSessionMcpServersOptions = BuildAcpbotMcpServersOptions & {
   /** Absolute (or resolvable) repo root / session cwd. */
   cwd: string;
   log?: Logger;
@@ -88,11 +88,11 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
   profilesPath?: string;
   /**
    * Override profile name (tests / future per-session selection).
-   * When undefined, uses `mcpProfile` from `.tacp/config.json` if present.
+   * When undefined, uses `mcpProfile` from `.acpbot/config.json` if present.
    */
   mcpProfile?: string;
   /**
-   * OAuth token store root (`TACP_STATE_DIR`). When set (or defaulted from
+   * OAuth token store root (`ACPBOT_STATE_DIR`). When set (or defaulted from
    * env), remote http/sse entries get `Authorization: Bearer` from the store.
    */
   oauthStateDir?: string;
@@ -100,7 +100,7 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
   repoKey?: string;
   /**
    * When true, remote http/sse without a stored token throw
-   * `run /mcp auth <id>`. Default: true when `TACP_OAUTH_CALLBACK_BASE` is set,
+   * `run /mcp auth <id>`. Default: true when `ACPBOT_OAUTH_CALLBACK_BASE` is set,
    * otherwise false (public remotes still work).
    */
   oauthFailClosed?: boolean;
@@ -108,15 +108,13 @@ export type BuildSessionMcpServersOptions = BuildTacpMcpServersOptions & {
 
 /** Reserved built-in host MCP name (speak / media tools). */
 export const ACPBOT_BUILTIN_MCP_NAME = "acpbot";
-/** @deprecated Use {@link ACPBOT_BUILTIN_MCP_NAME}. */
-export const TACP_BUILTIN_MCP_NAME = ACPBOT_BUILTIN_MCP_NAME;
 
 /**
  * True when token should be treated as a filesystem path for repo resolution.
  *
  * Path-like:
  * - absolute (`/…`, and Windows drive if present)
- * - relative with explicit path prefix: `./…`, `../…`, or leading `.` (e.g. `.tacp/…`)
+ * - relative with explicit path prefix: `./…`, `../…`, or leading `.` (e.g. `.acpbot/…`)
  * - home-relative: `~`, `~/…`
  *
  * Not path-like (left unchanged):
@@ -136,7 +134,7 @@ export function isPathLikeToken(token: string): boolean {
 
   if (token.startsWith("/") || token.startsWith("\\")) return true;
   if (token.startsWith("./") || token.startsWith("../")) return true;
-  // `.tacp/tools/server.ts`, `.` — leading-dot relative paths
+  // `.acpbot/tools/server.ts`, `.` — leading-dot relative paths
   if (token.startsWith(".")) return true;
   // home-relative
   if (token === "~" || token.startsWith("~/") || token.startsWith("~\\")) {
@@ -256,7 +254,7 @@ function parseOneServer(
     return undefined;
   }
 
-  if (name === ACPBOT_BUILTIN_MCP_NAME || name === "tacp") {
+  if (name === ACPBOT_BUILTIN_MCP_NAME) {
     log.warn("repo mcp: skip server; name is reserved for built-in acpbot", {
       index,
       name,
@@ -353,14 +351,14 @@ async function readOptionalText(
 }
 
 /**
- * Read `<repoRoot>/.tacp/config.json`.
+ * Read `<repoRoot>/.acpbot/config.json`.
  * Missing / invalid → `{}`. Surfaced fields: `defaultAgent`, `mcpProfile`.
  * `defaultAgent` is reserved for future session create; callers may read it now.
  */
-export async function loadRepoTacpConfig(
+export async function loadRepoAcpbotConfig(
   repoRoot: string,
-  options: LoadRepoTacpConfigOptions = {},
-): Promise<RepoTacpConfig> {
+  options: LoadRepoAcpbotConfigOptions = {},
+): Promise<RepoAcpbotConfig> {
   const log = options.log ?? silentLogger();
   const root = resolve(repoRoot);
   const configPath =
@@ -386,7 +384,7 @@ export async function loadRepoTacpConfig(
   }
 
   const rec = parsed as Record<string, unknown>;
-  const out: RepoTacpConfig = {};
+  const out: RepoAcpbotConfig = {};
   if (typeof rec.defaultAgent === "string" && rec.defaultAgent.trim()) {
     out.defaultAgent = rec.defaultAgent.trim();
   }
@@ -397,7 +395,7 @@ export async function loadRepoTacpConfig(
 }
 
 /**
- * Read `<repoRoot>/.tacp/mcp.profiles.json`.
+ * Read `<repoRoot>/.acpbot/mcp.profiles.json`.
  * Missing file → undefined (no filtering).
  * Invalid JSON / non-object → warn + undefined.
  * Values must be string arrays of MCP server names; other entries skipped.
@@ -500,9 +498,9 @@ export function filterRepoMcpByProfile(
 }
 
 /**
- * Read `<repoRoot>/.tacp/mcp.json` and return parsed servers.
+ * Read `<repoRoot>/.acpbot/mcp.json` and return parsed servers.
  * Missing file → []; invalid JSON → warn + [].
- * Name `tacp` is reserved; duplicate names within the file are skipped with warn.
+ * Name `acpbot` is reserved; duplicate names within the file are skipped with warn.
  */
 export async function loadRepoMcpServers(
   repoRoot: string,
@@ -562,11 +560,11 @@ export async function loadRepoMcpServers(
 }
 
 /** Stdio when type is absent/undefined/"stdio", or when command is present without remote type. */
-export function isStdioServer(s: SessionMcpServer): s is TacpMcpServer {
+export function isStdioServer(s: SessionMcpServer): s is AcpbotMcpServer {
   const t = (s as { type?: string }).type;
   if (t === "http" || t === "sse" || t === "acp") return false;
   // absent, undefined, or explicit "stdio"
-  return "command" in s && typeof (s as TacpMcpServer).command === "string";
+  return "command" in s && typeof (s as AcpbotMcpServer).command === "string";
 }
 
 /** Inject session/repo identity into stdio MCP child env. */
@@ -575,7 +573,7 @@ export function injectSessionEnv(
   input: {
     sessionKey?: string;
     repoRoot: string;
-    /** Per-repo state dir (`<cwd>/.tacp`). */
+    /** Per-repo state dir (`<cwd>/.acpbot`). */
     repoStateDir: string;
   },
 ): SessionMcpServer {
@@ -583,11 +581,11 @@ export function injectSessionEnv(
 
   const envMap = new Map(server.env.map((e) => [e.name, e.value]));
   if (input.sessionKey) {
-    envMap.set("TACP_SESSION_KEY", input.sessionKey);
+    envMap.set("ACPBOT_SESSION_KEY", input.sessionKey);
   }
-  envMap.set("TACP_REPO_ROOT", resolve(input.repoRoot));
-  // Per-repo `.tacp` tree (schedules, mcp.json, …) — not the host TACP_STATE_DIR.
-  envMap.set("TACP_REPO_STATE_DIR", resolve(input.repoStateDir));
+  envMap.set("ACPBOT_REPO_ROOT", resolve(input.repoRoot));
+  // Per-repo config tree (`.acpbot`: schedules, mcp.json, …) — not the host ACPBOT_STATE_DIR.
+  envMap.set("ACPBOT_REPO_STATE_DIR", resolve(input.repoStateDir));
 
   return {
     name: server.name,
@@ -621,7 +619,7 @@ export async function applyOAuthTokensToServers(
       out.push(s);
       continue;
     }
-    const remote = s as TacpMcpRemoteServer;
+    const remote = s as AcpbotMcpRemoteServer;
     const auth = await bearerForMcp(input.stateDir, input.repoKey, remote.name);
     if (!auth) {
       if (input.failClosed) {
@@ -657,16 +655,16 @@ function oauthFailClosedDefault(
 ): boolean {
   if (explicit !== undefined) return explicit;
   // When OAuth callback infra is configured, require tokens for remotes.
-  return Boolean(env.TACP_OAUTH_CALLBACK_BASE?.trim());
+  return Boolean(env.ACPBOT_OAUTH_CALLBACK_BASE?.trim());
 }
 
 /**
  * Merge order: **repo MCP first** (optionally profile-filtered), then **built-in acpbot** (speak).
  * Missing/invalid repo config → built-in only.
- * Injects TACP_SESSION_KEY / TACP_REPO_ROOT / TACP_REPO_STATE_DIR into every stdio child.
+ * Injects ACPBOT_SESSION_KEY / ACPBOT_REPO_ROOT / ACPBOT_REPO_STATE_DIR into every stdio child.
  * Merges OAuth Bearer headers for remote http/sse from the host token store.
  *
- * Profile filter (when `.tacp/config.json` has `mcpProfile` and profiles file exists):
+ * Profile filter (when `.acpbot/config.json` has `mcpProfile` and profiles file exists):
  * see `filterRepoMcpByProfile`. Built-in `acpbot` is never filtered out.
  *
  * Returns ACP `McpServer[]` (stdio + optional http/sse).
@@ -678,8 +676,8 @@ export async function buildSessionMcpServers(
     options.enabled ??
     (process.env.ACPBOT_MCP !== "0" &&
       process.env.ACPBOT_MCP !== "false" &&
-      process.env.TACP_MCP !== "0" &&
-      process.env.TACP_MCP !== "false");
+      process.env.ACPBOT_MCP !== "0" &&
+      process.env.ACPBOT_MCP !== "false");
   if (!enabled) return [];
 
   const repoRoot = resolve(options.cwd);
@@ -693,7 +691,7 @@ export async function buildSessionMcpServers(
         ? { configPath: options.configPath }
         : {}),
     }),
-    loadRepoTacpConfig(repoRoot, {
+    loadRepoAcpbotConfig(repoRoot, {
       log,
       ...(options.repoConfigPath !== undefined
         ? { configPath: options.repoConfigPath }
@@ -710,7 +708,7 @@ export async function buildSessionMcpServers(
   const profileName = options.mcpProfile ?? repoConfig.mcpProfile;
   const repo = filterRepoMcpByProfile(repoRaw, profileName, profiles, log);
 
-  const acpbot = buildTacpMcpServers({
+  const acpbot = buildAcpbotMcpServers({
     enabled: true,
     ...(options.serverEntry !== undefined
       ? { serverEntry: options.serverEntry }
@@ -759,13 +757,13 @@ export async function buildSessionMcpServers(
 
 // ── Registry read/write (id + url only for remotes; never tokens) ────────────
 
-/** On-disk shape of `<repo>/.tacp/mcp.json` (raw entries preserved for stdio). */
+/** On-disk shape of `<repo>/.acpbot/mcp.json` (raw entries preserved for stdio). */
 export type McpConfigFile = {
   mcpServers: Array<Record<string, unknown>>;
 };
 
 export type McpConfigPathOptions = {
-  /** Override path to mcp.json (tests). Default: `<repoRoot>/.tacp/mcp.json`. */
+  /** Override path to mcp.json (tests). Default: `<repoRoot>/.acpbot/mcp.json`. */
   configPath?: string;
 };
 
@@ -776,13 +774,13 @@ export type RemoteMcpWriteInput = {
   type?: "http" | "sse";
 };
 
-/** Default path: `<repoRoot>/.tacp/mcp.json`. */
+/** Default path: `<repoRoot>/.acpbot/mcp.json`. */
 export function mcpConfigPath(
   repoRoot: string,
   options: McpConfigPathOptions = {},
 ): string {
   if (options.configPath) return options.configPath;
-  return join(resolve(repoRoot), ".tacp", "mcp.json");
+  return join(resolveRepoConfigDir(repoRoot), "mcp.json");
 }
 
 /**
@@ -862,7 +860,7 @@ const REMOTE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 function validateRemoteName(name: string): string {
   const n = name.trim();
   if (!n) throw new Error("MCP id is required");
-  if (n === ACPBOT_BUILTIN_MCP_NAME || n === "tacp") {
+  if (n === ACPBOT_BUILTIN_MCP_NAME) {
     throw new Error(`MCP id "${n}" is reserved`);
   }
   if (!REMOTE_NAME_RE.test(n)) {
@@ -977,7 +975,7 @@ export function formatMcpRegistryStatus(
   auth?: {
     tokenIds?: string[];
     /**
-     * When true (TACP_OAUTH_CALLBACK_BASE set), show auth ok/missing for remotes.
+     * When true (ACPBOT_OAUTH_CALLBACK_BASE set), show auth ok/missing for remotes.
      * When false/omitted, omit auth notes (public remotes without OAuth infra).
      */
     oauthEnabled?: boolean;
@@ -988,7 +986,7 @@ export function formatMcpRegistryStatus(
   const showAuth = auth?.oauthEnabled === true;
   if (config.mcpServers.length === 0) {
     return (
-      `No MCP servers in \`.tacp/mcp.json\`.${rootNote}\n\n` +
+      `No MCP servers in \`.acpbot/mcp.json\`.${rootNote}\n\n` +
       `Add a remote gateway:\n\`/mcp add <id> <url>\``
     );
   }

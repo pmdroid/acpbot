@@ -4,7 +4,7 @@ import type {
   PromptTurn,
   PromptTurnInput,
   SessionIdentity,
-  TacpConfig,
+  AcpbotConfig,
 } from "./types";
 
 /**
@@ -12,7 +12,7 @@ import type {
  * (`src/main.ts` always uses `realAgents`). Replies with an echo so tests can
  * exercise topic → prompt → status → final message without a coding agent.
  */
-export function echoAgents(config: TacpConfig): AgentsPort {
+export function echoAgents(config: AcpbotConfig): AgentsPort {
   const sessions = new Map<string, AgentSessionHandle>();
   const abortBySession = new Map<string, AbortController>();
   const sessionModes = new Map<string, string>();
@@ -28,7 +28,7 @@ export function echoAgents(config: TacpConfig): AgentsPort {
       const cwd = config.repos?.[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to TACP_REPOS_JSON`,
+          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON`,
         );
       }
 

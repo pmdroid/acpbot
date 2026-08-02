@@ -38,7 +38,7 @@ export function isPlaceholderBotToken(token: string | undefined): boolean {
   return false;
 }
 
-/** Wizard only requires a real bot token; operator may be claimed on first DM. */
+/** Wizard only requires a real bot token; operator is paired via CLI (`acpbot pair approve`). */
 export function configNeedsTelegramSetup(cfg: ProcessConfig): boolean {
   return isPlaceholderBotToken(cfg.botToken);
 }
@@ -152,7 +152,7 @@ function tomlString(value: string): string {
 export type SetupAnswers = {
   botToken: string;
   /**
-   * Telegram user id allowlist. `0` means claim-on-first-DM:
+   * Telegram user id allowlist. `0` means unclaimed until `acpbot pair approve <code>`.
    * the first person who messages the bot becomes the only operator.
    */
   operatorUserId: number;
@@ -168,7 +168,7 @@ export function renderConfigToml(answers: SetupAnswers): string {
     ``,
     `bot_token = ${tomlString(answers.botToken)}`,
     `# Allowlist: only this Telegram user can control the bot.`,
-    `# 0 = claim on first private message (then written back here).`,
+    `# 0 = unclaimed; pair via Telegram code + acpbot pair approve <code>.`,
     `operator_user_id = ${answers.operatorUserId}`,
     ``,
     `default_agent = ${tomlString(answers.defaultAgent)}`,
@@ -338,7 +338,7 @@ export async function runFirstRunSetup(
       stdout.write(
         `\nOperator — only this Telegram user may control the bot\n` +
           `  (agents can run tools on this machine).\n` +
-          `  Blank / 0 = claim on first private message (recommended).\n`,
+          `  Blank / 0 = pair via Telegram code + CLI (recommended).\n`,
       );
       const opDefault =
         existing && existing.operatorUserId > 0
@@ -348,7 +348,7 @@ export async function runFirstRunSetup(
         rl,
         opDefault
           ? `Operator user id (Enter keeps ${opDefault}, blank then type 0 to clear)`
-          : "Operator user id (blank = claim on first DM)",
+          : "Operator user id (blank = pair via CLI code)",
         opDefault,
       );
       let operatorUserId = 0;
@@ -404,7 +404,7 @@ export async function runFirstRunSetup(
       stdout.write(`\n✓ Saved ${options.configPath}\n`);
       if (operatorUserId <= 0) {
         stdout.write(
-          `  Operator not set — DM the bot /ping; first user claims control.\n`,
+          `  Operator not set — DM the bot to get a code, then: acpbot pair approve <code>\n`,
         );
       }
       stdout.write(

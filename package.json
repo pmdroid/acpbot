@@ -5,8 +5,7 @@
   "type": "module",
   "module": "src/main.ts",
   "bin": {
-    "acpbot": "./src/main.ts",
-    "tacp": "./src/main.ts"
+    "acpbot": "./src/main.ts"
   },
   "scripts": {
     "start": "bun run src/main.ts",

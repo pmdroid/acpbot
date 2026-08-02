@@ -17,7 +17,7 @@ bun run skills:install
 
 Run after clone or skill upgrades. The **worker does not** install skills on boot.
 
-Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already a acpbot skill symlink:
+Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already an acpbot skill symlink:
 
 - `~/.agents/skills/{telegram,schedules}`
 - `~/.grok/skills/{telegram,schedules}`
@@ -31,7 +31,7 @@ Install targets (symlink preferred, copy fallback). Never overwrites a real dire
 | `~/.agents/skills`, `~/.grok/skills`, `~/.claude/skills` | Global agent CLIs after install |
 | Session cwd `.agents/skills` (etc.) | Per-repo overrides |
 
-Extra roots: `[skills].roots` in `config.toml`, or legacy `ACPBOT_SKILL_ROOTS` (colon / semicolon / comma separated). See [configuration.md](configuration.md).
+Extra roots: `[skills].roots` in `config.toml`, or env `ACPBOT_SKILL_ROOTS` (colon / semicolon / comma separated). See [configuration.md](configuration.md).
 
 ## Telegram `/skills`
 

@@ -132,7 +132,7 @@ async function saveToInbox(
   filename: string,
   bytes: Uint8Array,
 ): Promise<string> {
-  const inbox = join(sessionCwd, ".tacp-inbox");
+  const inbox = join(sessionCwd, ".acpbot-inbox");
   await mkdir(inbox, { recursive: true });
   const savedPath = join(inbox, `${Date.now()}-${filename}`);
   await writeFile(savedPath, bytes);
@@ -146,7 +146,7 @@ async function saveToInbox(
  * is true. Grok Build's ACP agent currently does **not** advertise
  * `promptCapabilities.image` / `.audio`, so the agent rejects those blocks with:
  *   "prompt[n] image content requires agentCapabilities.promptCapabilities.image"
- * Default is therefore: save to `.tacp-inbox/` + path in text (agent tools).
+ * Default is therefore: save to `.acpbot-inbox/` + path in text (agent tools).
  */
 export async function prepareAgentMedia(input: {
   msg: TelegramMessage;

@@ -42,7 +42,7 @@ Disable host MCP entirely:
 mcp = false
 ```
 
-(Legacy: `ACPBOT_MCP=0`.)
+(Env override: `ACPBOT_MCP=0`.)
 
 ## Per-repo MCP (`.acpbot/mcp.json`)
 
@@ -68,7 +68,7 @@ Each session’s **cwd** (repo root) may declare:
 - Absolute paths are allowed (system / shared tools)
 - npm specs (`@scope/pkg`), flags, and bare binaries are left unchanged
 - Containment is **lexical** (no symlink follow for the escape check)
-- Injected env into MCP children: `TACP_SESSION_KEY`, `TACP_REPO_ROOT`, `TACP_STATE_DIR` (session runtime, not operator config)
+- Injected env into MCP children: `ACPBOT_SESSION_KEY`, `ACPBOT_REPO_ROOT`, `ACPBOT_REPO_STATE_DIR` (per-repo config tree; not host `ACPBOT_STATE_DIR`)
 
 Missing or invalid JSON → built-in only (warn on invalid).
 

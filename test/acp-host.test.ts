@@ -21,7 +21,7 @@ describe("acp-host protocol helpers", () => {
   });
 
   test("assertAcpHostReady fails when socket missing", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tacp-host-miss-"));
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-miss-"));
     try {
       await expect(
         assertAcpHostReady({ stateDir: dir, timeoutMs: 500 }),
@@ -32,7 +32,7 @@ describe("acp-host protocol helpers", () => {
   });
 
   test("assertAcpHostReady pings a live host", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tacp-host-ready-"));
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-ready-"));
     const sockPath = join(dir, "h.sock");
     const { close } = await startAcpHostServer({
       sockPath,
@@ -52,7 +52,7 @@ describe("acp-host protocol helpers", () => {
 
 describe("acp-host server", () => {
   test("ping / list over unix socket; slots survive client disconnect", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tacp-host-"));
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-"));
     const sockPath = join(dir, "h.sock");
     const { close } = await startAcpHostServer({
       sockPath,
@@ -93,7 +93,7 @@ describe("acp-host server", () => {
   });
 
   test("client detach does not require live agent for dispose", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tacp-host-"));
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-"));
     const sockPath = join(dir, "h.sock");
     const { close } = await startAcpHostServer({
       sockPath,

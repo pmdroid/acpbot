@@ -55,9 +55,7 @@ RUN chmod +x /usr/local/bin/acpbot-entrypoint
 
 # Shared state: sockets, sessions, OAuth (must be a volume in compose).
 ENV ACPBOT_STATE_DIR=/data/state \
-    TACP_STATE_DIR=/data/state \
-    ACPBOT_STORE_PATH=/data/store.json \
-    TACP_STORE_PATH=/data/store.json
+    ACPBOT_STORE_PATH=/data/store.json
 
 VOLUME ["/data", "/repos"]
 

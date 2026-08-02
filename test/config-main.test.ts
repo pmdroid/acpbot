@@ -95,16 +95,16 @@ tick_ms = 15000
     expect(cfg.configPath).toBe(path);
   });
 
-  test("legacy env still works without TOML", () => {
+  test("env overrides work without TOML", () => {
     const cfg = loadConfig({
       env: {
         HOME: "/tmp/x",
-        TACP_BOT_TOKEN: "tok-abc",
-        TACP_OPERATOR_USER_ID: "42",
-        TACP_STORE_PATH: "/cfg/store.json",
-        TACP_STATE_DIR: "/cfg/state",
-        TACP_REPOS_JSON: JSON.stringify({ tacp: "/cfg/repos/tacp" }),
-        TACP_DEFAULT_AGENT: "codex",
+        ACPBOT_BOT_TOKEN: "tok-abc",
+        ACPBOT_OPERATOR_USER_ID: "42",
+        ACPBOT_STORE_PATH: "/cfg/store.json",
+        ACPBOT_STATE_DIR: "/cfg/state",
+        ACPBOT_REPOS_JSON: JSON.stringify({ acpbot: "/cfg/repos/acpbot" }),
+        ACPBOT_DEFAULT_AGENT: "codex",
       },
       skipFile: true,
     });
@@ -112,7 +112,7 @@ tick_ms = 15000
     expect(cfg.operatorUserId).toBe(42);
     expect(cfg.storePath).toBe("/cfg/store.json");
     expect(cfg.stateDir).toBe("/cfg/state");
-    expect(cfg.repos?.tacp).toBe("/cfg/repos/tacp");
+    expect(cfg.repos?.acpbot).toBe("/cfg/repos/acpbot");
     expect(cfg.defaultAgent).toBe("codex");
   });
 
@@ -139,7 +139,6 @@ tick_ms = 15000
     });
     applyConfigToEnv(cfg, env as NodeJS.ProcessEnv);
     expect(env.ACPBOT_STATE_DIR).toBe(cfg.stateDir);
-    expect(env.TACP_STATE_DIR).toBe(cfg.stateDir);
     expect(JSON.parse(env.ACPBOT_REPOS_JSON!)).toEqual({ d: "/tmp/d" });
   });
 
@@ -188,15 +187,10 @@ describe("main entry wiring (structural + import)", () => {
     const env = { ...process.env };
     for (const k of [
       "ACPBOT_BOT_TOKEN",
-      "TACP_BOT_TOKEN",
       "ACPBOT_OPERATOR_USER_ID",
-      "TACP_OPERATOR_USER_ID",
       "ACPBOT_STORE_PATH",
-      "TACP_STORE_PATH",
       "ACPBOT_STATE_DIR",
-      "TACP_STATE_DIR",
       "ACPBOT_CONFIG",
-      "TACP_CONFIG",
       "BOT_TOKEN",
       "OPERATOR_USER_ID",
     ]) {

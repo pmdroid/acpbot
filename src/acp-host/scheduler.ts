@@ -1,5 +1,5 @@
 /**
- * acp-host schedule ticker: scan catalog repos' `.tacp/schedules/`, fire due jobs.
+ * acp-host schedule ticker: scan catalog repos' `.acpbot/schedules/`, fire due jobs.
  *
  * Due = enabled && nextRunAt <= now.
  *
@@ -40,7 +40,7 @@ export type ScheduleFireFn = (args: {
 }) => Promise<FireJobResult>;
 
 export type HostSchedulerOptions = {
-  /** repoKey → absolute path (from TACP_REPOS_JSON / config). */
+  /** repoKey → absolute path (from ACPBOT_REPOS_JSON / config). */
   repos: Record<string, string>;
   fire: ScheduleFireFn;
   /** Injectable clock (tests). */
@@ -63,11 +63,11 @@ export type TickResult = {
   skipped: number;
 };
 
-/** Parse TACP_REPOS_JSON the same way as loadConfig (quote strip + JSON). */
+/** Parse ACPBOT_REPOS_JSON the same way as loadConfig (quote strip + JSON). */
 export function parseReposFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): Record<string, string> {
-  const raw0 = env.TACP_REPOS_JSON?.trim();
+  const raw0 = env.ACPBOT_REPOS_JSON?.trim();
   if (!raw0) return {};
   let raw = raw0;
   if (
@@ -96,7 +96,7 @@ export function parseReposFromEnv(
 export function scheduleTickMs(
   env: Record<string, string | undefined> = process.env,
 ): number {
-  const raw = env.TACP_SCHEDULE_TICK_MS?.trim();
+  const raw = env.ACPBOT_SCHEDULE_TICK_MS?.trim();
   if (!raw) return DEFAULT_SCHEDULE_TICK_MS;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 1000) return DEFAULT_SCHEDULE_TICK_MS;
@@ -511,7 +511,7 @@ export function startSchedulerLoop(
   // Don't keep process alive solely for scheduler in tests if unref'd — host wants it alive.
   if (
     typeof timer.unref === "function" &&
-    process.env.TACP_SCHEDULE_UNREF === "1"
+    process.env.ACPBOT_SCHEDULE_UNREF === "1"
   ) {
     timer.unref();
   }

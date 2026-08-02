@@ -29,8 +29,8 @@ describe("speak tools", () => {
     expect(isSpeakToolName("speak")).toBe(true);
     expect(isSpeakToolName("tts")).toBe(true);
     expect(isSpeakToolName("send_voice")).toBe(true);
-    expect(isSpeakToolName("tacp:speak")).toBe(true);
-    expect(isSpeakToolName("mcp__tacp__speak")).toBe(true);
+    expect(isSpeakToolName("acpbot:speak")).toBe(true);
+    expect(isSpeakToolName("mcp__acpbot__speak")).toBe(true);
     expect(isSpeakToolName("Bash")).toBe(false);
   });
 

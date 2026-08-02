@@ -139,7 +139,7 @@ async function tryFfmpegOpus(
   mp3: Uint8Array,
   log: Logger,
 ): Promise<Uint8Array | undefined> {
-  const dir = await mkdtemp(join(tmpdir(), "tacp-tts-"));
+  const dir = await mkdtemp(join(tmpdir(), "acpbot-tts-"));
   const mp3Path = join(dir, "in.mp3");
   const oggPath = join(dir, "out.ogg");
   try {
@@ -324,7 +324,7 @@ export function elevenLabsKeyFromEnv(
     env.ELEVENLABS_API_KEY?.trim() ||
     env.ELEVEN_API_KEY?.trim() ||
     env.XI_API_KEY?.trim() ||
-    env.TACP_ELEVENLABS_API_KEY?.trim() ||
+    env.ACPBOT_ELEVENLABS_API_KEY?.trim() ||
     undefined
   );
 }

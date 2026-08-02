@@ -166,11 +166,11 @@
 acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claude / codex / opencode
     │                        │
     ├── worker-api.sock      └── sessions · OAuth · schedules
-    └── single operator allowlist</code></pre>
+    └── single operator (CLI pair approve)</code></pre>
           <ul class="arch-points">
             <li>
-              <strong>Single operator</strong> — private chat, one allowlisted
-              user id.
+              <strong>Single operator</strong> — private chat; pair with a
+              Telegram code + <code>acpbot pair approve</code> on the host.
             </li>
             <li>
               <strong>Local-first</strong> — tokens and agent processes stay on

@@ -72,22 +72,18 @@ export function speechSettingsFromEnv(
 ): SpeechSettings {
   const ttsOff =
     env.ACPBOT_TTS === "0" ||
-    env.ACPBOT_TTS === "false" ||
-    env.TACP_TTS === "0" ||
-    env.TACP_TTS === "false";
+    env.ACPBOT_TTS === "false";
   const sttOff =
     env.ACPBOT_STT === "0" ||
-    env.ACPBOT_STT === "false" ||
-    env.TACP_STT === "0" ||
-    env.TACP_STT === "false";
+    env.ACPBOT_STT === "false";
 
   return {
     ttsProvider: parseSpeechProvider(
-      env.ACPBOT_TTS_PROVIDER ?? env.TACP_TTS_PROVIDER,
+      env.ACPBOT_TTS_PROVIDER,
       "auto",
     ),
     sttProvider: parseSpeechProvider(
-      env.ACPBOT_STT_PROVIDER ?? env.TACP_STT_PROVIDER,
+      env.ACPBOT_STT_PROVIDER,
       "auto",
     ),
     ttsEnabled: ttsOff ? false : undefined,
@@ -96,11 +92,11 @@ export function speechSettingsFromEnv(
     elevenlabsVoiceId:
       env.ELEVENLABS_VOICE_ID?.trim() ||
       env.ELEVEN_VOICE_ID?.trim() ||
-      env.TACP_ELEVENLABS_VOICE_ID?.trim() ||
+      env.ACPBOT_ELEVENLABS_VOICE_ID?.trim() ||
       undefined,
     elevenlabsTtsModel:
       env.ELEVENLABS_TTS_MODEL?.trim() ||
-      env.TACP_ELEVENLABS_TTS_MODEL?.trim() ||
+      env.ACPBOT_ELEVENLABS_TTS_MODEL?.trim() ||
       undefined,
     elevenlabsSttModel:
       env.ELEVENLABS_STT_MODEL?.trim() ||
@@ -108,7 +104,7 @@ export function speechSettingsFromEnv(
       undefined,
     elevenlabsBaseUrl:
       env.ELEVENLABS_BASE_URL?.trim() ||
-      env.TACP_ELEVENLABS_BASE_URL?.trim() ||
+      env.ACPBOT_ELEVENLABS_BASE_URL?.trim() ||
       undefined,
     elevenlabsStability: env.ELEVENLABS_STABILITY
       ? Number(env.ELEVENLABS_STABILITY)
@@ -118,32 +114,27 @@ export function speechSettingsFromEnv(
       : undefined,
     openaiApiKey:
       env.OPENAI_API_KEY?.trim() ||
-      env.TACP_OPENAI_API_KEY?.trim() ||
       env.ACPBOT_OPENAI_API_KEY?.trim() ||
       undefined,
     openaiBaseUrl:
       env.ACPBOT_OPENAI_BASE_URL?.trim() ||
-      env.TACP_OPENAI_BASE_URL?.trim() ||
       env.OPENAI_BASE_URL?.trim() ||
       undefined,
     openaiTtsModel:
       env.ACPBOT_OPENAI_TTS_MODEL?.trim() ||
-      env.TACP_OPENAI_TTS_MODEL?.trim() ||
       env.OPENAI_TTS_MODEL?.trim() ||
       undefined,
     openaiTtsVoice:
       env.ACPBOT_OPENAI_TTS_VOICE?.trim() ||
-      env.TACP_TTS_VOICE?.trim() ||
+      env.ACPBOT_TTS_VOICE?.trim() ||
       env.OPENAI_TTS_VOICE?.trim() ||
       undefined,
     openaiTtsFormat: parseOpenAiFormat(
       env.ACPBOT_OPENAI_TTS_FORMAT ??
-        env.TACP_OPENAI_TTS_FORMAT ??
         env.OPENAI_TTS_FORMAT,
     ),
     openaiSttModel:
       env.ACPBOT_OPENAI_STT_MODEL?.trim() ||
-      env.TACP_OPENAI_STT_MODEL?.trim() ||
       env.OPENAI_STT_MODEL?.trim() ||
       undefined,
   };

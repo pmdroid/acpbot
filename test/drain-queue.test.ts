@@ -50,7 +50,7 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
 

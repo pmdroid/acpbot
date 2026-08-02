@@ -71,7 +71,7 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
-      - run: TACP_SKIP_LIVE_ACP=1 bun test ./test
+      - run: ACPBOT_SKIP_LIVE_ACP=1 bun test ./test
 
   compile:
     name: binaries

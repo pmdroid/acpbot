@@ -6,7 +6,7 @@
  * 2. Authorization server metadata (RFC 8414)
  * 3. Dynamic client registration (RFC 7591) for a public PKCE client
  *
- * Tokens + pending PKCE live under absolute `$TACP_STATE_DIR` (worker + acp-host).
+ * Tokens + pending PKCE live under absolute `$ACPBOT_STATE_DIR` (worker + acp-host).
  * Authorize URL is returned for Telegram — host never opens a browser.
  */
 import { resolve } from "node:path";
@@ -77,10 +77,10 @@ export function oauthCallbackBase(
   env: NodeJS.ProcessEnv = process.env,
   override?: string,
 ): string {
-  const base = (override ?? env.TACP_OAUTH_CALLBACK_BASE ?? "").trim();
+  const base = (override ?? env.ACPBOT_OAUTH_CALLBACK_BASE ?? "").trim();
   if (!base) {
     throw new Error(
-      "TACP_OAUTH_CALLBACK_BASE is not set (e.g. https://host.ts.net or http://100.x.y.z:8788). " +
+      "ACPBOT_OAUTH_CALLBACK_BASE is not set (e.g. https://host.ts.net or http://100.x.y.z:8788). " +
         "Use Tailscale Serve / Funnel or a reachable host IP so the provider can redirect.",
     );
   }
@@ -91,16 +91,16 @@ export function oauthRedirectUri(callbackBase: string): string {
   return `${callbackBase.replace(/\/+$/, "")}/oauth/callback`;
 }
 
-/** Parse listen port from TACP_OAUTH_CALLBACK_BASE (default 8788). */
+/** Parse listen port from ACPBOT_OAUTH_CALLBACK_BASE (default 8788). */
 export function oauthListenPort(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
-  const explicit = env.TACP_OAUTH_LISTEN_PORT?.trim();
+  const explicit = env.ACPBOT_OAUTH_LISTEN_PORT?.trim();
   if (explicit) {
     const n = Number(explicit);
     if (Number.isFinite(n) && n > 0 && n < 65536) return Math.floor(n);
   }
-  const base = env.TACP_OAUTH_CALLBACK_BASE?.trim();
+  const base = env.ACPBOT_OAUTH_CALLBACK_BASE?.trim();
   if (base) {
     try {
       const u = new URL(base.includes("://") ? base : `http://${base}`);
@@ -116,7 +116,7 @@ export function oauthListenPort(
 export function oauthListenHost(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return env.TACP_OAUTH_LISTEN_HOST?.trim() || "0.0.0.0";
+  return env.ACPBOT_OAUTH_LISTEN_HOST?.trim() || "0.0.0.0";
 }
 
 /**

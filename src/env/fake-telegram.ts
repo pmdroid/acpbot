@@ -76,7 +76,7 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
     id: 1,
     is_bot: true,
     first_name: "acpbot",
-    username: "tacp_bot",
+    username: "acpbot_bot",
     has_topics_enabled: true,
   };
 

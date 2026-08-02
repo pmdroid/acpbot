@@ -24,7 +24,7 @@ describe("HostSessionStore", () => {
   });
 
   test("file store survives re-open", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tacp-sess-"));
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-sess-"));
     try {
       const a = createFileHostSessionStore(dir);
       await a.save({

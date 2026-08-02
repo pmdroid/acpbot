@@ -13,7 +13,7 @@
 
 # ── Required ───────────────────────────────────────────────────────────────
 bot_token = "123456:REPLACE_ME"          # from @BotFather
-operator_user_id = 0                     # your Telegram user id
+operator_user_id = 0                     # 0 = unclaimed; pair via: acpbot pair approve <code>
 
 # Optional: pin the private chat id (auto-learned from first operator message)
 # operator_chat_id = 0

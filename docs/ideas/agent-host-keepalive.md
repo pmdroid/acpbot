@@ -2,7 +2,7 @@
 
 **Status:** implemented — `bun run acp-host` is **required**; worker fails boot without host socket
 
-See `src/acp-host/` and README “ACP host”. Remaining polish: auto-start host from worker, richer lease/ping, multi-worker.  
+See `src/acp-host/` and [architecture.md](../architecture.md). Remaining polish: auto-start host from worker, richer lease/ping, multi-worker.  
 **Context:** thin ACP host (`@agentclientprotocol/sdk`); today each topic session spawns `grok agent stdio` (etc.) as a **child of the acpbot daemon**. Restarting acpbot tears down (or orphans) that process and requires re-spawn + optional `session/load`.  
 **Related PR:** thin host / durable store / modes on `feat/acp-typescript-sdk-host`.
 
@@ -39,7 +39,7 @@ acpbot daemon  ──spawn──►  agent stdio (child)
                                   worker re-spawns + session/new or session/load
 ```
 
-Durable store (`TACP_STATE_DIR/sessions/`) already persists `sessionKey → agentSessionId` and tries `session/load` when the agent advertises it. That is **rehydrate after re-spawn**, not **warm process**.
+Durable store (`ACPBOT_STATE_DIR/sessions/`) already persists `sessionKey → agentSessionId` and tries `session/load` when the agent advertises it. That is **rehydrate after re-spawn**, not **warm process**.
 
 ## Target mental model
 

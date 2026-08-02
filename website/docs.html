@@ -56,6 +56,7 @@
         <a href="#prereqs">Prereqs</a>
         <a href="#install">Install</a>
         <a href="#run">Run</a>
+        <a href="#pair">Pair</a>
         <a href="#telegram">Telegram</a>
         <a href="#speech">Speech</a>
         <a href="#more">More</a>
@@ -70,7 +71,10 @@
               <a href="https://t.me/BotFather">@BotFather</a> with
               <strong>topics in private chats</strong> enabled
             </li>
-            <li>Your Telegram <strong>user id</strong> (allowlist)</li>
+            <li>
+              Shell access on the host (to approve pairing — you do
+              <strong>not</strong> need to look up a user id first)
+            </li>
             <li>
               At least one agent CLI on <code>PATH</code>:
               <code>grok</code>, <code>claude</code>, <code>codex</code>, or
@@ -151,8 +155,50 @@ acpbot-host status
 # host only: acpbot start --host</code></pre>
         </section>
 
+        <section id="pair" class="docs-section">
+          <h2>4. Pair as operator (CLI approve)</h2>
+          <p>
+            Default config leaves the bot <strong>unclaimed</strong>
+            (<code>operator_user_id = 0</code>). The first Telegram user does
+            <em>not</em> get control automatically.
+          </p>
+          <ol class="docs-list">
+            <li>
+              Open a <strong>private</strong> chat with the bot and send any
+              message (e.g. <code>/ping</code>).
+            </li>
+            <li>
+              The bot replies with a <strong>pairing code</strong>
+              (e.g. <code>AB3K-9Q2M</code>).
+            </li>
+            <li>
+              On the machine running acpbot, approve it:
+            </li>
+          </ol>
+          <pre class="code-block"><code>acpbot pair list
+acpbot pair approve AB3K-9Q2M
+acpbot pair status</code></pre>
+          <p class="docs-note">
+            Telegram proves control of that account; the CLI proves control of
+            the host (where the bot token lives). Only the approved user can
+            control the bot afterward.
+            Details:
+            <a href="https://github.com/pmdroid/acpbot/blob/main/docs/pairing.md"
+              >docs/pairing.md</a
+            >.
+          </p>
+          <p>
+            Optional: set a fixed id in
+            <code>config.toml</code> instead of pairing:
+            <code>operator_user_id = 123456789</code>.
+          </p>
+        </section>
+
         <section id="telegram" class="docs-section">
-          <h2>4. Use Telegram</h2>
+          <h2>5. Use Telegram</h2>
+          <p>
+            After pairing, use the private chat lobby and forum topics:
+          </p>
           <pre class="code-block"><code>/ping
 /new demo hello
 # open the new forum topic → type a prompt
@@ -184,6 +230,10 @@ tts_voice = "alloy"
         <section id="more" class="docs-section">
           <h2>More detail</h2>
           <div class="docs-links">
+            <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/pairing.md">
+              <strong>Pairing</strong>
+              <span>CLI approve flow, re-pair, fixed operator id</span>
+            </a>
             <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/configuration.md">
               <strong>Configuration</strong>
               <span>Full TOML reference, OAuth, speech providers</span>

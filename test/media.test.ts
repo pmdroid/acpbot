@@ -65,7 +65,7 @@ describe("media helpers", () => {
       sessionCwd: cwd,
     });
     expect(prepared.text).toContain("diagram");
-    expect(prepared.text).toContain(".tacp-inbox");
+    expect(prepared.text).toContain(".acpbot-inbox");
     expect(prepared.attachments).toHaveLength(0);
     expect(prepared.notes.some((n) => n.includes("acp image blocks off"))).toBe(
       true,
@@ -109,7 +109,7 @@ describe("media helpers", () => {
       },
     });
     expect(prepared.text).toContain("hello from voice");
-    expect(prepared.text).toContain(".tacp-inbox");
+    expect(prepared.text).toContain(".acpbot-inbox");
     expect(prepared.attachments).toHaveLength(0);
   });
 });
@@ -158,7 +158,7 @@ describe("daemon media + TTS", () => {
 
     expect(env.agents.turns).toHaveLength(1);
     expect(env.agents.turns[0]!.input.text).toContain("what is this?");
-    expect(env.agents.turns[0]!.input.text).toContain(".tacp-inbox");
+    expect(env.agents.turns[0]!.input.text).toContain(".acpbot-inbox");
     // Default: no ACP image blocks (Grok lacks promptCapabilities.image)
     expect(env.agents.turns[0]!.input.attachments?.length ?? 0).toBe(0);
   });

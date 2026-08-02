@@ -9,7 +9,7 @@ import {
 
 describe("cleanupLegacyOutboundQueues", () => {
   test("removes telegram-queue and speak-queue when present", async () => {
-    const state = await mkdtemp(join(tmpdir(), "tacp-legacy-q-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-legacy-q-"));
     try {
       for (const name of LEGACY_OUTBOUND_QUEUE_DIRS) {
         const dir = join(state, name);
@@ -39,7 +39,7 @@ describe("cleanupLegacyOutboundQueues", () => {
   });
 
   test("is a no-op when queues already gone", async () => {
-    const state = await mkdtemp(join(tmpdir(), "tacp-legacy-empty-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-legacy-empty-"));
     try {
       const result = await cleanupLegacyOutboundQueues(state);
       expect(result.removed).toEqual([]);

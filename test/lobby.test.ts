@@ -208,7 +208,7 @@ describe("01 — authenticated daemon with working lobby", () => {
     const daemon = createDaemon(env);
     await daemon.handleUpdate(msg({ text: "/ping" }));
     expect(env.config.repos?.myrepo).toBe("/any/configured/path");
-    // There is no default HOME/.tacp or similar in the fake path.
+    // There is no default HOME/.acpbot or similar in the fake path.
     expect(env.telegram.sentMessages()[0]?.text).toBe("pong");
   });
 });

@@ -2,7 +2,7 @@
 
 ## [0.1.0] — 2026-08-01
 
-First public release as **acpbot** (formerly tacp).
+First public release as **acpbot**.
 
 ### Added
 - Telegram worker + required **acp-host** process model
@@ -17,7 +17,7 @@ First public release as **acpbot** (formerly tacp).
 - Stronger MCP **`update`** tool description + telegram skill habit so agents keep the ⏳ Working… bubble useful mid-turn
 
 ### Notes
-- **Config is TOML-first:** `~/.config/acpbot/config.toml` (see `config.example.toml`); store/state default under `~/.local/share/acpbot/`. Env vars remain optional overrides; prefer `ACPBOT_*` / `TACP_*` legacy aliases only for CI/migration
+- **Config is TOML-first:** `~/.config/acpbot/config.toml` (see `config.example.toml`); store/state default under `~/.local/share/acpbot/`. Env overrides use **`ACPBOT_*`**
 - **Speech providers:** independent TTS/STT selection (`auto` \| `elevenlabs` \| `openai` \| `off`) via `[speech]` / `[speech.openai]` / `[speech.elevenlabs]`; OpenAI is first-class (Whisper + TTS), not only a fallback
 - **Guided setup TUI** (`acpbot setup`): bot token, operator, agent, repos, speech API keys, OAuth; optional **macOS LaunchAgent** / **Linux systemd user** install for host + worker
-- Repo config prefers `.acpbot/`; legacy `.tacp/` still loads when present
+- Per-repo config under **`.acpbot/`** (`mcp.json`, schedules, profiles)

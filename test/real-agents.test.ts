@@ -75,7 +75,7 @@ describe("realAgents with injected host", () => {
     const agents = realAgents({
       config: {
         operatorUserId: 1,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
         defaultAgent: "grok-build",
       },
       stateDir: "/state",
@@ -86,7 +86,7 @@ describe("realAgents with injected host", () => {
       repo: "acpbot",
       name: "x",
     });
-    expect(session.cwd).toBe("/configured/repos/tacp");
+    expect(session.cwd).toBe("/configured/repos/acpbot");
 
     const turn = await agents.runPromptTurn(session, { text: "go" });
     const texts: string[] = [];
@@ -153,7 +153,7 @@ describe("realAgents with injected host", () => {
     const agents = realAgents({
       config: {
         operatorUserId: 1,
-        repos: { acpbot: "/tmp/tacp" },
+        repos: { acpbot: "/tmp/acpbot" },
         defaultAgent: "grok-build",
       },
       stateDir: "/state",

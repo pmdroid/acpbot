@@ -110,7 +110,7 @@ describe("minimal repo picker", () => {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
         repos: {
-          acpbot: "/configured/repos/tacp",
+          acpbot: "/configured/repos/acpbot",
           other: "/configured/repos/other",
         },
       },
@@ -135,7 +135,7 @@ describe("minimal repo picker", () => {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
         repos: {
-          acpbot: "/configured/repos/tacp",
+          acpbot: "/configured/repos/acpbot",
           other: "/configured/repos/other",
         },
       },
@@ -148,13 +148,13 @@ describe("minimal repo picker", () => {
     const markup = pick?.replyMarkup as {
       inline_keyboard: Array<Array<{ callback_data: string }>>;
     };
-    const tacpBtn = markup.inline_keyboard
+    const acpbotBtn = markup.inline_keyboard
       .flat()
       .find((_, i) => Object.keys(env.config.repos!)[i] === "acpbot")
       ?? markup.inline_keyboard.flat()[0]!;
 
     await daemon.handleUpdate(
-      callback(tacpBtn.callback_data, 2, pick?.message_id ?? 1),
+      callback(acpbotBtn.callback_data, 2, pick?.message_id ?? 1),
     );
     await daemon.handleUpdate(root("auth-refactor", 3));
 
@@ -171,7 +171,7 @@ describe("permission inline keyboard round-trip", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -292,7 +292,7 @@ describe("/cancel stops turn and keeps session", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);

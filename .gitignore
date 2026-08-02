@@ -16,8 +16,8 @@ data/
 .scratch-*/
 .claude/
 .wayfinder/
-.tacp-inbox/
-**/.tacp-inbox/
+.acpbot-inbox/
+**/.acpbot-inbox/
 
 # Optional local sample workspace (not shipped)
 demo/

@@ -1,5 +1,5 @@
 /**
- * Environment key helpers — prefer ACPBOT_*, accept TACP_* legacy aliases.
+ * Environment key helpers — `ACPBOT_*` process env names.
  */
 
 export function envFirst(
@@ -17,33 +17,32 @@ export function envFirst(
 export function stateDirEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return envFirst(env, "ACPBOT_STATE_DIR", "TACP_STATE_DIR");
+  return envFirst(env, "ACPBOT_STATE_DIR");
 }
 
 export function defaultAgentEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return envFirst(env, "ACPBOT_DEFAULT_AGENT", "TACP_DEFAULT_AGENT");
+  return envFirst(env, "ACPBOT_DEFAULT_AGENT");
 }
 
 export function logLevelEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return envFirst(env, "ACPBOT_LOG_LEVEL", "TACP_LOG_LEVEL");
+  return envFirst(env, "ACPBOT_LOG_LEVEL");
 }
 
 export function oauthCallbackBaseEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return envFirst(env, "ACPBOT_OAUTH_CALLBACK_BASE", "TACP_OAUTH_CALLBACK_BASE");
+  return envFirst(env, "ACPBOT_OAUTH_CALLBACK_BASE");
 }
 
 export function reposJsonEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): string | undefined {
-  return envFirst(env, "ACPBOT_REPOS_JSON", "TACP_REPOS_JSON");
+  return envFirst(env, "ACPBOT_REPOS_JSON");
 }
 
-/** Per-repo config directory name preference. */
+/** Per-repo config directory name. */
 export const REPO_CONFIG_DIR_PREFERRED = ".acpbot";
-export const REPO_CONFIG_DIR_LEGACY = ".tacp";

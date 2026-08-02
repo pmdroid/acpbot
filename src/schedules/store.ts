@@ -1,5 +1,5 @@
 /**
- * Atomic schedule job store under `<repoRoot>/.tacp/schedules/<id>.json`.
+ * Atomic schedule job store under `<repoRoot>/.acpbot/schedules/<id>.json`.
  *
  * - write: temp file + rename; create uses exclusive dest (no silent overwrite)
  * - cancel: soft-disable (`enabled: false`), scoped to sessionKey by default
@@ -36,7 +36,7 @@ export function isWithinRepo(repoRoot: string, candidate: string): boolean {
   return abs.startsWith(prefix);
 }
 
-/** `<repo>/.acpbot/schedules` (or legacy `.tacp/schedules`). */
+/** `<repo>/.acpbot/schedules`. */
 export function schedulesDir(repoRoot: string): string {
   return join(resolveRepoConfigDir(repoRoot), "schedules");
 }

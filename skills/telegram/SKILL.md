@@ -11,7 +11,7 @@ description: >
 You are in an **acpbot** Telegram topic. The operator only sees what you send on Telegram
 (normal reply text, plus the tools below). They do not see your thinking.
 
-Host MCP server: **`acpbot`**. Call tools by name (clients may show them as `acpbot__…` or `tacp__…`).
+Host MCP server: **`acpbot`**. Call tools by name (clients may show them as `acpbot__…` or `acpbot__…`).
 
 ## Keep the operator updated (required habit)
 

@@ -129,6 +129,11 @@ import {
   repoKeyForOAuth,
   resolveOAuthStateDir,
 } from "../mcp/oauth-store";
+import {
+  issuePairingCode,
+  pairingMessageForUser,
+  takeAppliedPairing,
+} from "./pairing";
 import type { PromptAttachment } from "../env/types";
 
 export type DaemonOptions = {
@@ -284,18 +289,63 @@ export function createDaemon(
     env.config.operatorUserId > 0 &&
     userId === env.config.operatorUserId;
 
-  /** operator_user_id = 0 → first real user who messages becomes the only operator. */
-  async function tryClaimOperator(
+  /**
+   * operator_user_id = 0 → unclaimed. Issue a pairing code for CLI approve
+   * (`acpbot pair approve <code>`). Does not claim automatically.
+   */
+  async function issuePairingForUser(
     userId: number,
     chatId: number,
-  ): Promise<boolean> {
+    from?: { username?: string; first_name?: string },
+  ): Promise<void> {
+    if (env.config.operatorUserId > 0) return;
+    try {
+      const pending = await issuePairingCode(stateDir, {
+        userId,
+        chatId,
+        username: from?.username,
+        firstName: from?.first_name,
+      });
+      log.info("pairing code issued", {
+        userId,
+        chatId,
+        code: pending.code,
+        expiresAt: pending.expiresAt,
+      });
+      await env.telegram.sendMessage({
+        chatId,
+        text: pairingMessageForUser(pending),
+        parseMode: "HTML",
+      });
+    } catch (err) {
+      log.warn("pairing code issue failed", {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      try {
+        await env.telegram.sendMessage({
+          chatId,
+          text:
+            "Could not create a pairing code. Check worker logs / state_dir permissions.",
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /** Apply CLI `acpbot pair approve` if present (no restart required). */
+  async function applyCliPairingIfAny(): Promise<boolean> {
     if (env.config.operatorUserId > 0) return false;
-    env.config.operatorUserId = userId;
-    await ensureOperatorChat(chatId);
+    const applied = await takeAppliedPairing(stateDir);
+    if (!applied) return false;
+    env.config.operatorUserId = applied.userId;
+    await ensureOperatorChat(applied.chatId);
     if (configPath) {
       try {
         const { patchConfigOperatorUserId } = await import("../config-setup");
-        patchConfigOperatorUserId(configPath, userId);
+        // Config usually already written by CLI; re-patch is harmless.
+        patchConfigOperatorUserId(configPath, applied.userId);
       } catch (err) {
         log.warn("could not persist operator_user_id to config", {
           configPath,
@@ -303,16 +353,18 @@ export function createDaemon(
         });
       }
     }
-    log.info("operator claimed on first message", { userId, chatId });
+    log.info("operator claimed via CLI pair approve", {
+      userId: applied.userId,
+      chatId: applied.chatId,
+      code: applied.code,
+    });
     try {
       await env.telegram.sendMessage({
-        chatId,
+        chatId: applied.chatId,
         text:
-          `✅ You're the acpbot operator (user id \`${userId}\`).\n` +
+          `✅ Pairing approved on the host.\n` +
+          `You're the acpbot operator (user id <code>${applied.userId}</code>).\n` +
           `Only this account can control the bot.\n` +
-          (configPath
-            ? `Saved to config as operator_user_id.\n`
-            : "") +
           `Try /ping or /new.`,
         parseMode: "HTML",
       });
@@ -3168,17 +3220,33 @@ export function createDaemon(
     }
 
     const senderId = senderOf(update);
+    // CLI pair approve may have completed while we were idle.
+    await applyCliPairingIfAny();
+
     if (env.config.operatorUserId <= 0) {
       const chatId =
         update.message?.chat.id ??
         update.edited_message?.chat.id ??
         update.callback_query?.message?.chat.id;
-      if (senderId !== undefined && chatId !== undefined) {
-        await tryClaimOperator(senderId, chatId);
-      } else {
-        return;
+      const chatType =
+        update.message?.chat.type ??
+        update.edited_message?.chat.type ??
+        update.callback_query?.message?.chat.type;
+      // Only private chats can pair (no group claim races).
+      if (
+        senderId !== undefined &&
+        chatId !== undefined &&
+        (chatType === undefined || chatType === "private")
+      ) {
+        const from =
+          update.message?.from ??
+          update.edited_message?.from ??
+          update.callback_query?.from;
+        await issuePairingForUser(senderId, chatId, from);
       }
-    } else if (!isOperator(senderId)) {
+      return;
+    }
+    if (!isOperator(senderId)) {
       log.debug("ignore non-operator update", summary);
       return;
     }
@@ -3288,6 +3356,8 @@ export function createDaemon(
 
     try {
       while (!signal?.aborted) {
+      await applyCliPairingIfAny();
+
       let updates: TelegramUpdate[];
       try {
         updates = await env.telegram.getUpdates({

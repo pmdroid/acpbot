@@ -1,5 +1,5 @@
 /**
- * In-repo schedule job schema (`<repo>/.tacp/schedules/<id>.json`).
+ * In-repo schedule job schema (`<repo>/.acpbot/schedules/<id>.json`).
  *
  * Host fire (acp-host) is out of scope for A2 — this is durable CRUD only.
  */

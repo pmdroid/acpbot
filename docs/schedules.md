@@ -19,7 +19,7 @@ Optional scripts (relative to repo root):
 | Tool | Action |
 |---|---|
 | `schedule_create` | `prompt` (required) + optional `script` path + `once` / `cron` |
-| `schedule_list` | Jobs for `TACP_SESSION_KEY` (or whole repo with `all: true`) |
+| `schedule_list` | Jobs for `ACPBOT_SESSION_KEY` (or whole repo with `all: true`) |
 | `schedule_cancel` | Soft-disable for **this session** (`enabled: false`); `all: true` for any in-repo job |
 | `schedule_run_now` | Set `nextRunAt=now` so the host fires on the next tick |
 
@@ -32,7 +32,7 @@ Optional scripts (relative to repo root):
 - The `timezone` field is stored (non-UTC values may warn on create) but does **not** shift the schedule yet
 - When both day-of-month and day-of-week are restricted, classic cron **OR** applies (either may match)
 
-## Host fire (`bun run acp-host`)
+## Host fire (`acpbot-host` / `bun run acp-host`)
 
 Requirements:
 

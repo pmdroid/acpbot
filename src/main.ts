@@ -23,11 +23,23 @@ import {
   runServiceCli,
   serviceCliHelp,
 } from "./setup/service-cli";
+import {
+  isPairCliCommand,
+  pairCliHelp,
+  runPairCli,
+} from "./setup/pair-cli";
 
 async function main(): Promise<void> {
   // Service control: install | start | stop | restart | status | uninstall
   if (isServiceCliCommand(process.argv)) {
     const code = await runServiceCli(process.argv);
+    process.exitCode = code;
+    return;
+  }
+
+  // Pairing: list / approve Telegram operator codes (no host required)
+  if (isPairCliCommand(process.argv)) {
+    const code = await runPairCli(process.argv);
     process.exitCode = code;
     return;
   }
@@ -38,8 +50,11 @@ async function main(): Promise<void> {
 
   acpbot              Run worker (foreground)
   acpbot setup        Guided setup TUI
+  acpbot pair list|approve <code>|status
   acpbot install      Install host + worker as background services
   acpbot start|stop|restart|status|uninstall
+
+${pairCliHelp()}
 
 ${serviceCliHelp()}`);
     return;

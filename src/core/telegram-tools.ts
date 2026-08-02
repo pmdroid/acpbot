@@ -11,7 +11,7 @@ const PHOTO_TOOL =
 const FILE_TOOL =
   /^(telegram_send_file|telegram_send_document|telegram_file|telegram_document|send_file|send_document)$/i;
 
-/** Last tool segment: mcp__tacp__telegram_send → telegram_send; tacp:update → update. */
+/** Last tool segment: mcp__acpbot__telegram_send → telegram_send; acpbot:update → update. */
 function toolBaseName(name: string): string {
   const trimmed = name.trim();
   if (trimmed.includes("__")) {

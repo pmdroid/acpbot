@@ -24,9 +24,8 @@ services:
     restart: unless-stopped
     environment:
       ACPBOT_CONFIG: /data/config.toml
-      # Optional legacy overrides if not set in TOML:
+      # Optional env overrides if not set in TOML:
       ACPBOT_STATE_DIR: /data/state
-      TACP_STATE_DIR: /data/state
     volumes:
       - acpbot-data:/data
       - ${ACPBOT_CONFIG_HOST:-./config.toml}:/data/config.toml:ro
@@ -57,9 +56,7 @@ services:
     environment:
       ACPBOT_CONFIG: /data/config.toml
       ACPBOT_STATE_DIR: /data/state
-      TACP_STATE_DIR: /data/state
       ACPBOT_STORE_PATH: /data/store.json
-      TACP_STORE_PATH: /data/store.json
     volumes:
       - acpbot-data:/data
       - ${ACPBOT_CONFIG_HOST:-./config.toml}:/data/config.toml:ro

@@ -32,6 +32,7 @@ Interactive (@clack) walkthrough:
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | OAuth | Optional `callback_base` for remote MCP |
+| Log level | Optional `log_level` (`info` default) |
 | Daemon | Installs **both** host and worker as background services (see below) |
 
 First plain `acpbot` start also opens the TUI if `bot_token` is still a placeholder.  
@@ -277,11 +278,11 @@ model = "whisper-1"
 | `features.tts_mode` | **When** the agent speaks: `agent` (MCP `speak` only) \| `always` \| `off` |
 | `speech.tts_provider` / `stt_provider` | **Which API** synthesizes / transcribes |
 
-## Legacy environment variables
+## Environment variable overrides
 
-Still accepted as **overrides** (CI, old scripts), but not required:
+Optional **overrides** for CI, Docker, or scripts. Day-to-day use prefers TOML (`config.toml`).
 
-| Env (prefer `ACPBOT_*`) | TOML equivalent |
+| Env override | TOML equivalent |
 |---|---|
 | `ACPBOT_BOT_TOKEN` | `bot_token` |
 | `ACPBOT_OPERATOR_USER_ID` | `operator_user_id` |
@@ -294,8 +295,6 @@ Still accepted as **overrides** (CI, old scripts), but not required:
 | `ACPBOT_CONFIG` | path to TOML |
 | `ACPBOT_TTS_PROVIDER` / `ACPBOT_STT_PROVIDER` | `auto` \| `elevenlabs` \| `openai` \| `off` |
 | `OPENAI_API_KEY` / `ELEVENLABS_API_KEY` | speech secrets |
-
-`TACP_*` remains a legacy alias for the same keys.
 
 ## Related
 

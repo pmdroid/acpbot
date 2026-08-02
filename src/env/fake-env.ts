@@ -3,7 +3,7 @@ import { fakeAgents, type FakeAgentsOptions } from "./fake-agents";
 import { fakeTelegram, type FakeTelegramOptions } from "./fake-telegram";
 import { silentLogger } from "./logger";
 import { memoryStore } from "./store";
-import type { Environment, Logger, Store, TacpConfig } from "./types";
+import type { Environment, Logger, Store, AcpbotConfig } from "./types";
 
 export type FakeEnvironment = Environment & {
   telegram: ReturnType<typeof fakeTelegram>;
@@ -14,7 +14,7 @@ export type FakeEnvironment = Environment & {
 };
 
 export type FakeEnvironmentOptions = {
-  config?: Partial<TacpConfig>;
+  config?: Partial<AcpbotConfig>;
   telegram?: FakeTelegramOptions;
   agents?: FakeAgentsOptions;
   store?: Store;
@@ -29,11 +29,11 @@ export type FakeEnvironmentOptions = {
 export function createFakeEnvironment(
   options: FakeEnvironmentOptions = {},
 ): FakeEnvironment {
-  const config: TacpConfig = {
+  const config: AcpbotConfig = {
     operatorUserId: options.config?.operatorUserId ?? 42,
     operatorChatId: options.config?.operatorChatId,
     repos: options.config?.repos ?? {
-      tacp: "/configured/repos/tacp",
+      acpbot: "/configured/repos/acpbot",
       other: "/configured/repos/other",
     },
     defaultAgent: options.config?.defaultAgent ?? "codex",

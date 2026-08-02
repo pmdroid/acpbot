@@ -75,7 +75,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -93,7 +93,7 @@ describe("03 — live turns with status projection", () => {
     await settle();
 
     expect(env.agents.turns).toHaveLength(1);
-    expect(env.agents.turns[0]?.handle.cwd).toBe("/configured/repos/tacp");
+    expect(env.agents.turns[0]?.handle.cwd).toBe("/configured/repos/acpbot");
     expect(env.agents.turns[0]?.input.text).toBe("hello agent");
   });
 
@@ -102,7 +102,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -137,7 +137,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -169,7 +169,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -192,7 +192,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -228,7 +228,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -270,7 +270,7 @@ describe("03 — live turns with status projection", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);

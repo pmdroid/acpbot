@@ -64,7 +64,7 @@ describe("listRegisteredAgents", () => {
 
   test("allowlist filters", () => {
     const ids = listRegisteredAgents({
-      env: { TACP_AGENTS: "grok-build" },
+      env: { ACPBOT_AGENTS: "grok-build" },
       availableOnly: false,
     });
     expect(ids).toEqual(["grok-build"]);

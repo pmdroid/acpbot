@@ -20,7 +20,7 @@ import { silentLogger } from "../env/logger";
 import { resolveAgentLaunchForSpawn } from "./agent-launch";
 import { decisionToPermissionResponse } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
-import type { TacpConfig } from "../env/types";
+import type { AcpbotConfig } from "../env/types";
 import { extractSessionModes, pickSessionModeId } from "./session-mode";
 import {
   findModelConfigOption,
@@ -51,7 +51,7 @@ export type SessionHostHooks = {
 };
 
 export type SessionHostOptions = {
-  config: TacpConfig;
+  config: AcpbotConfig;
   /**
    * Durable session records live under `<stateDir>/sessions/`.
    * When set, agentSessionId is persisted so restarts can session/load.
@@ -293,8 +293,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     }
   }
 
-  function resolveKey(agentOrTacp: string): string {
-    return agentIdToKey.get(agentOrTacp) ?? agentOrTacp;
+  function resolveKey(agentOrId: string): string {
+    return agentIdToKey.get(agentOrId) ?? agentOrId;
   }
 
   function signalFor(sessionKey: string): AbortSignal {
@@ -516,7 +516,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       throw new Error(
         `agent spawn cwd does not exist: ${input.cwd || "(empty)"}\n` +
           `session: ${input.sessionKey}\n` +
-          `Fix TACP_REPOS_JSON / session cwd, or recreate the repo directory.`,
+          `Fix ACPBOT_REPOS_JSON / session cwd, or recreate the repo directory.`,
       );
     }
 

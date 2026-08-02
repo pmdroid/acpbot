@@ -3,9 +3,8 @@
 set -euo pipefail
 
 ROLE="${1:-worker}"
-STATE_DIR="${ACPBOT_STATE_DIR:-${TACP_STATE_DIR:-/data/state}}"
+STATE_DIR="${ACPBOT_STATE_DIR:-/data/state}"
 export ACPBOT_STATE_DIR="$STATE_DIR"
-export TACP_STATE_DIR="$STATE_DIR"
 mkdir -p "$STATE_DIR"
 
 case "$ROLE" in
@@ -24,10 +23,9 @@ case "$ROLE" in
     acpbot-host &
     HOST_PID=$!
     # Wait briefly for the unix socket
+    SOCK="${ACPBOT_ACP_HOST_SOCK:-$STATE_DIR/acp-host.sock}"
     for _ in $(seq 1 50); do
-      if [ -S "${ACPBOT_ACP_HOST_SOCK:-$STATE_DIR/acp-host.sock}" ] \
-        || [ -S "${TACP_ACP_HOST_SOCK:-$STATE_DIR/acp-host.sock}" ] \
-        || [ -S "$STATE_DIR/acp-host.sock" ]; then
+      if [ -S "$SOCK" ]; then
         break
       fi
       sleep 0.1

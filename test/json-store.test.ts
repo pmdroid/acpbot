@@ -117,12 +117,12 @@ describe("daemon + createJsonFileStore durable path", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       }),
       clock: systemClock(),
       store,
@@ -162,12 +162,12 @@ describe("daemon + createJsonFileStore durable path", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
       telegram: telegram2,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       }),
       clock: systemClock(),
       store: store2,
