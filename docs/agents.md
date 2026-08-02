@@ -67,7 +67,14 @@ Usage:
 - `/model <value>` → set directly
 - Mid-turn cancels the turn, then applies
 
-`/status` shows **Agent**, **Launch**, **Mode**, **Model**, and **Effort** (when advertised) as distinct fields.
+`/status` shows **Agent**, **Launch**, **Mode**, **Model**, and **Effort** as distinct fields.
+
+| Field | Meaning |
+|---|---|
+| **Mode** | ACP permission / session mode (`session.modes` or config `mode`) — e.g. Codex `agent`, OpenCode `build`/`plan` |
+| **Effort** | Reasoning effort level when advertised — e.g. Grok `high`/`medium`/`low` |
+
+Grok Build’s ACP `session/new` does **not** include `modes` (verified): only effort under `_meta["x.ai/sessionConfig"]`. Status correctly reports Mode as not advertised and Effort separately.
 
 ## Modes (permission)
 

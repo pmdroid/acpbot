@@ -190,18 +190,22 @@ describe("formatSessionStatus mode line", () => {
     expect(t).not.toMatch(/Mode: _\(not advertised/);
   });
 
-  test("shows effort id when present", () => {
+  test("Grok-like: no mode catalog but effort id shown", () => {
     const t = formatSessionStatus({
       sessionKey: "a/b",
       status: "done",
       agent: "grok-build",
       effort: "high",
+      model: "Grok 4.5",
       cwd: "/tmp",
       threadId: 1,
       chatId: 2,
     });
     expect(t).toMatch(/Effort: `high`/);
-    expect(t).toMatch(/Mode: _\(not advertised/);
+    expect(t).toMatch(/Mode: _\(not advertised — permission modes N\/A; see Effort\)_/);
+    expect(t).toMatch(/Model: `Grok 4\.5`/);
+    // Must not imply effort is a session mode
+    expect(t).not.toMatch(/Mode: `high`/);
   });
 
   test("shows not advertised when mode missing", () => {
@@ -213,7 +217,8 @@ describe("formatSessionStatus mode line", () => {
       threadId: 1,
       chatId: 2,
     });
-    expect(t).toMatch(/Mode: _\(not advertised/);
+    expect(t).toMatch(/Mode: _\(not advertised\)_/);
+    expect(t).toMatch(/Effort: _\(not advertised\)_/);
     expect(t).not.toMatch(/Mode: `unknown`/);
   });
 });

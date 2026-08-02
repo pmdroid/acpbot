@@ -248,13 +248,13 @@ export function formatModeStatus(input: {
 }): string {
   const { current, available } = input;
   const lines = [
-    `**Session mode:** \`${current ?? "not advertised"}\``,
+    `**Session mode:** \`${current ?? "—"}\``,
     "",
   ];
   if (available.length === 0) {
     lines.push(
-      "_Agent did not advertise permission modes — /plan and /build may no-op._",
-      "_Reasoning effort (when available): `/effort`._",
+      "_This agent did not advertise ACP permission modes._",
+      "_Reasoning level: `/effort` (when advertised) · `/plan` / `/build` only work when modes are listed above._",
     );
   } else {
     lines.push("Available:");
@@ -311,17 +311,29 @@ export function formatSessionStatus(input: {
     `Status: \`${input.status}\``,
     agentLine,
     `Launch: \`${launch}\``,
-    input.mode
-      ? `Mode: \`${input.mode}\``
-      : `Mode: _(not advertised — try /mode or agent CLI)_`,
   ];
+  // Permission mode (ACP session.modes / OpenCode config mode) — separate from effort.
+  if (input.mode) {
+    lines.push(`Mode: \`${input.mode}\``);
+  } else if (input.availableModes && input.availableModes.length > 0) {
+    lines.push(`Mode: _(none selected)_`);
+  } else {
+    // Grok Build: session/new has modes:undefined; only effort is advertised.
+    lines.push(
+      input.effort
+        ? `Mode: _(not advertised — permission modes N/A; see Effort)_`
+        : `Mode: _(not advertised)_`,
+    );
+  }
   if (input.model) {
     lines.push(`Model: \`${input.model}\``);
   } else {
-    lines.push(`Model: _(not advertised — try /model or agent CLI)_`);
+    lines.push(`Model: _(not advertised)_`);
   }
   if (input.effort) {
     lines.push(`Effort: \`${input.effort}\``);
+  } else {
+    lines.push(`Effort: _(not advertised)_`);
   }
   if (input.availableModes && input.availableModes.length > 0) {
     lines.push(
