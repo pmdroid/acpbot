@@ -1,10 +1,8 @@
-# acpbot configuration
+# acpbot configuration (reference template)
 #
-# Install:
-#   mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-#   cp config.example.toml ~/.config/acpbot/config.toml
-#   chmod 600 ~/.config/acpbot/config.toml
-#   $EDITOR ~/.config/acpbot/config.toml
+# First run creates ~/.config/acpbot/config.toml automatically and the worker
+# prompts for bot_token / operator_user_id in the terminal. You only need this
+# file if you prefer to hand-edit before starting.
 #
 # Defaults (when omitted below):
 #   store_path = ~/.local/share/acpbot/store.json
@@ -12,8 +10,6 @@
 #
 # Override path:  acpbot --config /path/to/config.toml
 #                 ACPBOT_CONFIG=/path/to/config.toml
-#
-# launchd / systemd: point both acpbot and acpbot-host at the same file.
 
 # ── Required ───────────────────────────────────────────────────────────────
 bot_token = "123456:REPLACE_ME"          # from @BotFather

@@ -55,7 +55,6 @@
       <nav class="docs-toc" aria-label="On this page">
         <a href="#prereqs">Prereqs</a>
         <a href="#install">Install</a>
-        <a href="#config">Config</a>
         <a href="#run">Run</a>
         <a href="#telegram">Telegram</a>
         <a href="#speech">Speech</a>
@@ -103,50 +102,34 @@ sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host</code></pre>
         </section>
 
-        <section id="config" class="docs-section">
-          <h2>3. Config file</h2>
-          <p>
-            Defaults live under XDG paths. Create a TOML config (mode
-            <code>600</code> — it holds secrets):
-          </p>
-          <pre class="code-block"><code>mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-# copy config.example.toml from the repo / release notes
-cp config.example.toml ~/.config/acpbot/config.toml
-chmod 600 ~/.config/acpbot/config.toml</code></pre>
-          <p>Minimal <code>~/.config/acpbot/config.toml</code>:</p>
-          <pre class="code-block"><code>bot_token = "123456:ABC…"          # from @BotFather
-operator_user_id = 12345           # your Telegram user id
-default_agent = "grok-build"       # or claude | codex | opencode
-
-[repos]
-demo = "/absolute/path/to/your/repo"</code></pre>
-          <p class="docs-note">
-            <strong>Defaults</strong> (no extra keys needed): store
-            <code>~/.local/share/acpbot/store.json</code>, state
-            <code>~/.local/share/acpbot/state</code>. Worker and host must use the
-            <strong>same</strong> config file.
-          </p>
-        </section>
-
         <section id="run" class="docs-section">
-          <h2>4. Run host + worker</h2>
+          <h2>3. Run host + worker</h2>
           <p>
             <strong>acp-host is required.</strong> The worker exits at boot if
             the host socket is missing.
           </p>
-          <pre class="code-block"><code># terminal 1 — owns agent processes + schedules
-acpbot-host --config ~/.config/acpbot/config.toml
-
-# terminal 2 — Telegram worker
-acpbot --config ~/.config/acpbot/config.toml</code></pre>
           <p>
-            If the binaries are still in the download directory, run them by
-            path instead of short names.
+            On first start the app creates
+            <code>~/.config/acpbot/</code> and
+            <code>~/.local/share/acpbot/</code> for you. Run the
+            <strong>worker once in a terminal</strong> to complete a short
+            setup wizard (bot token, user id, optional repo).
+          </p>
+          <pre class="code-block"><code># terminal 1 — owns agent processes + schedules
+acpbot-host
+
+# terminal 2 — first run: setup wizard, then Telegram
+acpbot</code></pre>
+          <p class="docs-note">
+            Config path defaults to
+            <code>~/.config/acpbot/config.toml</code> (mode <code>600</code>).
+            Optional: <code>--config /path/to/config.toml</code>. Host and
+            worker must share the same file.
           </p>
         </section>
 
         <section id="telegram" class="docs-section">
-          <h2>5. Use Telegram</h2>
+          <h2>4. Use Telegram</h2>
           <pre class="code-block"><code>/ping
 /new demo hello
 # open the new forum topic → type a prompt

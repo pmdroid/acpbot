@@ -3,7 +3,8 @@ import {
   AcpHostRequiredError,
   assertAcpHostReady,
 } from "./acp-host/client";
-import { applyConfigToEnv, loadConfig } from "./config";
+import { applyConfigToEnv } from "./config";
+import { loadConfigWithSetup } from "./config-setup";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
 import { cleanupLegacyOutboundQueues } from "./core/legacy-cleanup";
 import { systemClock } from "./env/clock";
@@ -15,11 +16,14 @@ import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
-  const cfg = loadConfig({ requireTelegram: true });
+  const { cfg, layout } = await loadConfigWithSetup({ requireTelegram: true });
   applyConfigToEnv(cfg);
   // loadConfig already resolves stateDir to absolute.
   const stateDirAbs = cfg.stateDir;
   const log = createLogger({ level: cfg.logLevel, name: "acpbot" });
+  if (layout.createdConfig) {
+    console.error(`acpbot created config: ${layout.configPath}`);
+  }
 
   // acp-host is mandatory — fail before Telegram / agents wire-up.
   try {
@@ -97,7 +101,15 @@ async function main(): Promise<void> {
 
   // Skills: install once with `bun run skills:install` (not on every boot).
 
-  const daemon = createDaemon(env, { stateDir: stateDirAbs });
+  const daemon = createDaemon(env, {
+    stateDir: stateDirAbs,
+    ...(cfg.configPath ? { configPath: cfg.configPath } : {}),
+  });
+  if (cfg.operatorUserId <= 0) {
+    console.error(
+      "acpbot: operator_user_id not set — first private message claims the bot",
+    );
+  }
   const ac = new AbortController();
 
   const stop = () => {

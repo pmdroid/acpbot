@@ -12,11 +12,13 @@ launchd / systemd installs. You do **not** need a wall of environment variables.
 | 3 | `~/.config/acpbot/config.toml` (or `$XDG_CONFIG_HOME/acpbot/config.toml`) |
 | 4 | `./config.toml` (cwd) if present |
 
-```bash
-mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-cp config.example.toml ~/.config/acpbot/config.toml
-chmod 600 ~/.config/acpbot/config.toml
-```
+**First run (no manual mkdir/cp):** starting `acpbot-host` or `acpbot` creates:
+
+- `~/.config/acpbot/config.toml` (mode `600`) if missing  
+- `~/.local/share/acpbot/` (store + state)
+
+If `bot_token` is still a placeholder, run **`acpbot` in a terminal** — a short onboarding wizard.  
+**`operator_user_id`** is the allowlist (only that Telegram account can control the bot). Leave it blank in the wizard to **claim on first private message**. Non-interactive boots need a real `bot_token` already in the file.
 
 Worker and **acp-host must use the same file** (or the same `state_dir`).
 
@@ -39,9 +41,14 @@ records, and OAuth tokens. Keep it private (owner-only).
 ## Required keys (Telegram worker)
 
 ```toml
-bot_token = "…"           # @BotFather
-operator_user_id = 12345  # your Telegram user id
+bot_token = "…"           # @BotFather — required
+operator_user_id = 0      # 0 = first DM claims the bot; or set your user id
 ```
+
+| Key | Why |
+|---|---|
+| `bot_token` | Telegram Bot API auth |
+| `operator_user_id` | **Security allowlist** — anyone who can talk to the bot could otherwise run agents on your machine. Set explicitly, or leave `0` and claim with the first private message |
 
 **acp-host** does not require the bot token; it only needs the shared `state_dir`
 and optional `[repos]` / `[oauth]` / `[schedule]`.
