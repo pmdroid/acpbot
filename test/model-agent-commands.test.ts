@@ -93,8 +93,8 @@ describe("/model and /agent", () => {
 
   test("/agent claude switches identity", async () => {
     // CI runners often lack agent CLIs on PATH; list full registry for this test.
-    const prev = process.env.TACP_AGENTS_ALL;
-    process.env.TACP_AGENTS_ALL = "1";
+    const prev = process.env.ACPBOT_AGENTS_ALL;
+    process.env.ACPBOT_AGENTS_ALL = "1";
     try {
       const env = createFakeEnvironment({
         config: {
@@ -114,8 +114,8 @@ describe("/model and /agent", () => {
         env.agents.ensureCalls.some((c) => c.agent === "claude"),
       ).toBe(true);
     } finally {
-      if (prev === undefined) delete process.env.TACP_AGENTS_ALL;
-      else process.env.TACP_AGENTS_ALL = prev;
+      if (prev === undefined) delete process.env.ACPBOT_AGENTS_ALL;
+      else process.env.ACPBOT_AGENTS_ALL = prev;
     }
   });
 

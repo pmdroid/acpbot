@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
-import type { TacpConfig } from "../env/types";
+import type { AcpbotConfig } from "../env/types";
 import {
   createSessionHost,
   type SessionHost,
@@ -56,17 +56,17 @@ type Slot = {
 export type AcpHostServerOptions = {
   sockPath?: string;
   stateDir?: string;
-  config?: TacpConfig;
+  config?: AcpbotConfig;
   sessionStore?: HostSessionStore;
   log?: Logger;
   /**
-   * Catalog of repos to scan for schedules. Default: config.repos or TACP_REPOS_JSON.
+   * Catalog of repos to scan for schedules. Default: config.repos or ACPBOT_REPOS_JSON.
    * Pass `{}` to disable the scheduler.
    */
   repos?: Record<string, string>;
   /** Default agent when ensuring a cold slot for a schedule fire. */
   defaultAgent?: string;
-  /** Schedule tick interval ms. Default: TACP_SCHEDULE_TICK_MS or 20s. */
+  /** Schedule tick interval ms. Default: ACPBOT_SCHEDULE_TICK_MS or 20s. */
   scheduleTickMs?: number;
   /** Disable schedule loop (tests that only need the socket). */
   enableScheduler?: boolean;
@@ -88,17 +88,17 @@ export async function startAcpHostServer(
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
     options.stateDir ??
-    process.env.TACP_STATE_DIR?.trim() ??
+    process.env.ACPBOT_STATE_DIR?.trim() ??
     "./data/acpbot-state";
   const sockPath = options.sockPath ?? defaultAcpHostSock(stateDir);
-  const baseConfig: TacpConfig = options.config ?? {
+  const baseConfig: AcpbotConfig = options.config ?? {
     operatorUserId: 0,
     mcpEnabled: true,
   };
   const defaultAgent =
     options.defaultAgent?.trim() ||
     baseConfig.defaultAgent?.trim() ||
-    process.env.TACP_DEFAULT_AGENT?.trim() ||
+    process.env.ACPBOT_DEFAULT_AGENT?.trim() ||
     "grok-build";
   const repos: Record<string, string> =
     options.repos ??
@@ -898,7 +898,7 @@ export async function startAcpHostServer(
       repoKeys: Object.keys(repos),
     });
   } else if (enableScheduler) {
-    log.info("scheduler idle (no TACP_REPOS_JSON / repos catalog)");
+    log.info("scheduler idle (no ACPBOT_REPOS_JSON / repos catalog)");
   }
 
   const close = async () => {

@@ -33,13 +33,13 @@ describe("agent-launch", () => {
 
   test("adapter package pins can be overridden via env", () => {
     const claude = resolveAgentLaunch("claude", {
-      TACP_CLAUDE_ACP_PKG: "@agentclientprotocol/claude-agent-acp@9.9.9",
+      ACPBOT_CLAUDE_ACP_PKG: "@agentclientprotocol/claude-agent-acp@9.9.9",
     });
     expect(claude.args).toContain(
       "@agentclientprotocol/claude-agent-acp@9.9.9",
     );
     const codex = resolveAgentLaunch("codex", {
-      TACP_CODEX_ACP_PKG: "@agentclientprotocol/codex-acp@8.8.8",
+      ACPBOT_CODEX_ACP_PKG: "@agentclientprotocol/codex-acp@8.8.8",
     });
     expect(codex.args).toContain("@agentclientprotocol/codex-acp@8.8.8");
   });
@@ -111,9 +111,9 @@ describe("listRegisteredAgents availability", () => {
     expect(ids).toEqual([]);
   });
 
-  test("TACP_AGENTS_ALL lists full registry ignoring PATH", () => {
+  test("ACPBOT_AGENTS_ALL lists full registry ignoring PATH", () => {
     const ids = listRegisteredAgents({
-      env: { TACP_AGENTS_ALL: "1" },
+      env: { ACPBOT_AGENTS_ALL: "1" },
       which: () => null,
     });
     expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
@@ -130,16 +130,16 @@ describe("listRegisteredAgents availability", () => {
 
   test("allowlist intersects installed agents", () => {
     const ids = listRegisteredAgents({
-      env: { TACP_AGENTS: "grok, opencode, codex" },
+      env: { ACPBOT_AGENTS: "grok, opencode, codex" },
       which,
     });
     // codex not installed; grok normalizes to grok-build
     expect(ids).toEqual(["grok-build", "opencode"]);
   });
 
-  test("allowlist with TACP_AGENTS_ALL still respects allowlist", () => {
+  test("allowlist with ACPBOT_AGENTS_ALL still respects allowlist", () => {
     const ids = listRegisteredAgents({
-      env: { TACP_AGENTS: "claude", TACP_AGENTS_ALL: "1" },
+      env: { ACPBOT_AGENTS: "claude", ACPBOT_AGENTS_ALL: "1" },
       which: () => null,
     });
     expect(ids).toEqual(["claude"]);
@@ -148,7 +148,7 @@ describe("listRegisteredAgents availability", () => {
   test("overrides with missing command are filtered", () => {
     const ids = listRegisteredAgents({
       env: {
-        TACP_AGENT_COMMAND_JSON: JSON.stringify({
+        ACPBOT_AGENT_COMMAND_JSON: JSON.stringify({
           custom: { command: "my-custom-acp", args: [] },
         }),
       },
@@ -161,7 +161,7 @@ describe("listRegisteredAgents availability", () => {
   test("overrides with present command appear once", () => {
     const ids = listRegisteredAgents({
       env: {
-        TACP_AGENT_COMMAND_JSON: JSON.stringify({
+        ACPBOT_AGENT_COMMAND_JSON: JSON.stringify({
           "My-Custom": { command: "my-custom-acp", args: ["stdio"] },
           "my-custom": { command: "my-custom-acp", args: ["stdio"] },
         }),

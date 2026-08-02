@@ -11,7 +11,7 @@ Defined in `src/acp/agent-launch.ts`. The `/agent` picker **only lists agents wh
 | `codex` | codex | `npx -y @agentclientprotocol/codex-acp@1.1.7` | `npx`, `codex` |
 | `opencode` | opencode | `opencode acp` | `opencode` |
 
-Adapter pins (npm) — TOML `[agents]` or legacy env:
+Adapter pins (npm) — TOML `[agents]` or env override:
 
 | TOML / env | Default |
 |---|---|

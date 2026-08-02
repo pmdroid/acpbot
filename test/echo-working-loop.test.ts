@@ -58,13 +58,13 @@ describe("working surface with shipped echoAgents", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
         defaultAgent: "echo",
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       }),
       clock: systemClock(),
       store: memoryStore(),
@@ -124,12 +124,12 @@ describe("working surface with shipped echoAgents", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
       telegram,
       agents: echoAgents({
         operatorUserId: OPERATOR,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       }),
       clock: systemClock(),
       store: memoryStore(),

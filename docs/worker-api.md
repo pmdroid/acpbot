@@ -7,7 +7,7 @@ MCP tools run inside (or beside) the agent process and **must not** hold the Tel
 | | |
 |---|---|
 | Default path | `$state_dir/worker-api.sock` (from `config.toml` / `state_dir`) |
-| Override | `ACPBOT_WORKER_API_SOCK` or `TACP_WORKER_API_SOCK` (absolute preferred) |
+| Override | `ACPBOT_WORKER_API_SOCK` (absolute preferred) |
 | Server | Worker daemon (`src/core/worker-api-server.ts`) |
 | Client | Host MCP (`src/mcp/worker-api.ts`) |
 
@@ -53,7 +53,8 @@ jobs do not hang forever.
 Start the API by starting the worker:
 
 ```bash
-bun run start
+acpbot              # binary
+# or from source: bun run start
 # logs: acpbot worker API: unix://…/worker-api.sock
 ```
 

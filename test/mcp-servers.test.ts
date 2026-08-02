@@ -4,8 +4,8 @@ import { join, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { existsSync } from "node:fs";
 import {
-  buildTacpMcpServers,
-  defaultTacpMcpServerEntry,
+  buildAcpbotMcpServers,
+  defaultAcpbotMcpServerEntry,
 } from "../src/mcp/servers";
 import {
   buildSessionMcpServers,
@@ -17,38 +17,38 @@ import {
   isWithinRepo,
   loadRepoMcpProfiles,
   loadRepoMcpServers,
-  loadRepoTacpConfig,
+  loadRepoAcpbotConfig,
   resolveRepoPathToken,
-  TACP_BUILTIN_MCP_NAME,
+  ACPBOT_BUILTIN_MCP_NAME,
 } from "../src/mcp/repo-mcp";
 
-describe("buildTacpMcpServers", () => {
-  test("returns stdio tacp server with bun entry", () => {
-    const servers = buildTacpMcpServers({ enabled: true });
+describe("buildAcpbotMcpServers", () => {
+  test("returns stdio acpbot server with bun entry", () => {
+    const servers = buildAcpbotMcpServers({ enabled: true });
     expect(servers).toHaveLength(1);
     expect(servers[0]?.name).toBe("acpbot");
     expect(servers[0]?.command).toBe(process.execPath);
-    expect(servers[0]?.args[0]).toBe(defaultTacpMcpServerEntry());
+    expect(servers[0]?.args[0]).toBe(defaultAcpbotMcpServerEntry());
     expect(existsSync(servers[0]!.args[0]!)).toBe(true);
     expect(Array.isArray(servers[0]?.env)).toBe(true);
   });
 
   test("disabled returns empty", () => {
-    expect(buildTacpMcpServers({ enabled: false })).toEqual([]);
+    expect(buildAcpbotMcpServers({ enabled: false })).toEqual([]);
   });
 
   test("injects sessionKey and worker API sock for outbound tools", () => {
-    const servers = buildTacpMcpServers({
+    const servers = buildAcpbotMcpServers({
       enabled: true,
       sessionKey: "demo/topic",
-      stateDir: "/tmp/tacp-state",
+      stateDir: "/tmp/acpbot-state",
     });
     const env = Object.fromEntries(
       (servers[0]?.env ?? []).map((e) => [e.name, e.value]),
     );
-    expect(env.TACP_SESSION_KEY).toBe("demo/topic");
-    expect(env.TACP_WORKER_API_SOCK).toBe("/tmp/tacp-state/worker-api.sock");
-    expect(env.TACP_STATE_DIR).toBe("/tmp/tacp-state");
+    expect(env.ACPBOT_SESSION_KEY).toBe("demo/topic");
+    expect(env.ACPBOT_WORKER_API_SOCK).toBe("/tmp/acpbot-state/worker-api.sock");
+    expect(env.ACPBOT_STATE_DIR).toBe("/tmp/acpbot-state");
   });
 });
 
@@ -163,7 +163,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
     setup: (repo: string) => Promise<void>,
     run: (repo: string) => Promise<void>,
   ) {
-    const repo = await mkdtemp(join(tmpdir(), "tacp-mcp-repo-"));
+    const repo = await mkdtemp(join(tmpdir(), "acpbot-mcp-repo-"));
     try {
       await setup(repo);
       await run(repo);
@@ -201,8 +201,8 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   test("invalid JSON → warn path, built-in only", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
-        await writeFile(join(repo, ".tacp", "mcp.json"), "{not json", "utf8");
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
+        await writeFile(join(repo, ".acpbot", "mcp.json"), "{not json", "utf8");
       },
       async (repo) => {
         const repoOnly = await loadRepoMcpServers(repo);
@@ -217,12 +217,12 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
     );
   });
 
-  test("merge order: repo first, then built-in tacp", async () => {
+  test("merge order: repo first, then built-in acpbot", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp", "tools"), { recursive: true });
+        await mkdir(join(repo, ".acpbot", "tools"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -262,9 +262,9 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   test("npx -y @scope/package args are not rewritten", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -306,9 +306,9 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   test("absolute command/args allowed outside repo", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -337,9 +337,9 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   test("path safety rejects .. escape in args", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -364,16 +364,16 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
     );
   });
 
-  test("skips reserved name tacp and duplicate names", async () => {
+  test("skips reserved name acpbot and duplicate names", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
-                name: TACP_BUILTIN_MCP_NAME,
+                name: ACPBOT_BUILTIN_MCP_NAME,
                 command: "bun",
                 args: ["run", ".acpbot/evil.ts"],
               },
@@ -405,7 +405,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           enabled: true,
           sessionKey: "x/y",
         });
-        // only one built-in tacp; reserved repo entry skipped
+        // only one built-in acpbot; reserved repo entry skipped
         expect(merged.filter((s) => s.name === "acpbot")).toHaveLength(1);
         expect(merged.map((s) => s.name)).toEqual(["dup", "keep", "acpbot"]);
       },
@@ -415,9 +415,9 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   test("env injection: session key, repo root, state dir", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -443,9 +443,9 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         for (const s of servers) {
           if (!("env" in s) || !s.env) continue;
           const env = Object.fromEntries(s.env.map((e) => [e.name, e.value]));
-          expect(env.TACP_SESSION_KEY).toBe("life/main");
-          expect(env.TACP_REPO_ROOT).toBe(resolve(repo));
-          expect(env.TACP_REPO_STATE_DIR).toBe(resolve(repo, ".tacp"));
+          expect(env.ACPBOT_SESSION_KEY).toBe("life/main");
+          expect(env.ACPBOT_REPO_ROOT).toBe(resolve(repo));
+          expect(env.ACPBOT_REPO_STATE_DIR).toBe(resolve(repo, ".acpbot"));
         }
 
         const local = servers[0] as {
@@ -456,16 +456,16 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         );
         expect(localEnv.FOO).toBe("bar");
 
-        const tacp = servers[1] as {
+        const builtin = servers[1] as {
           env: Array<{ name: string; value: string }>;
         };
-        const tacpEnv = Object.fromEntries(
-          tacp.env.map((e) => [e.name, e.value]),
+        const builtinEnv = Object.fromEntries(
+          builtin.env.map((e) => [e.name, e.value]),
         );
-        expect(tacpEnv.TACP_WORKER_API_SOCK).toBe(
+        expect(builtinEnv.ACPBOT_WORKER_API_SOCK).toBe(
           "/tmp/host-state/worker-api.sock",
         );
-        expect(tacpEnv.TACP_STATE_DIR).toBe("/tmp/host-state");
+        expect(builtinEnv.ACPBOT_STATE_DIR).toBe("/tmp/host-state");
       },
     );
   });
@@ -484,7 +484,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
       {
         sessionKey: "a/b",
         repoRoot: "/repo",
-        repoStateDir: "/repo/.tacp",
+        repoStateDir: "/repo/.acpbot",
       },
     );
     expect(isStdioServer(out) || ("env" in out && Array.isArray(out.env))).toBe(
@@ -496,16 +496,16 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         e.value,
       ]),
     );
-    expect(env.TACP_SESSION_KEY).toBe("a/b");
-    expect(env.TACP_REPO_ROOT).toBe(resolve("/repo"));
+    expect(env.ACPBOT_SESSION_KEY).toBe("a/b");
+    expect(env.ACPBOT_REPO_ROOT).toBe(resolve("/repo"));
   });
 
   test("http/sse remote entries are passed through", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -546,12 +546,12 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
   });
 });
 
-describe("repo tacp config + mcp profiles", () => {
+describe("repo acpbot config + mcp profiles", () => {
   async function withRepo(
     setup: (repo: string) => Promise<void>,
     run: (repo: string) => Promise<void>,
   ) {
-    const repo = await mkdtemp(join(tmpdir(), "tacp-mcp-profile-"));
+    const repo = await mkdtemp(join(tmpdir(), "acpbot-mcp-profile-"));
     try {
       await setup(repo);
       await run(repo);
@@ -564,9 +564,9 @@ describe("repo tacp config + mcp profiles", () => {
     repo: string,
     names: string[],
   ): Promise<void> {
-    await mkdir(join(repo, ".tacp"), { recursive: true });
+    await mkdir(join(repo, ".acpbot"), { recursive: true });
     await writeFile(
-      join(repo, ".tacp", "mcp.json"),
+      join(repo, ".acpbot", "mcp.json"),
       JSON.stringify({
         mcpServers: names.map((name) => ({
           name,
@@ -578,21 +578,21 @@ describe("repo tacp config + mcp profiles", () => {
     );
   }
 
-  test("loadRepoTacpConfig missing file → empty", async () => {
+  test("loadRepoAcpbotConfig missing file → empty", async () => {
     await withRepo(
       async () => {},
       async (repo) => {
-        expect(await loadRepoTacpConfig(repo)).toEqual({});
+        expect(await loadRepoAcpbotConfig(repo)).toEqual({});
       },
     );
   });
 
-  test("loadRepoTacpConfig parses defaultAgent and mcpProfile", async () => {
+  test("loadRepoAcpbotConfig parses defaultAgent and mcpProfile", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({
             defaultAgent: "grok-build",
             mcpProfile: "automation",
@@ -602,7 +602,7 @@ describe("repo tacp config + mcp profiles", () => {
         );
       },
       async (repo) => {
-        expect(await loadRepoTacpConfig(repo)).toEqual({
+        expect(await loadRepoAcpbotConfig(repo)).toEqual({
           defaultAgent: "grok-build",
           mcpProfile: "automation",
         });
@@ -622,9 +622,9 @@ describe("repo tacp config + mcp profiles", () => {
   test("loadRepoMcpProfiles parses allowlists", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({
             automation: ["schedule", "homeassistant"],
             coding: [],
@@ -695,12 +695,12 @@ describe("repo tacp config + mcp profiles", () => {
           "devtools",
         ]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "automation" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({
             automation: ["schedule", "homeassistant"],
             coding: [],
@@ -723,17 +723,17 @@ describe("repo tacp config + mcp profiles", () => {
     );
   });
 
-  test("empty profile → built-in tacp only", async () => {
+  test("empty profile → built-in acpbot only", async () => {
     await withRepo(
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "coding" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({ coding: [] }),
           "utf8",
         );
@@ -754,7 +754,7 @@ describe("repo tacp config + mcp profiles", () => {
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "automation" }),
           "utf8",
         );
@@ -779,12 +779,12 @@ describe("repo tacp config + mcp profiles", () => {
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "does-not-exist" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({ automation: ["schedule"] }),
           "utf8",
         );
@@ -809,12 +809,12 @@ describe("repo tacp config + mcp profiles", () => {
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "automation" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({
             automation: ["schedule"],
             coding: ["devtools"],
@@ -839,7 +839,7 @@ describe("repo tacp config + mcp profiles", () => {
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({ automation: ["schedule"] }),
           "utf8",
         );
@@ -863,15 +863,15 @@ describe("repo tacp config + mcp profiles", () => {
     await withRepo(
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
-        await writeFile(join(repo, ".tacp", "config.json"), "{not json", "utf8");
+        await writeFile(join(repo, ".acpbot", "config.json"), "{not json", "utf8");
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({ automation: ["schedule"] }),
           "utf8",
         );
       },
       async (repo) => {
-        expect(await loadRepoTacpConfig(repo)).toEqual({});
+        expect(await loadRepoAcpbotConfig(repo)).toEqual({});
         const servers = await buildSessionMcpServers({
           cwd: repo,
           enabled: true,
@@ -891,12 +891,12 @@ describe("repo tacp config + mcp profiles", () => {
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "automation" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           "{not json",
           "utf8",
         );
@@ -917,17 +917,17 @@ describe("repo tacp config + mcp profiles", () => {
     );
   });
 
-  test("allowlist with no matching servers → empty repo MCP + tacp", async () => {
+  test("allowlist with no matching servers → empty repo MCP + acpbot", async () => {
     await withRepo(
       async (repo) => {
         await writeMcpServers(repo, ["schedule", "devtools"]);
         await writeFile(
-          join(repo, ".tacp", "config.json"),
+          join(repo, ".acpbot", "config.json"),
           JSON.stringify({ mcpProfile: "automation" }),
           "utf8",
         );
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({ automation: ["not-present", "also-missing"] }),
           "utf8",
         );
@@ -946,10 +946,10 @@ describe("repo tacp config + mcp profiles", () => {
   test("loadRepoMcpProfiles trims profile keys", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         // raw JSON so the key retains surrounding whitespace
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           '{ " automation ": ["schedule"] }',
           "utf8",
         );
@@ -964,9 +964,9 @@ describe("repo tacp config + mcp profiles", () => {
   test("non-array profile value skipped; remaining keys still load", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.profiles.json"),
+          join(repo, ".acpbot", "mcp.profiles.json"),
           JSON.stringify({
             broken: "not-an-array",
             automation: ["schedule"],

@@ -36,7 +36,7 @@ Living checklist from the architecture review (2026-08-01).
 | 2 | Skill install: not every boot | **done** (2026-08-01) |
 | 3 | Working bubble durability | **open — explain first, no decision yet** |
 | 4 | One-time outbound queue cleanup | **done** (2026-08-01) |
-| 5 | Rename state dir env (`TACP_ACPX_*` → `TACP_STATE_DIR`) | **done** (hard cut, no alias) |
+| 5 | Rename state dir env (old host state env → `ACPBOT_STATE_DIR`) | **done** (hard cut, no alias) |
 | 6 | Delete dead shims / aliases | **done** (2026-08-01) |
 | 7 | Extract turn runner from daemon | **done** (2026-08-01) |
 | 8 | Unify three wait-for-operator UIs | **done** (8a, 2026-08-01) |
@@ -89,7 +89,7 @@ Forum **topic titles stay fixed** (`⏸ repo/name`). Status is only this bubble 
 workingStatusMsg: Map<sessionKey, telegramMessageId>   // in-memory only
 ```
 
-- Message id is **not** written to `TACP_STORE_PATH` / session index.  
+- Message id is **not** written to `ACPBOT_STORE_PATH` / session index.  
 - On **worker restart**, the map is empty even if Telegram still shows an old `⏳` / `❓`.  
 - Next turn (or next `update`) posts a **new** bubble; the old one is orphaned until someone deletes it by hand.
 
@@ -153,7 +153,7 @@ Complexity is low for “save id + delete if idle”; higher if we want perfect 
 **Touch:** `src/acp-host/client.ts`, `src/main.ts`, docs  
 **Verify:** boot without host fails; boot with host ok  
 
-**Status:** **done** — host only; boot asserts socket + ping; `TACP_ACP_HOST=0` removed; in-process path removed from `realAgents` (tests may still inject `host`).
+**Status:** **done** — host only; boot asserts socket + ping; `ACPBOT_ACP_HOST=0` removed; in-process path removed from `realAgents` (tests may still inject `host`).
 
 ---
 
@@ -161,7 +161,7 @@ Complexity is low for “save id + delete if idle”; higher if we want perfect 
 
 **Stance:** **do not** install skills on every worker boot (from Step 0).
 
-**Problem today:** `main.ts` runs `installBundledSkills` unless `TACP_SKIP_SKILL_INSTALL=1`. Installer can also clobber non-owned dirs (`rm -rf` destination).
+**Problem today:** `main.ts` runs `installBundledSkills` unless `ACPBOT_SKIP_SKILL_INSTALL=1`. Installer can also clobber non-owned dirs (`rm -rf` destination).
 
 **Options (pick one how):**
 
@@ -169,7 +169,7 @@ Complexity is low for “save id + delete if idle”; higher if we want perfect 
 |----|-----|
 | 2a | **Remove auto-install from `main.ts`**; document `bun run skills:install` as the only path |
 | 2b | 2a + harden installer so it never deletes non-symlink / foreign targets (safe if someone runs install by hand) |
-| 2c | Keep boot install only when `TACP_INSTALL_SKILLS=1` (default off) — still not “every boot” |
+| 2c | Keep boot install only when `ACPBOT_INSTALL_SKILLS=1` (default off) — still not “every boot” |
 
 **Recommend:** **2b** (remove boot path + safe installer).
 
@@ -208,20 +208,20 @@ No options chosen. Do not implement until you decide.
 
 ## Step 5 — Rename state dir env (naming debt)
 
-**Problem:** Old third-party-host state env (`TACP_ACPX_*`) and matching field names lingered after the host stack moved in-tree.
+**Problem:** Old third-party-host state env (pre-rename host state env) and matching field names lingered after the host stack moved in-tree.
 
 **Options:**
 
 | Id | How |
 |----|-----|
-| 5a | New primary `TACP_STATE_DIR`; accept old env as alias (warn once) |
+| 5a | New primary `ACPBOT_STATE_DIR`; accept old env as alias (warn once) |
 | 5b | Rename in code comments/types only; keep env var string forever |
 | 5c | Hard rename env only (breaking) |
 
 **Touch:** `config.ts`, main, acp-host, mcp, docs, `.env.example`  
 **Verify:** loadConfig tests for alias  
 
-**Status:** **done** — `TACP_STATE_DIR` / `stateDir` only; no `TACP_ACPX_*` alias.
+**Status:** **done** — `ACPBOT_STATE_DIR` / `stateDir` only; no old host-state-env alias.
 
 ---
 
@@ -312,10 +312,10 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 | Id | How |
 |----|-----|
 | 10a | Document as optional; no code split |
-| 10b | Gate remote MCP + OAuth behind `TACP_REMOTE_MCP=1` (default off) |
+| 10b | Gate remote MCP + OAuth behind `ACPBOT_REMOTE_MCP=1` (default off) |
 | 10c | Move OAuth into separate entry/package later |
 
-**Status:** **wontfix** — product wants remote MCP always available; `TACP_REMOTE_MCP` removed.
+**Status:** **wontfix** — product wants remote MCP always available; `ACPBOT_REMOTE_MCP` removed.
 
 ---
 
@@ -350,21 +350,20 @@ Daemon keeps: session create, message routing, slash commands, wiring handlers.
 |------|------|
 | 2026-08-01 | Plan created from architecture review; no steps implemented yet. |
 | 2026-08-01 | Step 0 partial: **acp-host required**; **no skill install every boot**. Working bubble left open + deep-dive added. |
-| 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `TACP_ACP_HOST=0`. |
+| 2026-08-01 | Step 1 done: worker **only** uses acp-host; fail-fast `assertAcpHostReady`; no in-process agents / no `ACPBOT_ACP_HOST=0`. |
 | 2026-08-01 | Step 2 done: no skill install on boot; safe installer (no clobber of real skill dirs). |
 | 2026-08-01 | Step 4 done: boot removes legacy `telegram-queue` / `speak-queue` under state dir. |
-| 2026-08-01 | Step 5 done (hard cut): `TACP_STATE_DIR` only; no legacy state-dir alias; repo inject → `TACP_REPO_STATE_DIR`. |
+| 2026-08-01 | Step 5 done (hard cut): `ACPBOT_STATE_DIR` only; no legacy state-dir alias; repo inject → `ACPBOT_REPO_STATE_DIR`. |
 | 2026-08-01 | Step 6 done: dead shims removed (renameTopic, Runtime*, extractSpeak, shouldUseAcpHost, …). |
 | 2026-08-01 | Step 7 done: extract turn-runner + working-status from daemon. |
 | 2026-08-01 | Step 8a done: shared awaitInlineDecision for permission/elicit/ask-user. |
 | 2026-08-01 | Step 9a done: dual production SessionHost path closed (host-only; inject for tests). |
-| 2026-08-01 | Step 10b done: TACP_REMOTE_MCP gates remote MCP + OAuth (default off). |
-| 2026-08-01 | Reverted 10b: removed TACP_REMOTE_MCP; remotes always allowed. |
+| 2026-08-01 | Step 10b done: ACPBOT_REMOTE_MCP gates remote MCP + OAuth (default off). |
+| 2026-08-01 | Reverted 10b: removed ACPBOT_REMOTE_MCP; remotes always allowed. |
 
 ---
 
 ## Next action for the agent
 
-1. Do **not** implement until asked.  
-2. When ready: propose **Step 1** (host required → fail-fast boot) and/or **Step 2** (drop boot skill install) — ask **if/how**.  
-3. Step 3 only after user picks a bubble option (or explicitly skips).
+Open items: **Step 3** (working bubble durability) and optional **Step 11** (AgentsPort split).
+

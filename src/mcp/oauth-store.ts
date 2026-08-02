@@ -1,11 +1,11 @@
 /**
  * MCP OAuth token + pending PKCE store.
  *
- * Layout (under absolute `$TACP_STATE_DIR` — same path for worker + acp-host):
+ * Layout (under absolute `$ACPBOT_STATE_DIR` — same path for worker + acp-host):
  *   mcp-oauth/by-repo/<repoKey>/<id>.json   — access/refresh tokens (mode 0600)
  *   mcp-oauth/pending/<state>.json         — in-flight PKCE (mode 0600, TTL 15m)
  *
- * Tokens must never be written into `<repo>/.tacp/mcp.json` (or any `.tacp` path).
+ * Tokens must never be written into `<repo>/.acpbot/mcp.json` (or any repo config path).
  * Prefer a private state directory (owner-only). Default `data/` is gitignored;
  * avoid placing state under a tracked tree if you can use an absolute path outside the repo.
  */
@@ -85,7 +85,7 @@ export type OAuthStorePaths = {
 export function defaultOAuthStateDir(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const oauthOnly = env.TACP_OAUTH_STATE_DIR?.trim();
+  const oauthOnly = env.ACPBOT_OAUTH_STATE_DIR?.trim();
   if (oauthOnly) return resolve(oauthOnly);
   return resolveStateDir(undefined, env);
 }
@@ -174,13 +174,13 @@ async function atomicWrite(filePath: string, payload: string): Promise<void> {
 }
 
 /**
- * Guard: refuse to write OAuth material under `.git` or any `.tacp` path
+ * Guard: refuse to write OAuth material under `.git` or any repo config path
  * (including mcp.json). Does not forbid a state dir that happens to live
- * under the repo tree outside `.tacp` (e.g. gitignored `data/`) — prefer an
+ * under the repo tree outside the repo config dir (e.g. gitignored `data/`) — prefer an
  * absolute private path outside the git worktree when possible.
  *
- * Set `TACP_OAUTH_ALLOW_IN_REPO_STATE=1` is reserved for future tightening;
- * currently paths under repoRoot but outside `.tacp` are allowed.
+ * Set `ACPBOT_OAUTH_ALLOW_IN_REPO_STATE=1` is reserved for future tightening;
+ * currently paths under repoRoot but outside the repo config dir are allowed.
  */
 export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
   const abs = resolve(targetPath);
@@ -188,15 +188,10 @@ export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
   if (norm.includes("/.git/") || norm.endsWith("/.git")) {
     throw new Error(`refusing to write OAuth data under .git: ${abs}`);
   }
-  // Never write into <repo>/.acpbot/… or legacy .tacp/… (mcp.json, etc.)
-  if (
-    norm.includes("/.acpbot/") ||
-    /\/\.acpbot$/i.test(norm) ||
-    norm.includes("/.tacp/") ||
-    /\/\.tacp$/i.test(norm)
-  ) {
+  // Never write into <repo>/.acpbot/… (mcp.json, schedules, etc.)
+  if (norm.includes("/.acpbot/") || /\/\.acpbot$/i.test(norm)) {
     throw new Error(
-      `refusing to write OAuth tokens under repo config path (.acpbot/.tacp): ${abs}`,
+      `refusing to write OAuth tokens under repo config path (.acpbot): ${abs}`,
     );
   }
   if (repoRoot) {
@@ -204,11 +199,10 @@ export function assertNotRepoPath(targetPath: string, repoRoot?: string): void {
     const prefix = root.endsWith(sep) ? root : root + sep;
     if (
       (abs === root || abs.startsWith(prefix)) &&
-      process.env.TACP_OAUTH_ALLOW_IN_REPO_STATE !== "1" &&
-      process.env.TACP_OAUTH_ALLOW_IN_REPO_STATE !== "true"
+      process.env.ACPBOT_OAUTH_ALLOW_IN_REPO_STATE !== "1" &&
+      process.env.ACPBOT_OAUTH_ALLOW_IN_REPO_STATE !== "true"
     ) {
-      // Soft policy: only refuse if clearly under .tacp (already handled).
-      // Document that absolute TACP_STATE_DIR outside the worktree is preferred.
+      // Soft policy: prefer absolute ACPBOT_STATE_DIR outside the worktree.
       void 0;
     }
   }

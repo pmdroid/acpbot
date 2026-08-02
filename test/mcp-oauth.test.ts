@@ -36,13 +36,13 @@ import {
   formatMcpRegistryStatus,
 } from "../src/mcp/repo-mcp";
 import { startOauthHttpServer } from "../src/acp-host/oauth-http";
-import type { TacpMcpRemoteServer } from "../src/mcp/repo-mcp";
+import type { AcpbotMcpRemoteServer } from "../src/mcp/repo-mcp";
 
 async function withTempDirs(
   run: (dirs: { state: string; repo: string }) => Promise<void>,
 ) {
-  const state = await mkdtemp(join(tmpdir(), "tacp-oauth-state-"));
-  const repo = await mkdtemp(join(tmpdir(), "tacp-oauth-repo-"));
+  const state = await mkdtemp(join(tmpdir(), "acpbot-oauth-state-"));
+  const repo = await mkdtemp(join(tmpdir(), "acpbot-oauth-repo-"));
   try {
     await run({ state, repo });
   } finally {
@@ -111,7 +111,7 @@ describe("oauth-store", () => {
     expect(already).toBe("/tmp/absolute-oauth");
   });
 
-  test("tokens land under state dir, never under repo .tacp; mode 0600", async () => {
+  test("tokens land under state dir, never under repo .acpbot; mode 0600", async () => {
     await withTempDirs(async ({ state, repo }) => {
       const repoKey = repoKeyForOAuth("demo", repo);
       const path = await writeOAuthToken(
@@ -130,7 +130,7 @@ describe("oauth-store", () => {
       expect(path.startsWith(state)).toBe(true);
       expect(isAbsolute(path)).toBe(true);
       expect(path.includes(`${join("mcp-oauth", "by-repo")}`)).toBe(true);
-      expect(path.includes(join(".tacp"))).toBe(false);
+      expect(path.includes(join(".acpbot"))).toBe(false);
       expect(path.includes(repo)).toBe(false);
 
       const st = await stat(path);
@@ -141,9 +141,9 @@ describe("oauth-store", () => {
       }
 
       // Repo mcp.json must not receive the token
-      await mkdir(join(repo, ".tacp"), { recursive: true });
+      await mkdir(join(repo, ".acpbot"), { recursive: true });
       await writeFile(
-        join(repo, ".tacp", "mcp.json"),
+        join(repo, ".acpbot", "mcp.json"),
         JSON.stringify({
           mcpServers: [
             { name: "linear", type: "http", url: "https://mcp.example/linear" },
@@ -151,7 +151,7 @@ describe("oauth-store", () => {
         }),
         "utf8",
       );
-      const mcpRaw = await readFile(join(repo, ".tacp", "mcp.json"), "utf8");
+      const mcpRaw = await readFile(join(repo, ".acpbot", "mcp.json"), "utf8");
       expect(mcpRaw).not.toContain("tok-secret");
       expect(mcpRaw).not.toContain("accessToken");
 
@@ -163,7 +163,7 @@ describe("oauth-store", () => {
     });
   });
 
-  test("assertNotRepoPath rejects .tacp token paths", () => {
+  test("assertNotRepoPath rejects .acpbot token paths", () => {
     expect(() =>
       assertNotRepoPath("/repo/.acpbot/mcp-oauth/x.json", "/repo"),
     ).toThrow(/refusing/);
@@ -381,7 +381,7 @@ describe("merge OAuth headers into remote MCP", () => {
         updatedAt: Date.now(),
       });
 
-      const servers: TacpMcpRemoteServer[] = [
+      const servers: AcpbotMcpRemoteServer[] = [
         {
           type: "http",
           name: "linear",
@@ -395,7 +395,7 @@ describe("merge OAuth headers into remote MCP", () => {
         failClosed: true,
       });
       expect(out).toHaveLength(1);
-      const remote = out[0] as TacpMcpRemoteServer;
+      const remote = out[0] as AcpbotMcpRemoteServer;
       expect(remote.headers).toContainEqual({
         name: "Authorization",
         value: "Bearer hdr-token",
@@ -406,7 +406,7 @@ describe("merge OAuth headers into remote MCP", () => {
 
   test("fail closed when remote has no token", async () => {
     await withTempDirs(async ({ state }) => {
-      const servers: TacpMcpRemoteServer[] = [
+      const servers: AcpbotMcpRemoteServer[] = [
         {
           type: "http",
           name: "linear",
@@ -426,9 +426,9 @@ describe("merge OAuth headers into remote MCP", () => {
 
   test("buildSessionMcpServers merges Bearer for remote", async () => {
     await withTempDirs(async ({ state, repo }) => {
-      await mkdir(join(repo, ".tacp"), { recursive: true });
+      await mkdir(join(repo, ".acpbot"), { recursive: true });
       await writeFile(
-        join(repo, ".tacp", "mcp.json"),
+        join(repo, ".acpbot", "mcp.json"),
         JSON.stringify({
           mcpServers: [
             {
@@ -470,7 +470,7 @@ describe("merge OAuth headers into remote MCP", () => {
       });
 
       // Still must not have written token into repo
-      const mcpRaw = await readFile(join(repo, ".tacp", "mcp.json"), "utf8");
+      const mcpRaw = await readFile(join(repo, ".acpbot", "mcp.json"), "utf8");
       expect(mcpRaw).not.toContain("session-tok");
       expect(mcpRaw).not.toContain("Authorization");
     });
@@ -550,7 +550,7 @@ describe("startMcpOAuth + oauth-http callback", () => {
   test("start discovers AS + DCR (no env client_id / auth URL)", async () => {
     await withTempDirs(async ({ state, repo }) => {
       const env: NodeJS.ProcessEnv = {
-        TACP_OAUTH_CALLBACK_BASE: "http://100.9.9.9:8788",
+        ACPBOT_OAUTH_CALLBACK_BASE: "http://100.9.9.9:8788",
       };
       const started = await startMcpOAuth({
         id: "linear",
@@ -576,7 +576,7 @@ describe("startMcpOAuth + oauth-http callback", () => {
       const paths = oauthStorePaths(state);
       expect(started.pendingPath.startsWith(paths.pending)).toBe(true);
       // no static env client id path
-      expect(started.authorizeUrl).not.toContain("client_id=tacp&");
+      expect(started.authorizeUrl).not.toContain("client_id=acpbot&");
     });
   });
 

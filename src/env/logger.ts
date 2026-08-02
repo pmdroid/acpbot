@@ -59,7 +59,7 @@ export function parseLogLevel(
 
 export type CreateLoggerOptions = {
   level?: LogLevel;
-  /** Prefix for every line, e.g. "tacp". */
+  /** Prefix for every line, e.g. "acpbot". */
   name?: string;
   /** Override sink (tests). Defaults to stderr. */
   write?: (line: string) => void;
@@ -67,7 +67,7 @@ export type CreateLoggerOptions = {
 
 export function createLogger(options: CreateLoggerOptions = {}): Logger {
   const level = options.level ?? "info";
-  const name = options.name ?? "tacp";
+  const name = options.name ?? "acpbot";
   const write =
     options.write ??
     ((line: string) => {

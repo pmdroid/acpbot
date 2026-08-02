@@ -43,13 +43,11 @@ export type AcpbotConfig = {
   ttsMode?: "off" | "always" | "agent";
   /**
    * When false, do not inject acpbot host MCP servers (speak, …) into ACP sessions.
-   * Default true. Env: TACP_MCP=0.
+   * Default true. Env: ACPBOT_MCP=0.
    */
   mcpEnabled?: boolean;
 };
 
-/** @deprecated Use {@link AcpbotConfig}. */
-export type TacpConfig = AcpbotConfig;
 
 // ── Telegram shapes (subset of Bot API we use) ─────────────────────────────
 
@@ -520,7 +518,7 @@ export type { LogLevel, LogMeta, Logger } from "./logger";
 // ── Composite environment ──────────────────────────────────────────────────
 
 export type Environment = {
-  config: TacpConfig;
+  config: AcpbotConfig;
   telegram: TelegramPort;
   agents: AgentsPort;
   clock: Clock;

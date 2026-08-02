@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "tacp",
+      "name": "acpbot",
       "dependencies": {
         "@agentclientprotocol/sdk": "^1.3.0",
         "@clack/prompts": "^1.7.0",

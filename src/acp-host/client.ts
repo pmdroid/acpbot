@@ -46,7 +46,7 @@ export class AcpHostRequiredError extends Error {
           `  socket: ${sockPath}`,
           `Start it first:`,
           `  bun run acp-host`,
-          `(same absolute TACP_STATE_DIR as the worker)`,
+          `(same absolute ACPBOT_STATE_DIR as the worker)`,
         ].join("\n"),
     );
     this.name = "AcpHostRequiredError";
@@ -58,9 +58,9 @@ export function resolveAcpHostSockPath(
   stateDir?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const fromEnv = env.TACP_ACP_HOST_SOCK?.trim();
+  const fromEnv = env.ACPBOT_ACP_HOST_SOCK?.trim();
   if (fromEnv) return fromEnv;
-  return defaultAcpHostSock(stateDir ?? env.TACP_STATE_DIR?.trim());
+  return defaultAcpHostSock(stateDir ?? env.ACPBOT_STATE_DIR?.trim());
 }
 
 /**
@@ -86,7 +86,7 @@ export async function assertAcpHostReady(options?: {
         `  socket: ${sockPath}`,
         `Start it first (separate terminal):`,
         `  bun run acp-host`,
-        `Use the same absolute TACP_STATE_DIR on both processes.`,
+        `Use the same absolute ACPBOT_STATE_DIR on both processes.`,
       ].join("\n"),
     );
   }

@@ -10,7 +10,7 @@ import {
   installBundledSkills,
 } from "../core/bundled-skills";
 
-const log = createLogger({ level: "info", name: "tacp-skills" });
+const log = createLogger({ level: "info", name: "acpbot-skills" });
 
 const result = await installBundledSkills({ log });
 console.log("source:", result.source || bundledSkillsRoot());

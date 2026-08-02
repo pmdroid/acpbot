@@ -49,7 +49,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -76,7 +76,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -112,7 +112,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -150,7 +150,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp", other: "/configured/repos/other" },
+        repos: { acpbot: "/configured/repos/acpbot", other: "/configured/repos/other" },
       },
       store,
     });
@@ -165,7 +165,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp", other: "/configured/repos/other" },
+        repos: { acpbot: "/configured/repos/acpbot", other: "/configured/repos/other" },
       },
       store,
     });
@@ -193,7 +193,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { demo: "/configured/repos/demo", acpbot: "/configured/repos/tacp" },
+        repos: { demo: "/configured/repos/demo", acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -282,7 +282,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -309,7 +309,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -417,7 +417,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);
@@ -439,7 +439,7 @@ describe("02 — sessions become topics and survive restart", () => {
       config: {
         operatorUserId: OPERATOR,
         operatorChatId: CHAT,
-        repos: { acpbot: "/configured/repos/tacp" },
+        repos: { acpbot: "/configured/repos/acpbot" },
       },
     });
     const daemon = createDaemon(env);

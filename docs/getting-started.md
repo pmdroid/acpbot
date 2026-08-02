@@ -2,13 +2,13 @@
 
 ## Requirements
 
-- [Bun](https://bun.sh) ≥ 1.1
 - A Telegram bot with **topic mode enabled** in private chats (@BotFather)
 - For real agents: at least one CLI on `PATH` and logged in where required:
   - **Grok Build** — `grok` on `PATH` (`grok agent stdio`) and logged in
   - **Claude** — `claude` + `npx` (ACP adapter)
   - **Codex** — `codex` + `npx` (ACP adapter)
   - **OpenCode** — `opencode` (`opencode acp`)
+- **From source only:** [Bun](https://bun.sh) (CI uses 1.3.x). Binary installs do not need Bun.
 
 ## 1. Provision the bot
 
@@ -18,7 +18,8 @@
 2. Enable **topics in private chats** for that bot
 3. Note your Telegram **user id** (e.g. `@userinfobot`)
 
-acpbot only accepts updates from `operator_user_id` in your config. Everyone else is ignored.
+Only the configured **`operator_user_id`** can control the bot; everyone else is ignored.  
+If `operator_user_id = 0` (default / claim-on-first-DM), the **first** private-chat sender becomes the sole operator — set your id explicitly, or DM the bot yourself right after first start.
 
 ## 2. Install & configure
 
@@ -101,7 +102,7 @@ While a turn runs you will see a single **`⏳ Working…`** (or **`❓ Waiting�
 
 Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](architecture.md#turn-ux-working-bubble).
 
-## 5. Media & speech (optional)
+## 4. Media & speech (optional)
 
 | Direction | Behavior |
 |---|---|

@@ -51,7 +51,7 @@ export function openAiSpeech(options: OpenAiSpeechOptions): SpeechPort {
 
   return {
     async stt(audio, opts) {
-      const boundary = `----tacp${Date.now().toString(16)}`;
+      const boundary = `----acpbot${Date.now().toString(16)}`;
       const enc = new TextEncoder();
       const filename = opts.filename ?? "audio.ogg";
       const parts: Uint8Array[] = [];
@@ -141,12 +141,12 @@ export function openAiSpeechFromEnv(
   env: Record<string, string | undefined> = process.env,
   log?: Logger,
 ): SpeechPort | undefined {
-  const apiKey = env.TACP_OPENAI_API_KEY ?? env.OPENAI_API_KEY;
+  const apiKey = env.ACPBOT_OPENAI_API_KEY ?? env.OPENAI_API_KEY;
   if (!apiKey) return undefined;
   return openAiSpeech({
     apiKey,
-    baseUrl: env.TACP_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
-    ttsVoice: env.TACP_TTS_VOICE,
+    baseUrl: env.ACPBOT_OPENAI_BASE_URL ?? env.OPENAI_BASE_URL,
+    ttsVoice: env.ACPBOT_TTS_VOICE,
     log,
   });
 }

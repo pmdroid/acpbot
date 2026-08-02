@@ -1,5 +1,5 @@
 /**
- * ACP capability contract — everything tacp needs for an agent to work.
+ * ACP capability contract — everything acpbot needs for an agent to work.
  *
  * These tests exercise the SessionHost surface used by the worker/acp-host path:
  *
@@ -18,7 +18,7 @@
  *   L1  session/load resume across host process restart (durable store)
  *
  * Skip a binary with PATH missing; skip launch failures for adapter agents
- * (claude/codex npx/auth). Disable all live probes: TACP_SKIP_LIVE_ACP=1.
+ * (claude/codex npx/auth). Disable all live probes: ACPBOT_SKIP_LIVE_ACP=1.
  *
  * Supported agents: grok-build, claude, codex, opencode.
  */
@@ -42,13 +42,13 @@ import {
   type SessionHost,
 } from "../../src/acp/session-host";
 import { silentLogger } from "../../src/env/logger";
-import type { TacpConfig } from "../../src/env/types";
+import type { AcpbotConfig } from "../../src/env/types";
 import { decisionToPermissionResponse } from "../../src/acp/permission-map";
 
-const LIVE = process.env.TACP_SKIP_LIVE_ACP !== "1";
-const TIMEOUT_MS = Number(process.env.TACP_LIVE_ACP_TIMEOUT_MS ?? 120_000);
+const LIVE = process.env.ACPBOT_SKIP_LIVE_ACP !== "1";
+const TIMEOUT_MS = Number(process.env.ACPBOT_LIVE_ACP_TIMEOUT_MS ?? 120_000);
 const PROMPT_TIMEOUT_MS = Number(
-  process.env.TACP_LIVE_ACP_PROMPT_TIMEOUT_MS ?? 90_000,
+  process.env.ACPBOT_LIVE_ACP_PROMPT_TIMEOUT_MS ?? 90_000,
 );
 
 const SUPPORTED_AGENTS = [
@@ -102,7 +102,7 @@ const minimalConfig = {
   repos: {},
   mcpEnabled: false,
   defaultAgent: "grok-build",
-} as TacpConfig;
+} as AcpbotConfig;
 
 function makeHost(stateDir: string): SessionHost {
   return createSessionHost({
@@ -165,7 +165,7 @@ async function collectTurn(
 }
 
 // ---------------------------------------------------------------------------
-// Unit: permission mapping (client capability tacp implements for agents)
+// Unit: permission mapping (client capability acpbot implements for agents)
 // ---------------------------------------------------------------------------
 
 describe("contract: permission mapping (client → agent)", () => {
@@ -245,7 +245,7 @@ describe.skipIf(!LIVE)("contract: live ACP capabilities", () => {
   test(
     "shared state dir",
     async () => {
-      stateDir = await mkdtemp(join(tmpdir(), "tacp-acp-cap-"));
+      stateDir = await mkdtemp(join(tmpdir(), "acpbot-acp-cap-"));
     },
     10_000,
   );
@@ -259,7 +259,7 @@ describe.skipIf(!LIVE)("contract: live ACP capabilities", () => {
       async () => {
         if (!isAgentAvailable(agent)) return;
         if (!stateDir) {
-          stateDir = await mkdtemp(join(tmpdir(), "tacp-acp-cap-"));
+          stateDir = await mkdtemp(join(tmpdir(), "acpbot-acp-cap-"));
         }
 
         const host = makeHost(stateDir);

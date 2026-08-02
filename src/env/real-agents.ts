@@ -13,7 +13,7 @@ import type {
   PromptTurn,
   PromptTurnInput,
   SessionIdentity,
-  TacpConfig,
+  AcpbotConfig,
 } from "./types";
 import { silentLogger } from "./logger";
 import type { SessionHost } from "../acp/session-host";
@@ -29,10 +29,10 @@ import {
 export { pickSessionModeId, pickReadOnlyModeId };
 
 export type RealAgentsOptions = {
-  config: TacpConfig;
+  config: AcpbotConfig;
   /**
    * Durable ACP session store directory (`<dir>/sessions/*.json`).
-   * Env: TACP_STATE_DIR.
+   * Env: ACPBOT_STATE_DIR.
    */
   stateDir: string;
   verbose?: boolean;
@@ -189,7 +189,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       const cwd = repos[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to TACP_REPOS_JSON / config.repos`,
+          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON / config.repos`,
         );
       }
       const agent = agentId.trim();
@@ -242,7 +242,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       const cwd = repos[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to TACP_REPOS_JSON / config.repos`,
+          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON / config.repos`,
         );
       }
 

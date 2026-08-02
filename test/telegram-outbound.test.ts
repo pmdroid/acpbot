@@ -66,18 +66,18 @@ describe("repo-path", () => {
 describe("telegram tool name detection", () => {
   test("matches update / telegram_send prefixes", () => {
     expect(isTelegramUpdateToolName("update")).toBe(true);
-    expect(isTelegramUpdateToolName("mcp__tacp__update")).toBe(true);
-    expect(isTelegramUpdateToolName("tacp:update")).toBe(true);
+    expect(isTelegramUpdateToolName("mcp__acpbot__update")).toBe(true);
+    expect(isTelegramUpdateToolName("acpbot:update")).toBe(true);
     expect(isTelegramUpdateToolName("progress")).toBe(true);
     expect(isTelegramMessageToolName("telegram_send")).toBe(true);
-    expect(isTelegramMessageToolName("mcp__tacp__telegram_send")).toBe(true);
+    expect(isTelegramMessageToolName("mcp__acpbot__telegram_send")).toBe(true);
     expect(isTelegramTextToolName("speak")).toBe(false);
     expect(telegramTextFromToolInput({ text: " hi " })).toBe("hi");
   });
 
   test("matches photo and file tool names", () => {
     expect(isTelegramPhotoToolName("telegram_send_photo")).toBe(true);
-    expect(isTelegramPhotoToolName("mcp__tacp__telegram_send_photo")).toBe(
+    expect(isTelegramPhotoToolName("mcp__acpbot__telegram_send_photo")).toBe(
       true,
     );
     expect(isTelegramFileToolName("telegram_send_file")).toBe(true);
@@ -90,7 +90,7 @@ describe("telegram tool name detection", () => {
 
 describe("daemon worker API delivers photo/file", () => {
   test("worker API sendPhoto/sendDocument hit Telegram for live session", async () => {
-    const stateDir = await mkdtemp(join(tmpdir(), "tacp-tg-media-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "acpbot-tg-media-"));
     const repoDir = join(stateDir, "repo");
     await mkdir(repoDir, { recursive: true });
     const shot = join(repoDir, "shot.png");

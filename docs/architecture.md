@@ -103,7 +103,7 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 | `<repo>/.acpbot/mcp.json` | Per-repo MCP servers |
 | `<repo>/.acpbot/config.json` | Optional repo defaults / `mcpProfile` |
 | `<repo>/.acpbot/schedules/` | Durable schedule jobs |
-| `<repo>/.acpbot-inbox/` | Inbound media drop (gitignored pattern) |
+| `<repo>/.acpbot-inbox/` | Inbound media drop (per workspace; ignore in that repo if you use git) |
 
 Default `state_dir` is `~/.local/share/acpbot/state` (absolute after load). Worker and acp-host must share the same config / `state_dir`.
 

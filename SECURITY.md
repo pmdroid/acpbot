@@ -24,9 +24,15 @@ Out of scope:
 
 ## Operator responsibilities
 
-- Keep `ACPBOT_OPERATOR_USER_ID` restricted to your account
-- Use absolute, private `ACPBOT_STATE_DIR` for sessions and OAuth material
-- Treat mounted workspaces as fully trusted by the agent
-- Review permission prompts; default mode prefers **ask** when advertised
+Config is **TOML-first** (`~/.config/acpbot/config.toml`).
+
+- Prefer **`operator_user_id = 0`** (unclaimed) and complete pairing:
+  1. DM the bot in a private chat → receive a pairing code  
+  2. On the host: `acpbot pair approve <code>`  
+  Only someone with **shell access to the host** can approve. See [docs/pairing.md](docs/pairing.md).
+- Or set **`operator_user_id`** to your numeric Telegram id before sharing the bot username.
+- Keep **`state_dir`** absolute and private (sessions, sockets, OAuth tokens, pending pairing codes).
+- Treat mounted workspaces as fully trusted by the agent.
+- Review permission prompts; default mode prefers **ask** when advertised.
 
 See also the [README disclaimer](README.md#disclaimer--use-at-your-own-risk) and [LICENSE](LICENSE).

@@ -4,7 +4,7 @@
  *   GET /oauth/callback?code=&state=  — complete PKCE, store tokens
  *   GET /oauth/status                 — liveness (no secrets)
  *
- * Bind address/port from TACP_OAUTH_LISTEN_* or derived from TACP_OAUTH_CALLBACK_BASE.
+ * Bind address/port from ACPBOT_OAUTH_LISTEN_* or derived from ACPBOT_OAUTH_CALLBACK_BASE.
  * Started by acp-host (preferred) when callback base is configured.
  */
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
@@ -117,7 +117,7 @@ export async function startOauthHttpServer(
       send(
         res,
         200,
-        JSON.stringify({ ok: true, service: "tacp-oauth" }),
+        JSON.stringify({ ok: true, service: "acpbot-oauth" }),
         "application/json; charset=utf-8",
       );
       return;
@@ -190,7 +190,7 @@ export async function startOauthHttpServer(
       404,
       htmlPage(
         "Not found",
-        "tacp OAuth listener. Expected <code>GET /oauth/callback</code>.",
+        "acpbot OAuth listener. Expected <code>GET /oauth/callback</code>.",
         false,
       ),
     );
@@ -219,13 +219,13 @@ export async function startOauthHttpServer(
 }
 
 /**
- * Start OAuth HTTP only when TACP_OAUTH_CALLBACK_BASE is set.
+ * Start OAuth HTTP only when ACPBOT_OAUTH_CALLBACK_BASE is set.
  * Returns null when OAuth is not configured.
  */
 export async function maybeStartOauthHttpServer(
   options: OauthHttpServerOptions = {},
 ): Promise<OauthHttpServer | null> {
   const env = options.env ?? process.env;
-  if (!env.TACP_OAUTH_CALLBACK_BASE?.trim()) return null;
+  if (!env.ACPBOT_OAUTH_CALLBACK_BASE?.trim()) return null;
   return startOauthHttpServer(options);
 }

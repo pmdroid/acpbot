@@ -11,7 +11,7 @@ import {
 import type { Logger, TelegramPort } from "../env/types";
 import { silentLogger } from "../env/logger";
 
-/** Scopes we own. Default + private only (tacp is DM-first). */
+/** Scopes we own. Default + private only (acpbot is DM-first). */
 const CLEAR_SCOPES: Array<Record<string, unknown> | undefined> = [
   undefined, // BotCommandScopeDefault
   { type: "all_private_chats" },

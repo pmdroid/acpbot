@@ -6,7 +6,6 @@ export type {
   SessionStatus,
   Store,
   AcpbotConfig,
-  TacpConfig,
   TelegramPort,
   TelegramUpdate,
 } from "./env/types";

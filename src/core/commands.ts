@@ -30,7 +30,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/sessions",
     scope: "lobby",
-    summary: "List sessions from tacp’s store",
+    summary: "List sessions from acpbot’s store",
   },
   {
     name: "/cancel",
@@ -163,7 +163,7 @@ export function commandAllowedIn(
 
 export function lobbyHelpText(): string {
   const lines = [
-    "tacp lobby — commands only (no agent output here).",
+    "acpbot lobby — commands only (no agent output here).",
     "",
     ...COMMANDS.filter((c) => c.scope === "lobby" || c.scope === "both").map(
       (c) => `${c.name} — ${c.summary}`,

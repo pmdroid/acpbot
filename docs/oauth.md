@@ -31,8 +31,9 @@ callback_base = "https://your-host.ts.net"   # phone browser must reach this
 Run:
 
 ```bash
-bun run acp-host   # serves GET /oauth/callback when callback_base is set
-bun run start      # worker — same config.toml / state_dir
+acpbot-host    # serves GET /oauth/callback when callback_base is set
+acpbot         # worker — same config.toml / state_dir
+# from source: bun run acp-host · bun run start
 ```
 
 If bind fails (port in use), **acp-host exits** with a clear error when `callback_base` is set. Free the port or use the paste fallback below.
@@ -88,4 +89,4 @@ The gateway must publish AS metadata with a registration endpoint. There are **n
 | HTTP callback | `src/acp-host/oauth-http.ts` |
 | Tests | `test/mcp-oauth.test.ts` |
 
-Legacy env aliases (`ACPBOT_OAUTH_CALLBACK_BASE`, `TACP_OAUTH_*`) still work as overrides; prefer TOML.
+Env overrides (`ACPBOT_OAUTH_CALLBACK_BASE`, `ACPBOT_OAUTH_*`) work when set; prefer TOML for day-to-day use.

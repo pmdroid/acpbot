@@ -7,7 +7,7 @@
  *   acpbot-host install|start|stop|restart|status
  *
  * Worker restart detaches; agent processes stay. Next ensure reattaches.
- * Scans [repos] for schedules under each repo’s `.acpbot/schedules/` (legacy `.tacp/`).
+ * Scans [repos] for schedules under each repo’s `.acpbot/schedules/`.
  * When oauth.callback_base is set, also listens for GET /oauth/callback.
  *
  * Worker and acp-host must share the same state_dir from config.

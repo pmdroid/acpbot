@@ -19,8 +19,8 @@ describe("bundled skills", () => {
   });
 
   test("installBundledSkills links into global parents", async () => {
-    const home = await mkdtemp(join(tmpdir(), "tacp-skills-home-"));
-    const source = await mkdtemp(join(tmpdir(), "tacp-skills-src-"));
+    const home = await mkdtemp(join(tmpdir(), "acpbot-skills-home-"));
+    const source = await mkdtemp(join(tmpdir(), "acpbot-skills-src-"));
     await mkdir(join(source, "telegram"), { recursive: true });
     await writeFile(
       join(source, "telegram", "SKILL.md"),
@@ -48,8 +48,8 @@ describe("bundled skills", () => {
   });
 
   test("installBundledSkills does not delete a real skill directory", async () => {
-    const home = await mkdtemp(join(tmpdir(), "tacp-skills-safe-"));
-    const source = await mkdtemp(join(tmpdir(), "tacp-skills-src-"));
+    const home = await mkdtemp(join(tmpdir(), "acpbot-skills-safe-"));
+    const source = await mkdtemp(join(tmpdir(), "acpbot-skills-src-"));
     await mkdir(join(source, "telegram"), { recursive: true });
     await writeFile(
       join(source, "telegram", "SKILL.md"),
@@ -84,17 +84,17 @@ describe("bundled skills", () => {
       join(import.meta.dir, "../src/main.ts"),
     ).text();
     expect(src).not.toContain("installBundledSkills");
-    expect(src).not.toContain("TACP_SKIP_SKILL_INSTALL");
+    expect(src).not.toContain("ACPBOT_SKIP_SKILL_INSTALL");
   });
 
   test("loadConfig includes package skills root", () => {
     const cfg = loadConfig({
       env: {
-        TACP_BOT_TOKEN: "t",
-        TACP_OPERATOR_USER_ID: "1",
-        TACP_STORE_PATH: "/tmp/tacp-store.json",
-        TACP_STATE_DIR: "/tmp/tacp-state",
-        TACP_REPOS_JSON: "{}",
+        ACPBOT_BOT_TOKEN: "t",
+        ACPBOT_OPERATOR_USER_ID: "1",
+        ACPBOT_STORE_PATH: "/tmp/acpbot-store.json",
+        ACPBOT_STATE_DIR: "/tmp/acpbot-state",
+        ACPBOT_REPOS_JSON: "{}",
         HOME: "/tmp/home-no-skills",
       },
     });

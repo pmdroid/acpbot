@@ -496,7 +496,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
           "TACP_OPERATOR_USER_ID",
           "OPERATOR_USER_ID",
         );
-  // 0 = unclaimed: first private Telegram user who messages becomes operator.
+  // 0 = unclaimed: Telegram user gets a pairing code; approve with `acpbot pair approve <code>`.
   const operatorUserId =
     operatorRaw && Number.isFinite(Number(operatorRaw))
       ? Number(operatorRaw)

@@ -19,7 +19,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Unit tests
-        run: TACP_SKIP_LIVE_ACP=1 bun test ./test
+        run: ACPBOT_SKIP_LIVE_ACP=1 bun test ./test
 
       - name: Compile smoke (linux-x64)
         run: |

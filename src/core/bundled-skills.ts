@@ -108,7 +108,7 @@ export async function installBundledSkills(options?: {
         const mode = await installOneSkillLink(srcSkill, dest);
         result.installed.push({ target: dest, mode });
         if (mode === "conflict") {
-          const msg = `skipped ${dest}: exists and is not a acpbot skill symlink (will not overwrite)`;
+          const msg = `skipped ${dest}: exists and is not an acpbot skill symlink (will not overwrite)`;
           result.errors.push(msg);
           log.warn("bundled skill conflict", { id, dest });
         } else if (mode !== "skip") {

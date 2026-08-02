@@ -69,6 +69,8 @@ sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 
 ```bash
 acpbot setup          # re-run anytime
+# After first DM to the bot:
+acpbot pair approve ABCD-1234
 ```
 
 Walks through bot token, operator, agent, workspace, speech keys, OAuth, then optionally installs **both** background services:

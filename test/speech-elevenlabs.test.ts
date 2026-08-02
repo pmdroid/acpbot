@@ -92,8 +92,8 @@ describe("speech providers", () => {
   test("disabled when both off via env", () => {
     const s = speechFromEnv({
       ELEVENLABS_API_KEY: "el",
-      TACP_TTS: "0",
-      TACP_STT: "0",
+      ACPBOT_TTS: "0",
+      ACPBOT_STT: "0",
     });
     expect(s).toBeUndefined();
   });

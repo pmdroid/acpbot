@@ -12,7 +12,7 @@
  */
 import type { Logger } from "../env/logger";
 
-const CLIENT_UA = "tacp-mcp-oauth/0.1";
+const CLIENT_UA = "acpbot-mcp-oauth/0.1";
 
 /**
  * Full, multi-line OAuth HTTP error for Telegram (do not mid-string truncate).
@@ -283,7 +283,7 @@ export async function registerOAuthClient(
 ): Promise<RegisteredClient> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const body = {
-    client_name: options.clientName ?? "tacp (Telegram MCP OAuth)",
+    client_name: options.clientName ?? "acpbot (Telegram MCP OAuth)",
     redirect_uris: [redirectUri],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],

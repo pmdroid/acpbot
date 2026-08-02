@@ -21,7 +21,7 @@ import {
 import { scheduleJobSchema } from "../src/schedules/types";
 
 async function tempRepo(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "tacp-sched-"));
+  return mkdtemp(join(tmpdir(), "acpbot-sched-"));
 }
 
 describe("schedules next-run", () => {
@@ -401,15 +401,9 @@ describe("schedules store CRUD", () => {
     }
   });
 
-  test("schedulesDir is under .acpbot/schedules (default)", async () => {
+  test("schedulesDir is under .acpbot/schedules", async () => {
     const repo = await tempRepo();
     expect(schedulesDir(repo)).toBe(join(repo, ".acpbot", "schedules"));
-  });
-
-  test("schedulesDir falls back to legacy .tacp when present", async () => {
-    const repo = await tempRepo();
-    await mkdir(join(repo, ".tacp", "schedules"), { recursive: true });
-    expect(schedulesDir(repo)).toBe(join(repo, ".tacp", "schedules"));
   });
 });
 
@@ -418,16 +412,16 @@ describe("schedules store CRUD", () => {
  * (Full FastMCP stdio handshake is out of scope; handlers are thin wrappers.)
  */
 describe("schedule MCP env + store path", () => {
-  test("create/list/cancel via store with TACP-style env context", async () => {
+  test("create/list/cancel via store with ACPBOT-style env context", async () => {
     const repo = await tempRepo();
     const sessionKey = "demo/topic";
-    const prevKey = process.env.TACP_SESSION_KEY;
-    const prevRoot = process.env.TACP_REPO_ROOT;
-    process.env.TACP_SESSION_KEY = sessionKey;
-    process.env.TACP_REPO_ROOT = repo;
+    const prevKey = process.env.ACPBOT_SESSION_KEY;
+    const prevRoot = process.env.ACPBOT_REPO_ROOT;
+    process.env.ACPBOT_SESSION_KEY = sessionKey;
+    process.env.ACPBOT_REPO_ROOT = repo;
     try {
-      const envSession = process.env.TACP_SESSION_KEY!.trim();
-      const envRoot = process.env.TACP_REPO_ROOT!.trim();
+      const envSession = process.env.ACPBOT_SESSION_KEY!.trim();
+      const envRoot = process.env.ACPBOT_REPO_ROOT!.trim();
 
       const created = await createJob(envRoot, {
         sessionKey: envSession,
@@ -446,10 +440,10 @@ describe("schedule MCP env + store path", () => {
       });
       expect(cancelled.enabled).toBe(false);
     } finally {
-      if (prevKey === undefined) delete process.env.TACP_SESSION_KEY;
-      else process.env.TACP_SESSION_KEY = prevKey;
-      if (prevRoot === undefined) delete process.env.TACP_REPO_ROOT;
-      else process.env.TACP_REPO_ROOT = prevRoot;
+      if (prevKey === undefined) delete process.env.ACPBOT_SESSION_KEY;
+      else process.env.ACPBOT_SESSION_KEY = prevKey;
+      if (prevRoot === undefined) delete process.env.ACPBOT_REPO_ROOT;
+      else process.env.ACPBOT_REPO_ROOT = prevRoot;
       await rm(repo, { recursive: true, force: true });
     }
   });

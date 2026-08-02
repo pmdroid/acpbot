@@ -11,7 +11,7 @@
  *   - client disconnect keeps host slots; reattach
  *   - disposeSession / kill slot
  *
- * Skip: TACP_SKIP_LIVE_ACP=1
+ * Skip: ACPBOT_SKIP_LIVE_ACP=1
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -33,12 +33,12 @@ import {
 } from "../../src/acp-host/client";
 import { startAcpHostServer } from "../../src/acp-host/server";
 import { silentLogger } from "../../src/env/logger";
-import type { TacpConfig } from "../../src/env/types";
+import type { AcpbotConfig } from "../../src/env/types";
 
-const LIVE = process.env.TACP_SKIP_LIVE_ACP !== "1";
-const TIMEOUT_MS = Number(process.env.TACP_LIVE_ACP_TIMEOUT_MS ?? 180_000);
+const LIVE = process.env.ACPBOT_SKIP_LIVE_ACP !== "1";
+const TIMEOUT_MS = Number(process.env.ACPBOT_LIVE_ACP_TIMEOUT_MS ?? 180_000);
 const PROMPT_TIMEOUT_MS = Number(
-  process.env.TACP_LIVE_ACP_PROMPT_TIMEOUT_MS ?? 90_000,
+  process.env.ACPBOT_LIVE_ACP_PROMPT_TIMEOUT_MS ?? 90_000,
 );
 
 const AGENTS = ["grok-build", "codex", "opencode", "claude"] as const;
@@ -131,14 +131,14 @@ describe.skipIf(!LIVE)("contract: live acp-host client ↔ host ↔ agent", () =
   test(
     "boot acp-host server",
     async () => {
-      stateDir = await mkdtemp(join(tmpdir(), "tacp-host-live-"));
+      stateDir = await mkdtemp(join(tmpdir(), "acpbot-host-live-"));
       sockPath = join(stateDir, "acp-host.sock");
       const config = {
         operatorUserId: 1,
         repos: { demo: process.cwd() },
         mcpEnabled: false,
         defaultAgent: "grok-build",
-      } as TacpConfig;
+      } as AcpbotConfig;
 
       const server = await startAcpHostServer({
         sockPath,

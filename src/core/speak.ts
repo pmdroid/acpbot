@@ -2,7 +2,7 @@
  * Agent-controlled TTS via the host MCP `speak` tool.
  *
  * Tool names that end with speak / tts / send_voice / voice
- * (e.g. speak, tacp:speak, mcp__tacp__speak) with { "text": "..." }.
+ * (e.g. speak, acpbot:speak, mcp__acpbot__speak) with { "text": "..." }.
  */
 
 /** Legacy markers still stripped from Telegram text if a model emits them. */
@@ -25,7 +25,7 @@ export type SpeakRequest = {
 export function isSpeakToolName(name: string | undefined): boolean {
   if (!name) return false;
   const trimmed = name.trim();
-  // MCP clients may prefix: tacp:speak, mcp__tacp__speak, tools/speak
+  // MCP clients may prefix: acpbot:speak, mcp__acpbot__speak, tools/speak
   const parts = trimmed.split(/[\/:_]+/).filter(Boolean);
   const base = parts[parts.length - 1] ?? trimmed;
   return SPEAK_TOOL.test(base) || SPEAK_TOOL.test(trimmed);

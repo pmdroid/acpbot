@@ -49,7 +49,7 @@ const PREFERRED_ORDER = ["grok-build", "claude", "codex", "opencode"] as const;
 
 /**
  * Default npm package pins for ACP adapters (update when bumping adapters).
- * Override with TACP_CLAUDE_ACP_PKG / TACP_CODEX_ACP_PKG (full package@ver).
+ * Override with ACPBOT_CLAUDE_ACP_PKG / ACPBOT_CODEX_ACP_PKG (full package@ver).
  *
  * https://github.com/agentclientprotocol/claude-agent-acp
  * https://github.com/agentclientprotocol/codex-acp
@@ -59,17 +59,17 @@ export const DEFAULT_CLAUDE_ACP_PKG =
 export const DEFAULT_CODEX_ACP_PKG = "@agentclientprotocol/codex-acp@1.1.7";
 
 /**
- * Built-in launches. Override with TACP_AGENT_COMMAND_JSON:
+ * Built-in launches. Override with ACPBOT_AGENT_COMMAND_JSON:
  * {"grok-build":{"command":"grok","args":["agent","stdio"]}}
  *
  * Claude/Codex use @agentclientprotocol/* adapters via npx.
  */
 function claudeAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
-  return env.TACP_CLAUDE_ACP_PKG?.trim() || DEFAULT_CLAUDE_ACP_PKG;
+  return env.ACPBOT_CLAUDE_ACP_PKG?.trim() || DEFAULT_CLAUDE_ACP_PKG;
 }
 
 function codexAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
-  return env.TACP_CODEX_ACP_PKG?.trim() || DEFAULT_CODEX_ACP_PKG;
+  return env.ACPBOT_CODEX_ACP_PKG?.trim() || DEFAULT_CODEX_ACP_PKG;
 }
 
 const BUILTINS_BASE: Record<
@@ -189,7 +189,7 @@ export function resolveAgentLaunch(
   env: NodeJS.ProcessEnv = process.env,
 ): AgentLaunch {
   const id = normalizeAgentName(agentName);
-  const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
+  const overrides = parseOverrides(env.ACPBOT_AGENT_COMMAND_JSON);
   if (overrides[id]) return overrides[id]!;
   if (BUILTINS_BASE[id]) return BUILTINS_BASE[id]!.launchFor(env);
 
@@ -235,7 +235,7 @@ export function resolveAgentLaunchForSpawn(
       `agent binary not found on PATH: "${launch.command}"\n` +
         `would run: ${launch.command} ${launch.args.join(" ")}\n` +
         `Install the CLI, start acp-host from a shell where \`which ${launch.command}\` works, ` +
-        `or set TACP_AGENT_COMMAND_JSON with an absolute path ` +
+        `or set ACPBOT_AGENT_COMMAND_JSON with an absolute path ` +
         `(e.g. {"grok-build":{"command":"/Users/you/.grok/bin/grok","args":["agent","stdio"]}}).`,
     );
   }
@@ -248,7 +248,7 @@ export function requiredBinsForAgent(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const id = normalizeAgentName(agentId);
-  const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
+  const overrides = parseOverrides(env.ACPBOT_AGENT_COMMAND_JSON);
   if (overrides[id]) return [overrides[id]!.command];
   if (BUILTINS_BASE[id]) return [...BUILTINS_BASE[id]!.requires];
   return [agentId.trim()];
@@ -265,7 +265,7 @@ export function isAgentAvailable(
 }
 
 function parseAllowlist(env: NodeJS.ProcessEnv): Set<string> | null {
-  const allow = env.TACP_AGENTS?.trim();
+  const allow = env.ACPBOT_AGENTS?.trim();
   if (!allow) return null;
   return new Set(
     allow
@@ -293,7 +293,7 @@ function sortAgentIds(ids: string[]): string[] {
 export function listKnownAgentIds(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const overrides = parseOverrides(env.TACP_AGENT_COMMAND_JSON);
+  const overrides = parseOverrides(env.ACPBOT_AGENT_COMMAND_JSON);
   const ids = new Set<string>();
   for (const key of Object.keys(BUILTINS_BASE)) {
     ids.add(normalizeAgentName(key));
@@ -306,10 +306,10 @@ export function listKnownAgentIds(
 
 /**
  * Agents for pickers: known ids that are actually installed (PATH).
- * Optional TACP_AGENTS=a,b,c allowlist (comma/space separated).
+ * Optional ACPBOT_AGENTS=a,b,c allowlist (comma/space separated).
  *
  * Set `availableOnly: false` to skip PATH filtering (full registry).
- * Env `TACP_AGENTS_ALL=1` also lists the full registry regardless of PATH.
+ * Env `ACPBOT_AGENTS_ALL=1` also lists the full registry regardless of PATH.
  */
 export function listRegisteredAgents(
   envOrOptions: NodeJS.ProcessEnv | ListAgentsOptions = process.env,
@@ -328,9 +328,7 @@ export function listRegisteredAgents(
   const forceAll =
     options.availableOnly === false ||
     env.ACPBOT_AGENTS_ALL === "1" ||
-    env.ACPBOT_AGENTS_ALL === "true" ||
-    env.TACP_AGENTS_ALL === "1" ||
-    env.TACP_AGENTS_ALL === "true";
+    env.ACPBOT_AGENTS_ALL === "true";
 
   let ids = listKnownAgentIds(env);
   const allow = parseAllowlist(env);

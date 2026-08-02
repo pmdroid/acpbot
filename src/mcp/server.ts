@@ -34,22 +34,22 @@ const server = new FastMCP({
 function requireSessionEnv():
   | { ok: true; sessionKey: string; repoRoot: string }
   | { ok: false; error: string } {
-  const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+  const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
   if (!sessionKey) {
     return {
       ok: false,
       error:
-        "TACP_SESSION_KEY not set on MCP server " +
-        "(tacp must inject session key via mcpServers env).",
+        "ACPBOT_SESSION_KEY not set on MCP server " +
+        "(acpbot must inject session key via mcpServers env).",
     };
   }
-  const repoRoot = process.env.TACP_REPO_ROOT?.trim();
+  const repoRoot = process.env.ACPBOT_REPO_ROOT?.trim();
   if (!repoRoot) {
     return {
       ok: false,
       error:
-        "TACP_REPO_ROOT not set on MCP server " +
-        "(tacp must inject repo root via mcpServers env).",
+        "ACPBOT_REPO_ROOT not set on MCP server " +
+        "(acpbot must inject repo root via mcpServers env).",
     };
   }
   return { ok: true, sessionKey, repoRoot };
@@ -74,11 +74,11 @@ server.tool(
     if (!cleaned) {
       return "Nothing to speak (empty text).";
     }
-    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
     if (!sessionKey) {
       return (
-        "speak failed: TACP_SESSION_KEY not set on MCP server " +
-        "(tacp must inject session key via mcpServers env)."
+        "speak failed: ACPBOT_SESSION_KEY not set on MCP server " +
+        "(acpbot must inject session key via mcpServers env)."
       );
     }
     try {
@@ -119,11 +119,11 @@ server.tool(
   async ({ text }) => {
     const cleaned = text.trim();
     if (!cleaned) return "Nothing to send (empty update).";
-    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
     if (!sessionKey) {
       return (
-        "update failed: TACP_SESSION_KEY not set on MCP server " +
-        "(tacp must inject session key via mcpServers env)."
+        "update failed: ACPBOT_SESSION_KEY not set on MCP server " +
+        "(acpbot must inject session key via mcpServers env)."
       );
     }
     try {
@@ -158,11 +158,11 @@ server.tool(
   async ({ text }) => {
     const cleaned = text.trim();
     if (!cleaned) return "Nothing to send (empty message).";
-    const sessionKey = process.env.TACP_SESSION_KEY?.trim();
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
     if (!sessionKey) {
       return (
-        "telegram_send failed: TACP_SESSION_KEY not set on MCP server " +
-        "(tacp must inject session key via mcpServers env)."
+        "telegram_send failed: ACPBOT_SESSION_KEY not set on MCP server " +
+        "(acpbot must inject session key via mcpServers env)."
       );
     }
     try {

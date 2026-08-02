@@ -11,7 +11,7 @@ import {
   workerSendPhoto,
   workerSpeak,
 } from "../src/mcp/worker-api";
-import { buildTacpMcpServers } from "../src/mcp/servers";
+import { buildAcpbotMcpServers } from "../src/mcp/servers";
 
 describe("worker API", () => {
   test("sock path defaults under state dir", () => {
@@ -20,18 +20,18 @@ describe("worker API", () => {
     );
   });
 
-  test("buildTacpMcpServers injects TACP_WORKER_API_SOCK", () => {
-    const servers = buildTacpMcpServers({
+  test("buildAcpbotMcpServers injects ACPBOT_WORKER_API_SOCK", () => {
+    const servers = buildAcpbotMcpServers({
       enabled: true,
       sessionKey: "demo/a",
-      stateDir: "/tmp/tacp-state",
+      stateDir: "/tmp/acpbot-state",
     });
     const env = Object.fromEntries(
       (servers[0]?.env ?? []).map((e) => [e.name, e.value]),
     );
-    expect(env.TACP_SESSION_KEY).toBe("demo/a");
-    expect(env.TACP_WORKER_API_SOCK).toBe("/tmp/tacp-state/worker-api.sock");
-    expect(env.TACP_STATE_DIR).toBe("/tmp/tacp-state");
+    expect(env.ACPBOT_SESSION_KEY).toBe("demo/a");
+    expect(env.ACPBOT_WORKER_API_SOCK).toBe("/tmp/acpbot-state/worker-api.sock");
+    expect(env.ACPBOT_STATE_DIR).toBe("/tmp/acpbot-state");
   });
 
   test("message/photo/document/speak over unix socket", async () => {

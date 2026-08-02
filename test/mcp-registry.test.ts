@@ -23,7 +23,7 @@ async function withRepo(
   setup: (repo: string) => Promise<void>,
   run: (repo: string) => Promise<void>,
 ) {
-  const repo = await mkdtemp(join(tmpdir(), "tacp-mcp-reg-"));
+  const repo = await mkdtemp(join(tmpdir(), "acpbot-mcp-reg-"));
   try {
     await setup(repo);
     await run(repo);
@@ -47,7 +47,7 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
           url: "https://mcp.example/linear",
         });
 
-        const raw = await readFile(join(repo, ".tacp", "mcp.json"), "utf8");
+        const raw = await readFile(join(repo, ".acpbot", "mcp.json"), "utf8");
         const parsed = JSON.parse(raw) as {
           mcpServers: Array<Record<string, unknown>>;
         };
@@ -71,9 +71,9 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
   test("add replaces existing same id without preserving secrets", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -107,9 +107,9 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
   test("add preserves other stdio entries", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -209,7 +209,7 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
         // No file written (or empty registry if file existed)
         let raw: string | undefined;
         try {
-          raw = await readFile(join(repo, ".tacp", "mcp.json"), "utf8");
+          raw = await readFile(join(repo, ".acpbot", "mcp.json"), "utf8");
         } catch {
           raw = undefined;
         }
@@ -226,9 +226,9 @@ describe("writeRemoteMcpServer / removeMcpServer", () => {
   test("refuses to replace stdio entry with remote without remove first", async () => {
     await withRepo(
       async (repo) => {
-        await mkdir(join(repo, ".tacp"), { recursive: true });
+        await mkdir(join(repo, ".acpbot"), { recursive: true });
         await writeFile(
-          join(repo, ".tacp", "mcp.json"),
+          join(repo, ".acpbot", "mcp.json"),
           JSON.stringify({
             mcpServers: [
               {
@@ -348,7 +348,7 @@ describe("/mcp slash command wiring", () => {
         );
 
         // After add: re-read on-disk file under session.cwd — keys name/type/url only.
-        const onDiskPath = join(session.cwd, ".tacp", "mcp.json");
+        const onDiskPath = join(session.cwd, ".acpbot", "mcp.json");
         const rawAfterAdd = await readFile(onDiskPath, "utf8");
         expect(rawAfterAdd).not.toContain("SECRET");
         expect(rawAfterAdd).not.toContain("token");
