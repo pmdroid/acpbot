@@ -105,4 +105,4 @@ acp-host is **required** (worker fails boot without a live host socket):
 - Host SIGTERM disposes all agent processes
 - `/agent` changes go through host ensure + optional respawn RPCs
 
-See [architecture.md](architecture.md) and [ideas/agent-host-keepalive.md](ideas/agent-host-keepalive.md).
+See [architecture.md](architecture.md).

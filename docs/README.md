@@ -4,9 +4,10 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 
 ## Start here
 
-1. [Getting started](getting-started.md) — bot, TOML config, first topic
-2. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
-3. [Commands](commands.md) — lobby vs topic slash surface
+1. [Getting started](getting-started.md) — bot, config, pair, first topic
+2. [Pairing](pairing.md) — CLI operator approve flow
+3. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
+4. [Commands](commands.md) — lobby vs topic slash surface
 
 ## How it works
 
@@ -19,10 +20,6 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 | [Schedules](schedules.md) | Durable delayed/recurring jobs + host ticker |
 | [Skills](skills.md) | Bundled `telegram` + `schedules` skills, global install |
 | [OAuth](oauth.md) | Remote MCP auth (PKCE + DCR) |
-
-## Ideas / future
-
-- [Agent host keepalive](ideas/agent-host-keepalive.md) — long-lived agent owner (MVP implemented)
 
 ## Root README
 
