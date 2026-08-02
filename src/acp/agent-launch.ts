@@ -327,6 +327,8 @@ export function listRegisteredAgents(
   const which = options.which ?? defaultWhich;
   const forceAll =
     options.availableOnly === false ||
+    env.ACPBOT_AGENTS_ALL === "1" ||
+    env.ACPBOT_AGENTS_ALL === "true" ||
     env.TACP_AGENTS_ALL === "1" ||
     env.TACP_AGENTS_ALL === "true";
 
