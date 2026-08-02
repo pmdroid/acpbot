@@ -185,7 +185,7 @@ Workflows: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/wor
 | [docs/skills.md](docs/skills.md) | Bundled skills |
 | [docs/oauth.md](docs/oauth.md) | Remote MCP OAuth |
 | [docs/configuration.md](docs/configuration.md) | TOML config, speech providers, paths |
-| [website/](website/) | Landing page for acpbot.app |
+| [website/](website/) | Landing + [quick-start docs](website/docs.html) for acpbot.app |
 
 ---
 
@@ -201,7 +201,7 @@ src/
   env/              Ports (telegram, agents, store, speech)
   schedules/        In-repo schedule store
 docker/             Container entrypoint
-website/            acpbot.app static site
+website/            acpbot.app — landing (index) + docs (docs.html)
 test/               bun test suite
 skills/             Bundled agent skills
 docs/               Operator docs
