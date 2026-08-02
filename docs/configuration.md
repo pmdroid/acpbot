@@ -17,25 +17,32 @@ launchd / systemd installs. You do **not** need a wall of environment variables.
 - `~/.config/acpbot/config.toml` (mode `600`) if missing  
 - `~/.local/share/acpbot/` (store + state)
 
-### Onboarding wizard
+### Guided setup TUI
 
 ```bash
 acpbot setup          # or: acpbot init · acpbot --setup
 ```
 
-Prompts for:
+Interactive (@clack) walkthrough:
 
-| Prompt | Required | Notes |
-|---|---|---|
-| Bot token | **yes** | From @BotFather |
-| Operator user id | no | Blank = claim on first DM |
-| Default agent | no | default `grok-build` |
-| Workspace repo | no | key + absolute path for `/new` |
+| Step | What |
+|---|---|
+| Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
+| Agent | grok-build · claude · codex · opencode |
+| Workspace | Optional `[repos]` entry for `/new` |
+| Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
+| OAuth | Optional `callback_base` for remote MCP |
+| Daemon | **macOS** LaunchAgents or **Linux** systemd user units for host + worker |
 
-Re-running `setup` keeps current values on Enter (token shown masked).  
-First `acpbot` start also opens the wizard if `bot_token` is still a placeholder.
+Services run as your user (no root). Logs:
 
-**`operator_user_id`** is the allowlist (only that Telegram account can control the bot). Non-interactive boots need a real `bot_token` already in the file.
+- macOS: `~/.local/share/acpbot/logs/`
+- Linux: `journalctl --user -u acpbot-host -u acpbot -f`
+
+First plain `acpbot` start also opens the TUI if `bot_token` is still a placeholder.  
+Non-interactive boots need a real `bot_token` already in the file.
+
+**`operator_user_id`** is the allowlist (only that Telegram account can control the bot).
 
 Worker and **acp-host must use the same file** (or the same `state_dir`).
 
