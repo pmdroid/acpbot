@@ -5,35 +5,24 @@
 # acpbot
 
 **Telegram control surface for ACP coding agents.**  
-**Site:** [acpbot.app](https://acpbot.app) · **License:** [MIT](LICENSE)
+**Site:** [acpbot.app](https://acpbot.app) · **Docs:** [quick start](https://acpbot.app/docs.html) · **License:** [MIT](LICENSE)
 
-Each agent session is a **forum topic** in your private chat with the bot. A local Bun daemon long-polls Telegram, spawns (or reattaches to) ACP agents over stdio, and bridges permissions, media, MCP tools, and speech into the topic.
+Each agent session is a **forum topic** in your private chat with the bot. Talk to Grok, Claude, Codex, or OpenCode from Telegram — permissions, media, MCP tools, and schedules on **your** machine.
 
 ```text
-You (Telegram) ──topic──► acpbot worker ──ACP──► grok / claude / codex / opencode
-                              │
-                              ├── worker-api.sock  ◄── host MCP tools (speak, photo, …)
-                              └── acp-host.sock    (required long-lived agent owner)
+You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / codex / opencode
 ```
-
-| | |
-|---|---|
-| **Runtime** | [Bun](https://bun.sh) ≥ 1.1 + TypeScript |
-| **Protocol** | [Agent Client Protocol](https://agentclientprotocol.com) via [`@agentclientprotocol/sdk`](https://github.com/agentclientprotocol/typescript-sdk) |
-| **Operator model** | Single allowlisted user, private chat, topic-per-session |
-| **Default session mode** | Prefer **ask** / permission-cautious modes when the agent advertises them |
-| **License** | [MIT](LICENSE) |
 
 ---
 
 ## Disclaimer — use at your own risk
 
-**acpbot runs coding agents that can read and write files, execute shell commands, call network tools, and spend API quota on any machine or container you attach.**
+**acpbot runs coding agents that can read and write files, execute shell commands, call network tools, and spend API quota on any machine you attach.**
 
-- You are **solely responsible** for configuring allowlists, repo mounts, credentials, and agent permissions.
-- The authors and contributors are **not responsible** for any **damage**, data loss, security incidents, leaked secrets, unexpected costs, legal claims, or other consequences arising from use or misuse of this software.
-- Default mode selection prefers **ask** / cautious modes when available, but agents may still request elevated tools; you must review permission prompts.
-- This software is provided **“AS IS”** under the [MIT License](LICENSE), without warranty of any kind.
+- You are **solely responsible** for allowlists, repos, credentials, and agent permissions.
+- The authors are **not responsible** for damage, data loss, security incidents, leaked secrets, unexpected costs, or other consequences.
+- Prefer **ask** / cautious modes when available, and review permission prompts.
+- Provided **“AS IS”** under the [MIT License](LICENSE), without warranty.
 
 By running acpbot you accept these terms.
 
@@ -41,76 +30,73 @@ By running acpbot you accept these terms.
 
 ## Features
 
-- **Lobby → topic sessions** — `/new` opens a forum topic bound to a repo + agent
-- **Real agents** — Grok Build, Claude, Codex, OpenCode (PATH-gated picker)
-- **Mid-session switch** — `/model` and `/agent` without leaving the topic
-- **Working bubble** — one editable `⏳` / `❓` status message per turn
-- **Permissions & questions** — inline keyboards for ACP permissions, elicitation, ask-user
-- **Media in / out** — photos, files, voice STT; agent TTS / photo / file via MCP
-- **Host MCP** — built-in `acpbot` tools + per-repo `.acpbot/mcp.json` (legacy `.tacp/` supported)
-- **Remote MCP OAuth** — PKCE + dynamic client registration; tokens stay off-repo
-- **Schedules** — durable in-repo jobs; `acp-host` fires them even if the worker is down
-- **acp-host required** — agent processes live in the host; worker fails boot if host is down
-
-Full docs: [`docs/`](docs/).
+- **Topic = session** — `/new` opens a forum topic bound to a repo + agent
+- **Real agents** — Grok Build, Claude, Codex, OpenCode
+- **`/model` · `/agent` · `/mode`** — switch mid-session without leaving the topic
+- **Working bubble** — one live `⏳` / `❓` status message per turn
+- **Permissions in chat** — inline keyboards for ACP prompts
+- **Media & speech** — photos, files, voice; OpenAI or ElevenLabs TTS/STT
+- **Schedules** — delayed/recurring jobs even when the Telegram worker is down
+- **Queue & steer** — free-text queues while busy; `/steer` interrupts
 
 ---
 
-## Quick start (binaries)
+## Install
 
-**Preferred path:** download release binaries — no Bun or source checkout required.  
-Web walkthrough: [acpbot.app/docs.html](https://acpbot.app/docs.html).
+No Bun or source checkout required for normal use.
 
 ### 1. Bot (once)
 
-In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Put at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, or `opencode`).
+In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, or `opencode`).
 
 ### 2. Download host + worker
 
-From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) grab both assets for your platform (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`):
+From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **both** binaries for your platform (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`):
 
 ```bash
-# example: v0.1.0 on Apple Silicon
+# example: v0.1.0 on Apple Silicon — use the latest tag from Releases
 curl -sL -o acpbot.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
 curl -sL -o acpbot-host.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
 tar -xzf acpbot.tar.gz && tar -xzf acpbot-host.tar.gz
 chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64
-# optional
 sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 ```
 
-### 3. Configure (TOML)
+### 3. Config file
 
 ```bash
 mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-# use config.example.toml from this repo or a release note
+# config.example.toml is in this repo (or copy from the quick-start docs)
 cp config.example.toml ~/.config/acpbot/config.toml
 chmod 600 ~/.config/acpbot/config.toml
-# edit: bot_token, operator_user_id, [repos]
 ```
 
-| Key | Purpose |
-|---|---|
-| `bot_token` | Bot token from @BotFather |
-| `operator_user_id` | Your Telegram user id (allowlist) |
-| `default_agent` | e.g. `grok-build`, `claude`, `codex`, `opencode` |
-| `[repos]` | `key = "/absolute/cwd"` for `/new` + schedules |
+Edit `~/.config/acpbot/config.toml`:
 
-**Defaults:** store + state under `~/.local/share/acpbot/`. Override with `store_path` / `state_dir` or `--config PATH`.  
-Full reference: [`docs/configuration.md`](docs/configuration.md).
+```toml
+bot_token = "…"              # from @BotFather
+operator_user_id = 12345     # your Telegram user id
+default_agent = "grok-build"
+
+[repos]
+demo = "/absolute/path/to/your/repo"
+```
+
+Store and state default under `~/.local/share/acpbot/`. Same config for host and worker.  
+Details: [docs/configuration.md](docs/configuration.md).
 
 ### 4. Run (two processes)
 
-**acp-host is required.** The worker exits at boot if the host socket is missing. Use the **same** config file on both.
+**Host first.** The worker will not start without it.
 
 ```bash
-# terminal 1 — owns agent processes + schedules
+# terminal 1
 acpbot-host --config ~/.config/acpbot/config.toml
 
-# terminal 2 — Telegram worker
+# terminal 2
 acpbot --config ~/.config/acpbot/config.toml
 ```
 
@@ -119,114 +105,25 @@ acpbot --config ~/.config/acpbot/config.toml
 ```text
 /ping
 /new demo hello
-# open the topic → prompt
-# /status  /model  /agent  /mode  /skills  /mcp  /cancel
-# while busy: free-text is queued; /steer <text> interrupts; /queue · /unqueue
+# open the topic → type a prompt
+
+/status  /model  /agent  /mode  /skills  /mcp  /cancel
+# while busy: free-text is queued; /steer <text> interrupts
 ```
 
----
+More: [acpbot.app/docs.html](https://acpbot.app/docs.html) · [docs/](docs/)
 
-## Docker (optional)
-
-Two containers share a state volume; only the host publishes OAuth (optional). Agents are **not** fully baked into the image — mount CLIs and repos yourself.
-
-```bash
-cp config.example.toml config.toml
-# edit bot_token, operator_user_id, [repos]; set store_path/state_dir under /data
-# ACPBOT_REPOS_HOST=./demo   # host path mounted at /repos/demo
-# ACPBOT_CONFIG_HOST=./config.toml
-
-docker compose up --build
-# or: docker pull ghcr.io/<owner>/acpbot:v0.1.0
-```
-
-| Service | Role |
-|---|---|
-| `acp-host` | Agent stdio owner, schedules, OAuth `:8788` |
-| `worker` | Telegram poller; depends on healthy host socket |
-
-Mount agent binaries read-only when needed (see comments in `docker-compose.yml`).  
-**Mounted repos are writable by agents — treat that as full trust of the operator + agent.**
-
----
-
-## From source (development)
-
-Requires [Bun](https://bun.sh) ≥ 1.1.
-
-```bash
-git clone https://github.com/pmdroid/acpbot.git
-cd acpbot
-bun install
-bun run skills:install   # once — install bundled skills for agent CLIs
-# config: same ~/.config/acpbot/config.toml as binaries
-
-bun run acp-host         # terminal 1
-bun run start            # terminal 2 (worker)
-```
-
-Local compile:
-
-```bash
-bun run build:compile
-# → dist/acpbot          (worker)
-# → dist/acpbot-host     (host)
-```
-
-CI / release workflows: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/release.yml`](.github/workflows/release.yml).  
-Push a `v*` tag (or publish a GitHub Release) to attach multi-platform binaries and GHCR images.
 ---
 
 ## Documentation
 
-| Doc | Contents |
+| | |
 |---|---|
-| [docs/getting-started.md](docs/getting-started.md) | Bot setup, first session |
-| [docs/architecture.md](docs/architecture.md) | Processes, sockets, data flow |
-| [docs/commands.md](docs/commands.md) | Lobby vs topic commands |
-| [docs/agents.md](docs/agents.md) | Agent registry, `/model`, `/agent` |
-| [docs/mcp.md](docs/mcp.md) | Built-in tools, `.acpbot/mcp.json` |
-| [docs/worker-api.md](docs/worker-api.md) | Unix API MCP → Telegram |
-| [docs/schedules.md](docs/schedules.md) | Delayed/recurring jobs |
-| [docs/skills.md](docs/skills.md) | Bundled skills |
-| [docs/oauth.md](docs/oauth.md) | Remote MCP OAuth |
-| [docs/configuration.md](docs/configuration.md) | TOML config, speech providers, paths |
-| [website/](website/) | Landing + [quick-start docs](website/docs.html) for acpbot.app |
-
----
-
-## Project layout
-
-```text
-src/
-  main.ts           Telegram worker entry
-  acp-host/         Long-lived agent owner + schedule ticker + OAuth HTTP
-  acp/              Thin ACP session host (SDK client)
-  core/             Daemon, commands, media, worker API
-  mcp/              Host MCP, repo MCP, OAuth
-  env/              Ports (telegram, agents, store, speech)
-  schedules/        In-repo schedule store
-docker/             Container entrypoint
-website/            acpbot.app — landing (index) + docs (docs.html)
-test/               bun test suite
-skills/             Bundled agent skills
-docs/               Operator docs
-```
-
----
-
-## Development
-
-```bash
-bun install
-TACP_SKIP_LIVE_ACP=1 bun test ./test
-bun run typecheck
-bun run build:compile
-bun run acp-host
-bun run start
-```
-
-One seam: the `Environment` port (`telegram`, `agents`, `clock`, `store`). Core stays pure; fakes under `src/env/` for tests.
+| [Quick start (web)](https://acpbot.app/docs.html) | Short install path |
+| [configuration.md](docs/configuration.md) | TOML, speech providers, paths |
+| [commands.md](docs/commands.md) | Lobby & topic commands |
+| [getting-started.md](docs/getting-started.md) | Extra operator notes |
+| [architecture.md](docs/architecture.md) | How the pieces fit |
 
 ---
 
