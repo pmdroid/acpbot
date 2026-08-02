@@ -126,15 +126,30 @@ export function defaultWhich(command: string): string | null {
   if (!command?.trim()) return null;
   // Bun.which is reliable when running under bun test / bun start
   if (typeof Bun !== "undefined" && typeof Bun.which === "function") {
-    return Bun.which(command) ?? null;
+    const fromBun = Bun.which(command);
+    if (fromBun) return fromBun;
   }
-  // Minimal PATH fallback for non-Bun hosts
-  const pathEnv = process.env.PATH ?? "";
+  // PATH + common user install dirs (LaunchAgents use a minimal PATH)
   const sep = process.platform === "win32" ? ";" : ":";
-  for (const dir of pathEnv.split(sep)) {
-    if (!dir) continue;
+  const home = process.env.HOME?.trim() || "";
+  const extraDirs = [
+    home ? `${home}/.local/bin` : "",
+    home ? `${home}/.grok/bin` : "",
+    home ? `${home}/.cargo/bin` : "",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+  ].filter(Boolean);
+  const pathEnv = process.env.PATH ?? "";
+  const dirs = [
+    ...pathEnv.split(sep).filter(Boolean),
+    ...extraDirs,
+  ];
+  const seen = new Set<string>();
+  for (const dir of dirs) {
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
     try {
-      const candidate = `${dir.replace(/\/$/, "")}/${command}`;
+      const candidate = `${dir.replace(/[\\/]$/, "")}/${command}`;
       if (existsSync(candidate)) {
         try {
           accessSync(candidate, constants.X_OK);

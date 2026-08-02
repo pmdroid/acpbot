@@ -201,7 +201,14 @@ export function systemdUserUnit(opts: {
   execStart: string;
   workingDirectory: string;
   envFile?: string;
+  /** Extra Environment= lines (already KEY=value). */
+  environment?: Record<string, string>;
 }): string {
+  const envLines = opts.environment
+    ? Object.entries(opts.environment)
+        .map(([k, v]) => `Environment=${k}=${v}`)
+        .join("\n") + "\n"
+    : "";
   return `[Unit]
 Description=${opts.description}
 After=network-online.target
@@ -213,10 +220,41 @@ WorkingDirectory=${opts.workingDirectory}
 ExecStart=${opts.execStart}
 Restart=on-failure
 RestartSec=3
-${opts.envFile ? `EnvironmentFile=${opts.envFile}\n` : ""}
+${envLines}${opts.envFile ? `EnvironmentFile=${opts.envFile}\n` : ""}
 [Install]
 WantedBy=default.target
 `;
+}
+
+/**
+ * PATH for background services — LaunchAgents default to a minimal system PATH
+ * that does not include ~/.local/bin or agent CLIs (grok, claude, …).
+ */
+export function servicePathEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const home = env.HOME ?? homedir();
+  const extras = [
+    join(home, ".local", "bin"),
+    join(home, ".grok", "bin"),
+    join(home, ".cargo", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+  const current = env.PATH?.split(":").filter(Boolean) ?? [];
+  const system = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  const merged = [...extras, ...current, ...system];
+  const seen = new Set<string>();
+  const path = merged
+    .filter((d) => {
+      if (!d || seen.has(d)) return false;
+      seen.add(d);
+      return true;
+    })
+    .join(":");
+  const out: Record<string, string> = { PATH: path, HOME: home };
+  if (env.ACPBOT_CONFIG?.trim()) out.ACPBOT_CONFIG = env.ACPBOT_CONFIG.trim();
+  return out;
 }
 
 /**
@@ -258,6 +296,7 @@ export function installUserDaemons(
   mkdirSync(logDir, { recursive: true, mode: 0o700 });
   const workDir = dirname(configPath);
   const start = options.start !== false;
+  const serviceEnv = servicePathEnv(env);
 
   if (platform === "darwin") {
     const agentsDir = join(home, "Library", "LaunchAgents");
@@ -275,6 +314,7 @@ export function installUserDaemons(
         workingDirectory: workDir,
         logOut: join(logDir, "host.out.log"),
         logErr: join(logDir, "host.err.log"),
+        env: serviceEnv,
       }),
       "utf8",
     );
@@ -286,6 +326,7 @@ export function installUserDaemons(
         workingDirectory: workDir,
         logOut: join(logDir, "worker.out.log"),
         logErr: join(logDir, "worker.err.log"),
+        env: serviceEnv,
       }),
       "utf8",
     );
@@ -345,6 +386,7 @@ export function installUserDaemons(
         description: "acpbot host (agent owner)",
         execStart: `${host} --config ${configPath}`,
         workingDirectory: workDir,
+        environment: serviceEnv,
       }),
       "utf8",
     );
@@ -354,6 +396,7 @@ export function installUserDaemons(
         description: "acpbot worker (Telegram)",
         execStart: `${worker} --config ${configPath}`,
         workingDirectory: workDir,
+        environment: serviceEnv,
       }),
       "utf8",
     );
