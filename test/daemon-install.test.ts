@@ -49,11 +49,11 @@ describe("renderFullConfigToml", () => {
   test("includes speech and oauth sections", () => {
     const toml = renderFullConfigToml({
       botToken: "1:AAAreal-token-here-not-placeholder",
-      operatorUserId: 0,
       defaultAgent: "claude",
       logLevel: "info",
       repos: { demo: "/tmp/demo" },
       ttsMode: "agent",
+      permissionMode: "ask",
       ttsProvider: "openai",
       sttProvider: "openai",
       openaiApiKey: "sk-test",
@@ -68,6 +68,31 @@ describe("renderFullConfigToml", () => {
     expect(toml).toContain('api_key = "sk-test"');
     expect(toml).toContain("[oauth]");
     expect(toml).toContain("https://x.ts.net");
+    expect(toml).toContain('permission_mode = "ask"');
+  });
+
+  test("preserve keeps schedule and agents sections", () => {
+    const toml = renderFullConfigToml({
+      botToken: "1:AAAreal-token-here-not-placeholder",
+      defaultAgent: "grok-build",
+      logLevel: "debug",
+      repos: {},
+      ttsMode: "off",
+      permissionMode: "bypass",
+      ttsProvider: "off",
+      sttProvider: "off",
+      preserve: {
+        scheduleTickMs: 15000,
+        claudeAcpPkg: "@agentclientprotocol/claude-agent-acp@0.64.0",
+        mcpEnabled: false,
+      },
+    });
+    expect(toml).toContain("[schedule]");
+    expect(toml).toContain("tick_ms = 15000");
+    expect(toml).toContain("[agents]");
+    expect(toml).toContain("claude_acp_pkg");
+    expect(toml).toContain("mcp = false");
+    expect(toml).toContain('permission_mode = "bypass"');
   });
 });
 
