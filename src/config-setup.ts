@@ -428,10 +428,19 @@ export async function runFirstRunSetup(
   });
 }
 
-/** CLI: `acpbot setup` — always open the wizard (reconfigure). */
+/** CLI: `acpbot setup` — guided TUI (reconfigure anytime). */
 export async function runSetupCommand(
   options: LoadConfigOptions = {},
 ): Promise<ProcessConfig> {
+  // Prefer full guided TUI when stdin is a TTY.
+  const interactive =
+    typeof process.stdin !== "undefined" && process.stdin.isTTY === true;
+  if (interactive) {
+    const { runGuidedSetupTui } = await import("./setup/guided-tui");
+    const result = await runGuidedSetupTui(options);
+    return result.cfg;
+  }
+  // Non-TTY fallback: simple wizard requires answers injection or fails clearly
   const layout = ensureAcpbotLayout(options);
   const env = options.env ?? process.env;
   let existing: ProcessConfig | undefined;
@@ -496,11 +505,14 @@ export async function loadConfigWithSetup(
 
   if (requireTelegram && configNeedsTelegramSetup(cfg)) {
     if (interactive) {
-      cfg = await runFirstRunSetup({
+      // First boot without a token → full guided TUI
+      const { runGuidedSetupTui } = await import("./setup/guided-tui");
+      const result = await runGuidedSetupTui({
+        ...options,
         configPath: layout.configPath,
         env,
-        existing: undefined,
       });
+      cfg = result.cfg;
     } else {
       // Ensure friendly error after creating default config
       throw new Error(

@@ -65,28 +65,23 @@ sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 ```
 
-### 3. Run (first start sets up config)
-
-**Host first.** The worker will not start without it.
-
-On first launch the app creates config + data dirs for you.
+### 3. Guided setup TUI
 
 ```bash
-# One-time (or re-run anytime) — interactive onboarding wizard
-acpbot setup
-# asks: bot token, operator id (optional), default agent, optional repo
-
-# Then two processes:
-acpbot-host    # terminal 1
-acpbot         # terminal 2 — Telegram worker
+acpbot setup          # re-run anytime
 ```
 
-If you skip `setup`, the first `acpbot` start in a terminal also opens the wizard when no bot token is set.
+Walks through bot token, operator (claim on first DM or paste user id), default agent, workspace repo, **OpenAI / ElevenLabs API keys**, optional OAuth, and can install a **macOS LaunchAgent** or **Linux systemd user** service for host + worker.
 
-**Operator id:** only that Telegram account may control the bot (agents can run tools on your machine). Leave blank to claim with the first private `/ping`.
+If you skip the daemon step:
 
-Default config: `~/.config/acpbot/config.toml`. Override with `--config PATH` if you want.  
-Details: [docs/configuration.md](docs/configuration.md).
+```bash
+acpbot-host    # terminal 1
+acpbot         # terminal 2
+```
+
+First plain `acpbot` start also opens the TUI when no bot token is set.  
+Config: `~/.config/acpbot/config.toml`. Details: [docs/configuration.md](docs/configuration.md).
 
 ### 4. Telegram
 

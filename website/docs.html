@@ -113,15 +113,17 @@ sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host</code></pre>
             <code>~/.config/acpbot/</code> and
             <code>~/.local/share/acpbot/</code> for you.
           </p>
-          <pre class="code-block"><code># one-time onboarding wizard (re-run anytime)
+          <pre class="code-block"><code># guided TUI — config, API keys, optional background service
 acpbot setup
-# bot token · operator id (optional) · agent · optional repo
 
-# terminal 1 — owns agent processes + schedules
-acpbot-host
-
-# terminal 2 — Telegram worker
-acpbot</code></pre>
+# if you skip the daemon step in setup:
+acpbot-host    # terminal 1
+acpbot         # terminal 2</code></pre>
+          <p>
+            Setup can install a <strong>macOS LaunchAgent</strong> or
+            <strong>Linux systemd user</strong> service so host + worker start
+            at login.
+          </p>
           <p class="docs-note">
             Config path defaults to
             <code>~/.config/acpbot/config.toml</code> (mode <code>600</code>).

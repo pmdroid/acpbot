@@ -20,16 +20,9 @@ import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
-  // Explicit onboarding: `acpbot setup` | `acpbot init` | `acpbot --setup`
+  // Explicit onboarding TUI: `acpbot setup` | `acpbot init` | `acpbot --setup`
   if (isSetupCliCommand(process.argv)) {
-    const cfg = await runSetupCommand();
-    console.error(
-      `acpbot setup complete.\n` +
-        `  config: ${cfg.configPath}\n` +
-        `  agent:  ${cfg.defaultAgent}\n` +
-        `  operator_user_id: ${cfg.operatorUserId || "0 (claim on first DM)"}\n` +
-        `Start: acpbot-host  then  acpbot\n`,
-    );
+    await runSetupCommand();
     return;
   }
 
