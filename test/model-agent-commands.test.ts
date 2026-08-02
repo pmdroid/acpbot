@@ -92,23 +92,31 @@ describe("/model and /agent", () => {
   });
 
   test("/agent claude switches identity", async () => {
-    const env = createFakeEnvironment({
-      config: {
-        operatorUserId: OPERATOR,
-        defaultAgent: "grok-build",
-        repos: { demo: "/tmp/demo-repo" },
-      },
-    });
-    const d = createDaemon(env);
-    await d.handleUpdate(root("/new demo a1", 1));
-    const sessions = await d.listSessions();
-    const tid = sessions[0]!.messageThreadId;
-    await d.handleUpdate(topic(tid, "/agent claude", 2));
-    const after = await d.listSessions();
-    expect(after[0]!.identity.agent).toBe("claude");
-    expect(
-      env.agents.ensureCalls.some((c) => c.agent === "claude"),
-    ).toBe(true);
+    // CI runners often lack agent CLIs on PATH; list full registry for this test.
+    const prev = process.env.TACP_AGENTS_ALL;
+    process.env.TACP_AGENTS_ALL = "1";
+    try {
+      const env = createFakeEnvironment({
+        config: {
+          operatorUserId: OPERATOR,
+          defaultAgent: "grok-build",
+          repos: { demo: "/tmp/demo-repo" },
+        },
+      });
+      const d = createDaemon(env);
+      await d.handleUpdate(root("/new demo a1", 1));
+      const sessions = await d.listSessions();
+      const tid = sessions[0]!.messageThreadId;
+      await d.handleUpdate(topic(tid, "/agent claude", 2));
+      const after = await d.listSessions();
+      expect(after[0]!.identity.agent).toBe("claude");
+      expect(
+        env.agents.ensureCalls.some((c) => c.agent === "claude"),
+      ).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.TACP_AGENTS_ALL;
+      else process.env.TACP_AGENTS_ALL = prev;
+    }
   });
 
   test("/status includes Model line", async () => {

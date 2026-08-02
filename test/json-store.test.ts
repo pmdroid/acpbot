@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDaemon } from "../src/core/daemon";
 import { STORE_KEYS } from "../src/core/persistence";
@@ -9,11 +10,8 @@ import { fakeTelegram } from "../src/env/fake-telegram";
 import { createJsonFileStore } from "../src/env/store";
 import type { Environment, TelegramUpdate } from "../src/env/types";
 
-const SCRATCH =
-  "/var/folders/jg/xxmk6hrd4dbg0x2hl4mqv29m0000gn/T/grok-goal-644ece14a855/implementer";
-
 function storePath(name: string): string {
-  const dir = join(SCRATCH, "json-store-tests");
+  const dir = join(tmpdir(), "acpbot-json-store-tests");
   mkdirSync(dir, { recursive: true });
   return join(dir, name);
 }
