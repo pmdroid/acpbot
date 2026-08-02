@@ -53,7 +53,6 @@ describe("loadConfig (TOML + defaults)", () => {
       path,
       `
 bot_token = "tok-toml"
-operator_user_id = 99
 store_path = "${dir}/store.json"
 state_dir = "${dir}/state"
 default_agent = "codex"
@@ -81,7 +80,7 @@ tick_ms = 15000
       env: { HOME: dir },
     });
     expect(cfg.botToken).toBe("tok-toml");
-    expect(cfg.operatorUserId).toBe(99);
+    expect(cfg.operatorUserId).toBe(0); // operator is pairing state, not TOML
     expect(cfg.storePath).toBe(join(dir, "store.json"));
     expect(cfg.stateDir).toBe(join(dir, "state"));
     expect(cfg.repos?.demo).toBe(join(dir, "repo"));
@@ -100,7 +99,6 @@ tick_ms = 15000
       env: {
         HOME: "/tmp/x",
         ACPBOT_BOT_TOKEN: "tok-abc",
-        ACPBOT_OPERATOR_USER_ID: "42",
         ACPBOT_STORE_PATH: "/cfg/store.json",
         ACPBOT_STATE_DIR: "/cfg/state",
         ACPBOT_REPOS_JSON: JSON.stringify({ acpbot: "/cfg/repos/acpbot" }),
@@ -109,7 +107,7 @@ tick_ms = 15000
       skipFile: true,
     });
     expect(cfg.botToken).toBe("tok-abc");
-    expect(cfg.operatorUserId).toBe(42);
+    expect(cfg.operatorUserId).toBe(0);
     expect(cfg.storePath).toBe("/cfg/store.json");
     expect(cfg.stateDir).toBe("/cfg/state");
     expect(cfg.repos?.acpbot).toBe("/cfg/repos/acpbot");
@@ -132,7 +130,6 @@ tick_ms = 15000
       env: {
         HOME: "/tmp/apply",
         ACPBOT_BOT_TOKEN: "t",
-        ACPBOT_OPERATOR_USER_ID: "1",
         ACPBOT_REPOS_JSON: JSON.stringify({ d: "/tmp/d" }),
       },
       skipFile: true,
@@ -146,7 +143,6 @@ tick_ms = 15000
     const n = normalizeToml(
       parseTomlConfig(`
 bot_token = "x"
-operator_user_id = 1
 [features]
 mcp = true
 [repos]
@@ -154,7 +150,6 @@ a = "/b"
 `),
     );
     expect(n.botToken).toBe("x");
-    expect(n.operatorUserId).toBe(1);
     expect(n.mcpEnabled).toBe(true);
     expect(n.repos?.a).toBe("/b");
   });

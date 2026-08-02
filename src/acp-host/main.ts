@@ -62,7 +62,7 @@ ${serviceCliHelp()}`);
   if (layout.createdConfig) {
     console.error(
       `acpbot acp-host created config: ${layout.configPath}\n` +
-        `  Run \`acpbot\` once in a terminal to set bot_token / operator_user_id.`,
+        `  Run \`acpbot\` once in a terminal to set bot_token, then: acpbot pair approve.`,
     );
   }
 

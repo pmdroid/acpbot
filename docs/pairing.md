@@ -1,20 +1,32 @@
 # Operator pairing (CLI approve)
 
-When `operator_user_id = 0` (default / unclaimed), the bot does **not** trust the first Telegram user automatically.
+acpbot does **not** put an operator id in `config.toml`. Pairing is always:
+
+1. Telegram DM → pairing code  
+2. Host CLI → `acpbot pair approve <code>`
+
+The approved operator is stored under:
+
+```text
+$state_dir/pairing/operator.json
+```
+
+(default `state_dir`: `~/.local/share/acpbot/state`)
 
 ## Flow
 
-1. Start **acp-host** and **acpbot** (worker) with a valid `bot_token` and `operator_user_id = 0`.
+1. Start **acp-host** and **acpbot** with a valid `bot_token`.
 2. Open a **private** chat with the bot and send any message (e.g. `/ping`).
 3. The bot replies with a **pairing code** (e.g. `AB3K-9Q2M`).
 4. On the machine that runs acpbot:
 
 ```bash
-acpbot pair list                 # optional
+acpbot pair list
 acpbot pair approve AB3K-9Q2M
+acpbot pair status
 ```
 
-5. The CLI writes `operator_user_id` into `config.toml`. The worker picks it up on the next poll (or next message) and confirms in Telegram.
+5. The worker picks up the pair on the next poll and confirms in Telegram.
 6. Only that Telegram account can control the bot afterward.
 
 ## Why this is safer
@@ -29,27 +41,16 @@ Random people who find the bot username only get a code; without CLI access they
 ## Commands
 
 ```text
-acpbot pair status              # current operator from config
-acpbot pair list                # pending codes (from state_dir/pairing/)
-acpbot pair approve <code>      # claim operator + write config
+acpbot pair status              # current paired operator (if any)
+acpbot pair list                # pending codes
+acpbot pair approve <code>      # store operator in state_dir
+acpbot pair clear               # unpair (allow a new approve)
 ```
 
 ## Re-pair
 
-Edit config:
-
-```toml
-operator_user_id = 0
+```bash
+acpbot pair clear
+# DM the bot again for a new code, then:
+acpbot pair approve <new-code>
 ```
-
-Restart the worker (or wait until unclaimed path is used), DM again, approve a new code.
-
-## Optional: set id without pairing
-
-In setup or config you can still set a fixed id:
-
-```toml
-operator_user_id = 123456789
-```
-
-Then no pairing code is issued; only that user is accepted.

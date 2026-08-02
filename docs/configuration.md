@@ -38,7 +38,7 @@ Interactive (@clack) walkthrough:
 First plain `acpbot` start also opens the TUI if `bot_token` is still a placeholder.  
 Non-interactive boots need a real `bot_token` already in the file.
 
-**`operator_user_id`** is the allowlist (only that Telegram account can control the bot).
+Operator allowlist is **not** in TOML — pair with `acpbot pair approve` after a Telegram DM. See [pairing.md](pairing.md).
 
 Worker and **acp-host must use the same file** (or the same `state_dir`).
 
@@ -148,13 +148,11 @@ records, and OAuth tokens. Keep it private (owner-only).
 
 ```toml
 bot_token = "…"           # @BotFather — required
-operator_user_id = 0      # 0 = first DM claims the bot; or set your user id
 ```
 
 | Key | Why |
 |---|---|
 | `bot_token` | Telegram Bot API auth |
-| `operator_user_id` | **Security allowlist** — anyone who can talk to the bot could otherwise run agents on your machine. Set explicitly, or leave `0` and claim with the first private message |
 
 **acp-host** does not require the bot token; it only needs the shared `state_dir`
 and optional `[repos]` / `[oauth]` / `[schedule]`.
@@ -163,7 +161,6 @@ and optional `[repos]` / `[oauth]` / `[schedule]`.
 
 ```toml
 bot_token = "123456:ABC…"
-operator_user_id = 42
 default_agent = "grok-build"
 log_level = "info"
 
@@ -285,7 +282,6 @@ Optional **overrides** for CI, Docker, or scripts. Day-to-day use prefers TOML (
 | Env override | TOML equivalent |
 |---|---|
 | `ACPBOT_BOT_TOKEN` | `bot_token` |
-| `ACPBOT_OPERATOR_USER_ID` | `operator_user_id` |
 | `ACPBOT_STORE_PATH` | `store_path` |
 | `ACPBOT_STATE_DIR` | `state_dir` |
 | `ACPBOT_REPOS_JSON` | `[repos]` |

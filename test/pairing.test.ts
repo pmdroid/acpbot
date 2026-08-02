@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createDaemon } from "../src/core/daemon";
@@ -13,7 +13,7 @@ import {
   takeAppliedPairing,
 } from "../src/core/pairing";
 import { createFakeEnvironment } from "../src/env/fake-env";
-import { patchConfigOperatorUserId } from "../src/config-setup";
+import { loadPairedOperator } from "../src/core/pairing";
 
 describe("pairing codes", () => {
   test("normalize strips separators", () => {
@@ -70,7 +70,7 @@ describe("daemon CLI pairing", () => {
     const dir = mkdtempSync(join(tmpdir(), "pair-d-"));
     const state = join(dir, "state");
     const cfgPath = join(dir, "config.toml");
-    writeFileSync(cfgPath, 'bot_token = "x"\noperator_user_id = 0\n');
+    writeFileSync(cfgPath, 'bot_token = "x"\n');
     const env = createFakeEnvironment({
       config: { operatorUserId: 0, repos: { demo: "/tmp/d" } },
     });
@@ -98,7 +98,7 @@ describe("daemon CLI pairing", () => {
     const dir = mkdtempSync(join(tmpdir(), "pair-app-"));
     const state = join(dir, "state");
     const cfgPath = join(dir, "config.toml");
-    writeFileSync(cfgPath, 'bot_token = "x"\noperator_user_id = 0\n');
+    writeFileSync(cfgPath, 'bot_token = "x"\n');
     const env = createFakeEnvironment({
       config: { operatorUserId: 0, repos: { demo: "/tmp/d" } },
     });
@@ -118,7 +118,8 @@ describe("daemon CLI pairing", () => {
     expect(pending[0]!.userId).toBe(77);
 
     await approvePairingCode(state, pending[0]!.code);
-    patchConfigOperatorUserId(cfgPath, 77);
+    const stored = await loadPairedOperator(state);
+    expect(stored?.userId).toBe(77);
 
     // Next update path applies CLI approval
     await d.handleUpdate({
@@ -132,7 +133,6 @@ describe("daemon CLI pairing", () => {
       },
     });
     expect(env.config.operatorUserId).toBe(77);
-    expect(readFileSync(cfgPath, "utf8")).toMatch(/operator_user_id = 77/);
     // now operator — /ping should get pong (after claim notify)
     const texts = env.telegram.sentMessages().map((m) => m.text ?? "");
     expect(texts.some((t) => /approved|operator/i.test(t))).toBe(true);

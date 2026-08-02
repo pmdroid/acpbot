@@ -2,7 +2,7 @@
  * First-run layout + interactive setup.
  *
  * Creates XDG config/data dirs and a default config.toml when missing,
- * then prompts on a TTY for bot_token, operator_user_id, and optional repo.
+ * then prompts on a TTY for bot_token and optional repo.
  */
 import {
   chmodSync,
@@ -64,7 +64,6 @@ export function defaultConfigTomlBody(): string {
 # Paths default to ~/.local/share/acpbot/ when omitted.
 
 bot_token = "${PLACEHOLDER_TOKEN}"
-operator_user_id = 0
 
 default_agent = "grok-build"
 log_level = "info"
@@ -151,11 +150,6 @@ function tomlString(value: string): string {
 
 export type SetupAnswers = {
   botToken: string;
-  /**
-   * Telegram user id allowlist. `0` means unclaimed until `acpbot pair approve <code>`.
-   * the first person who messages the bot becomes the only operator.
-   */
-  operatorUserId: number;
   defaultAgent: string;
   repoKey?: string;
   repoPath?: string;
@@ -167,9 +161,6 @@ export function renderConfigToml(answers: SetupAnswers): string {
     `# Written by first-run setup. Edit anytime, then restart host + worker.`,
     ``,
     `bot_token = ${tomlString(answers.botToken)}`,
-    `# Allowlist: only this Telegram user can control the bot.`,
-    `# 0 = unclaimed; pair via Telegram code + acpbot pair approve <code>.`,
-    `operator_user_id = ${answers.operatorUserId}`,
     ``,
     `default_agent = ${tomlString(answers.defaultAgent)}`,
     `log_level = "info"`,
@@ -191,39 +182,6 @@ export function renderConfigToml(answers: SetupAnswers): string {
   lines.push(`tts_mode = "agent"`);
   lines.push(``);
   return lines.join("\n");
-}
-
-/** Persist operator_user_id after claim-on-first-DM (preserves the rest of the file). */
-export function patchConfigOperatorUserId(
-  configPath: string,
-  operatorUserId: number,
-): void {
-  if (!existsSync(configPath)) {
-    writeConfigToml(
-      configPath,
-      renderConfigToml({
-        botToken: PLACEHOLDER_TOKEN,
-        operatorUserId,
-        defaultAgent: "grok-build",
-      }),
-    );
-    return;
-  }
-  let text = readFileSync(configPath, "utf8");
-  if (/^\s*operator_user_id\s*=/m.test(text)) {
-    text = text.replace(
-      /^\s*operator_user_id\s*=\s*.*$/m,
-      `operator_user_id = ${operatorUserId}`,
-    );
-  } else {
-    text = `operator_user_id = ${operatorUserId}\n` + text;
-  }
-  writeFileSync(configPath, text, { encoding: "utf8", mode: 0o600 });
-  try {
-    chmodSync(configPath, 0o600);
-  } catch {
-    /* ignore */
-  }
 }
 
 export function writeConfigToml(path: string, body: string): void {
@@ -335,31 +293,6 @@ export async function runFirstRunSetup(
         }
       }
 
-      stdout.write(
-        `\nOperator — only this Telegram user may control the bot\n` +
-          `  (agents can run tools on this machine).\n` +
-          `  Blank / 0 = pair via Telegram code + CLI (recommended).\n`,
-      );
-      const opDefault =
-        existing && existing.operatorUserId > 0
-          ? String(existing.operatorUserId)
-          : undefined;
-      const opRaw = await ask(
-        rl,
-        opDefault
-          ? `Operator user id (Enter keeps ${opDefault}, blank then type 0 to clear)`
-          : "Operator user id (blank = pair via CLI code)",
-        opDefault,
-      );
-      let operatorUserId = 0;
-      if (opRaw.trim() && opRaw.trim() !== "0") {
-        operatorUserId = Number(opRaw.trim());
-        if (!Number.isFinite(operatorUserId) || operatorUserId <= 0) {
-          stdout.write("  Invalid id — using claim-on-first-DM instead.\n");
-          operatorUserId = 0;
-        }
-      }
-
       const agentDefault = existing?.defaultAgent || "grok-build";
       const agentRaw = await ask(
         rl,
@@ -397,16 +330,13 @@ export async function runFirstRunSetup(
 
       answers = {
         botToken,
-        operatorUserId,
         defaultAgent,
         ...(repoKey && repoPath ? { repoKey, repoPath } : {}),
       };
       stdout.write(`\n✓ Saved ${options.configPath}\n`);
-      if (operatorUserId <= 0) {
-        stdout.write(
-          `  Operator not set — DM the bot to get a code, then: acpbot pair approve <code>\n`,
-        );
-      }
+      stdout.write(
+        `  Pair: DM the bot for a code, then: acpbot pair approve <code>\n`,
+      );
       stdout.write(
         `\nNext:\n` +
           `  terminal 1:  acpbot-host\n` +

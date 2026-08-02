@@ -175,7 +175,6 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
   };
 
   pick("botToken", "bot_token");
-  pick("operatorUserId", "operator_user_id");
   pick("operatorChatId", "operator_chat_id");
   pick("storePath", "store_path");
   pick("stateDir", "state_dir");
@@ -487,23 +486,9 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     );
   }
 
-  const operatorRaw =
-    file.operatorUserId !== undefined
-      ? String(file.operatorUserId)
-      : firstEnv(
-          env,
-          "ACPBOT_OPERATOR_USER_ID",
-          "TACP_OPERATOR_USER_ID",
-          "OPERATOR_USER_ID",
-        );
-  // 0 = unclaimed: Telegram user gets a pairing code; approve with `acpbot pair approve <code>`.
-  const operatorUserId =
-    operatorRaw && Number.isFinite(Number(operatorRaw))
-      ? Number(operatorRaw)
-      : 0;
-  if (requireTelegram && operatorRaw && !Number.isFinite(Number(operatorRaw))) {
-    throw new Error(`Invalid operator_user_id: ${operatorRaw}`);
-  }
+  // Operator allowlist is NOT in config.toml — set only via `acpbot pair approve`.
+  // Runtime value is loaded from $state_dir/pairing/operator.json in main / pair CLI.
+  const operatorUserId = 0;
 
   const storePathRaw =
     str(file.storePath as string | undefined) ??

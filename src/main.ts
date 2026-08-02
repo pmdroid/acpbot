@@ -28,6 +28,7 @@ import {
   pairCliHelp,
   runPairCli,
 } from "./setup/pair-cli";
+import { loadPairedOperator } from "./core/pairing";
 
 async function main(): Promise<void> {
   // Service control: install | start | stop | restart | status | uninstall
@@ -67,9 +68,16 @@ ${serviceCliHelp()}`);
   }
 
   const { cfg, layout } = await loadConfigWithSetup({ requireTelegram: true });
-  applyConfigToEnv(cfg);
   // loadConfig already resolves stateDir to absolute.
   const stateDirAbs = cfg.stateDir;
+  const paired = await loadPairedOperator(stateDirAbs);
+  if (paired) {
+    cfg.operatorUserId = paired.userId;
+    if (paired.chatId !== undefined && cfg.operatorChatId === undefined) {
+      cfg.operatorChatId = paired.chatId;
+    }
+  }
+  applyConfigToEnv(cfg);
   const log = createLogger({ level: cfg.logLevel, name: "acpbot" });
   if (layout.createdConfig) {
     console.error(`acpbot created config: ${layout.configPath}`);
@@ -100,7 +108,7 @@ ${serviceCliHelp()}`);
 
   const store = await createJsonFileStore(cfg.storePath);
 
-  const tacpConfig: import("./env/types").TacpConfig = {
+  const acpbotConfig: import("./env/types").AcpbotConfig = {
     operatorUserId: cfg.operatorUserId,
     ...(cfg.operatorChatId !== undefined
       ? { operatorChatId: cfg.operatorChatId }
@@ -133,14 +141,14 @@ ${serviceCliHelp()}`);
   });
 
   const agents = realAgents({
-    config: tacpConfig,
+    config: acpbotConfig,
     stateDir: stateDirAbs,
     verbose: cfg.verbose,
     log,
   });
 
   const env: Environment = {
-    config: tacpConfig,
+    config: acpbotConfig,
     telegram: realTelegram({ token: cfg.botToken, log }),
     agents,
     clock: systemClock(),
@@ -157,7 +165,7 @@ ${serviceCliHelp()}`);
   });
   if (cfg.operatorUserId <= 0) {
     console.error(
-      "acpbot: operator_user_id not set — first private message claims the bot",
+      "acpbot: not paired — DM the bot for a code, then: acpbot pair approve <code>",
     );
   }
   const ac = new AbortController();

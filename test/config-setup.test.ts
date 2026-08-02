@@ -57,20 +57,22 @@ describe("first-run layout + setup", () => {
       env,
       answers: {
         botToken: "999:TESTTOKEN_ABCDEFGHIJKLMNOPQRSTUV",
-        operatorUserId: 42,
         defaultAgent: "codex",
         repoKey: "demo",
         repoPath: join(home, "code", "demo"),
       },
     });
     expect(cfg.botToken).toContain("TESTTOKEN");
-    expect(cfg.operatorUserId).toBe(42);
+    expect(cfg.operatorUserId).toBe(0);
     expect(cfg.defaultAgent).toBe("codex");
     expect(cfg.repos?.demo).toBe(join(home, "code", "demo"));
     expect(configNeedsTelegramSetup(cfg)).toBe(false);
+    expect(readFileSync(layout.configPath, "utf8")).not.toMatch(
+      /operator_user_id/,
+    );
   });
 
-  test("operator_user_id 0 is allowed (claim later); only bot token required", async () => {
+  test("bot token alone is enough for setup; operator via pair only", async () => {
     const home = mkdtempSync(join(tmpdir(), "acpbot-claim-"));
     const env = {
       HOME: home,
@@ -83,16 +85,13 @@ describe("first-run layout + setup", () => {
       env,
       answers: {
         botToken: "999:TESTTOKEN_CLAIM_MODE_ABCDEFGHIJ",
-        operatorUserId: 0,
         defaultAgent: "grok-build",
       },
     });
     expect(configNeedsTelegramSetup(cfg)).toBe(false);
     expect(cfg.operatorUserId).toBe(0);
-    const { patchConfigOperatorUserId } = await import("../src/config-setup");
-    patchConfigOperatorUserId(layout.configPath, 77);
-    const again = loadConfig({ configPath: layout.configPath, env });
-    expect(again.operatorUserId).toBe(77);
+    const body = readFileSync(layout.configPath, "utf8");
+    expect(body).not.toMatch(/operator_user_id/);
   });
 
   test("loadConfigWithSetup non-interactive throws after creating default", async () => {
@@ -117,20 +116,19 @@ describe("first-run layout + setup", () => {
   test("renderConfigToml escapes quotes", () => {
     const toml = renderConfigToml({
       botToken: 'x"y',
-      operatorUserId: 1,
       defaultAgent: "grok-build",
     });
     expect(toml).toContain('bot_token = "x\\"y"');
+    expect(toml).not.toMatch(/operator_user_id/);
     const cfg = loadConfig({
       skipFile: true,
       file: {
         bot_token: 'x"y',
-        operator_user_id: 1,
+        operator_user_id: 1, // ignored if present in old files
       },
       env: { HOME: "/tmp" },
     });
-    // file path uses normalizeToml via options.file as Record - bot_token snake
-    expect(cfg.operatorUserId).toBe(1);
+    expect(cfg.operatorUserId).toBe(0);
   });
 
   test("isSetupCliCommand recognizes setup / init / flags", () => {

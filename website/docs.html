@@ -158,9 +158,8 @@ acpbot-host status
         <section id="pair" class="docs-section">
           <h2>4. Pair as operator (CLI approve)</h2>
           <p>
-            Default config leaves the bot <strong>unclaimed</strong>
-            (<code>operator_user_id = 0</code>). The first Telegram user does
-            <em>not</em> get control automatically.
+            The bot starts <strong>unpaired</strong>. The first Telegram user does
+            <em>not</em> get control automatically — you approve on the host CLI.
           </p>
           <ol class="docs-list">
             <li>
@@ -188,9 +187,8 @@ acpbot pair status</code></pre>
             >.
           </p>
           <p>
-            Optional: set a fixed id in
-            <code>config.toml</code> instead of pairing:
-            <code>operator_user_id = 123456789</code>.
+            To re-pair another account: <code>acpbot pair clear</code>, then
+            DM again and approve a new code.
           </p>
         </section>
 
@@ -232,7 +230,7 @@ tts_voice = "alloy"
           <div class="docs-links">
             <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/pairing.md">
               <strong>Pairing</strong>
-              <span>CLI approve flow, re-pair, fixed operator id</span>
+              <span>CLI approve flow and re-pair</span>
             </a>
             <a class="docs-link-card" href="https://github.com/pmdroid/acpbot/blob/main/docs/configuration.md">
               <strong>Configuration</strong>
