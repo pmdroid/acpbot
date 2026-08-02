@@ -208,8 +208,150 @@ export function findModelConfigOption(
     (o) =>
       o.type === "select" &&
       /model/i.test(o.id) &&
+      !/effort|thought/i.test(o.id) &&
       o.options.length > 0,
   );
+}
+
+/**
+ * Reasoning effort select (Grok high / medium / low; OpenCode model variants).
+ * Prefer id/category "effort" | "thought_level".
+ */
+export function findEffortConfigOption(
+  options: SessionConfigOptionView[],
+): SessionConfigOptionView | undefined {
+  const byId = options.find(
+    (o) =>
+      o.type === "select" &&
+      o.options.length > 0 &&
+      (o.id === "effort" ||
+        o.category === "effort" ||
+        o.category === "thought_level"),
+  );
+  if (byId) return byId;
+  return options.find(
+    (o) =>
+      o.type === "select" &&
+      o.options.length > 0 &&
+      /effort|thought_level/i.test(o.id),
+  );
+}
+
+/**
+ * Session permission/agent mode as a configOption (OpenCode: id/category "mode").
+ * Rejects effort-like option sets (high/medium/low) so Grok effort never looks like /mode.
+ */
+export function findModeConfigOption(
+  options: SessionConfigOptionView[],
+): SessionConfigOptionView | undefined {
+  const candidates = options.filter(
+    (o) =>
+      o.type === "select" &&
+      o.options.length > 0 &&
+      (o.id === "mode" ||
+        o.category === "mode" ||
+        /^session.?mode$/i.test(o.id)),
+  );
+  for (const c of candidates) {
+    if (configOptionLooksLikeEffort(c)) continue;
+    return c;
+  }
+  return undefined;
+}
+
+/** True when select values look like reasoning effort, not plan/build/agent. */
+export function configOptionLooksLikeEffort(
+  opt: SessionConfigOptionView,
+): boolean {
+  const ids = opt.options.map((o) => o.value.toLowerCase());
+  const set = new Set(ids);
+  if (set.has("high") || set.has("medium") || set.has("low")) {
+    // Pure effort triad (optionally with xhigh/minimal)
+    const nonEffort = ids.filter(
+      (v) => !/^(high|medium|low|xhigh|minimal|max|default)$/i.test(v),
+    );
+    if (nonEffort.length === 0) return true;
+  }
+  if (opt.category === "thought_level" || opt.category === "effort") return true;
+  if (/effort|thought/i.test(opt.id + opt.name)) return true;
+  return false;
+}
+
+/**
+ * Grok Build advertises reasoning effort under `_meta["x.ai/sessionConfig"]`
+ * with `category: "mode"` and ids high|medium|low — not ACP permission modes.
+ *
+ * Maps to a synthetic configOption so `/effort` can reuse set_config plumbing
+ * (host routes configId "effort" → session/set_mode).
+ */
+export function sessionConfigEffortToConfigOptions(
+  meta: Record<string, unknown> | null | undefined,
+): SessionConfigOptionView[] {
+  if (!meta || typeof meta !== "object") return [];
+  const sc =
+    meta["x.ai/sessionConfig"] ??
+    meta.sessionConfig ??
+    (meta["x.ai"] as { sessionConfig?: unknown } | undefined)?.sessionConfig;
+  if (!sc || typeof sc !== "object") return [];
+  const rawOptions = (sc as { options?: unknown }).options;
+  if (!Array.isArray(rawOptions)) return [];
+
+  const options: ConfigSelectOption[] = [];
+  let currentValue: string | undefined;
+  for (const item of rawOptions) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    // Grok uses category "mode" for effort; also accept explicit effort names.
+    const cat = typeof o.category === "string" ? o.category : "";
+    if (
+      cat !== "mode" &&
+      cat !== "effort" &&
+      cat !== "thought_level" &&
+      cat !== "reasoning_effort"
+    ) {
+      continue;
+    }
+    const id =
+      typeof o.id === "string"
+        ? o.id
+        : typeof o.value === "string"
+          ? o.value
+          : "";
+    if (!id) continue;
+    // Skip model-like entries that somehow share an effort-ish category
+    if (/^grok/i.test(id)) continue;
+    const name =
+      typeof o.label === "string"
+        ? o.label
+        : typeof o.name === "string"
+          ? o.name
+          : id;
+    options.push({ value: id, name });
+    if (o.selected === true) currentValue = id;
+  }
+  if (options.length === 0) return [];
+  // Heuristic: classic effort set is high/medium/low (not permission modes).
+  const ids = new Set(options.map((o) => o.value.toLowerCase()));
+  const looksLikeEffort =
+    ids.has("high") ||
+    ids.has("medium") ||
+    ids.has("low") ||
+    ids.has("xhigh") ||
+    options.every((o) =>
+      /high|medium|low|minimal|max|effort/i.test(o.value + (o.name ?? "")),
+    );
+  if (!looksLikeEffort) return [];
+
+  const view: SessionConfigOptionView = {
+    id: "effort",
+    name: "Effort",
+    type: "select",
+    category: "effort",
+    options,
+  };
+  if (currentValue) view.currentValue = currentValue;
+  else if (options[0]) view.currentValue = options[0].value;
+  return [view];
 }
 
 export function currentModelLabel(
@@ -220,6 +362,17 @@ export function currentModelLabel(
   if (m.currentValue == null) return undefined;
   const v = String(m.currentValue);
   const hit = m.options.find((o) => o.value === v);
+  return hit?.name ?? v;
+}
+
+export function currentEffortLabel(
+  options: SessionConfigOptionView[],
+): string | undefined {
+  const e = findEffortConfigOption(options);
+  if (!e) return undefined;
+  if (e.currentValue == null) return undefined;
+  const v = String(e.currentValue);
+  const hit = e.options.find((o) => o.value === v);
   return hit?.name ?? v;
 }
 
@@ -248,5 +401,37 @@ export function formatModelStatus(input: {
     );
   }
   lines.push("", "Commands: `/model` (picker) · `/model <value>`");
+  return lines.join("\n");
+}
+
+export function formatEffortStatus(input: {
+  configOptions: SessionConfigOptionView[];
+}): string {
+  const e = findEffortConfigOption(input.configOptions);
+  if (!e) {
+    return (
+      "**Effort:** _(this agent does not advertise reasoning effort)_\n\n" +
+      "Use `/mode` for permission / session modes when the agent supports them."
+    );
+  }
+  const cur = String(e.currentValue ?? "unknown");
+  const lines = [
+    `**Effort:** \`${cur}\``,
+    "",
+    "Available:",
+  ];
+  for (const o of e.options) {
+    const mark = o.value === e.currentValue ? " ← current" : "";
+    // Prefer value id (high/medium/low); only show name when it adds detail
+    // and is not a redundant "High Effort" style label.
+    const nameExtra =
+      o.name &&
+      o.name !== o.value &&
+      o.name.toLowerCase().replace(/\s*effort\s*/g, "") !== o.value.toLowerCase()
+        ? ` — ${o.name}`
+        : "";
+    lines.push(`• \`${o.value}\`${nameExtra}${mark}`);
+  }
+  lines.push("", "Commands: `/effort` (picker) · `/effort <level>`");
   return lines.join("\n");
 }

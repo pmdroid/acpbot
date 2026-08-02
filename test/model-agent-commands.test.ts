@@ -91,6 +91,62 @@ describe("/model and /agent", () => {
     expect(env.agents.models.get(key)).toBe("smart");
   });
 
+  test("/effort picker sets effort", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        repos: { demo: "/tmp/demo-repo" },
+      },
+    });
+    const d = createDaemon(env);
+    await d.handleUpdate(root("/new demo e1", 1));
+    const sessions = await d.listSessions();
+    const tid = sessions[0]!.messageThreadId;
+    const key = sessions[0]!.sessionKey;
+
+    await d.handleUpdate(topic(tid, "/effort", 2));
+    const withKb = env.telegram
+      .sentMessages()
+      .filter((m) => m.replyMarkup?.inline_keyboard?.length);
+    const last = withKb[withKb.length - 1]!;
+    const low = last.replyMarkup!.inline_keyboard
+      .flat()
+      .find((b) => /low/i.test(b.text));
+    expect(low?.callback_data).toMatch(/^E:/);
+
+    await d.handleUpdate({
+      update_id: 3,
+      callback_query: {
+        id: "c-effort",
+        from: { id: OPERATOR, first_name: "op" },
+        data: low!.callback_data,
+        message: {
+          message_id: 51,
+          date: 0,
+          chat: { id: CHAT, type: "private" },
+          message_thread_id: tid,
+        },
+      },
+    });
+    expect(env.agents.efforts.get(key)).toBe("low");
+  });
+
+  test("/effort medium by name", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        repos: { demo: "/tmp/demo-repo" },
+      },
+    });
+    const d = createDaemon(env);
+    await d.handleUpdate(root("/new demo e2", 1));
+    const sessions = await d.listSessions();
+    const tid = sessions[0]!.messageThreadId;
+    const key = sessions[0]!.sessionKey;
+    await d.handleUpdate(topic(tid, "/effort medium", 2));
+    expect(env.agents.efforts.get(key)).toBe("medium");
+  });
+
   test("/agent claude switches identity", async () => {
     // CI runners often lack agent CLIs on PATH; list full registry for this test.
     const prev = process.env.ACPBOT_AGENTS_ALL;

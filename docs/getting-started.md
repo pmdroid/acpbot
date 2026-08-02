@@ -89,10 +89,11 @@ In a topic:
 | type text | Start an ACP turn (or **queue** if a turn is already running) |
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` / `/unqueue` | List / remove waiting prompts |
-| `/status` | Agent, model, mode, cwd, MCP |
+| `/status` | Agent, model, mode, effort, cwd, MCP |
 | `/model` | LLM picker (or `/model <id>`) |
+| `/effort` | Reasoning effort (when the agent advertises it) |
 | `/agent` | Switch agent process for this session |
-| `/plan` / `/build` / `/mode` | Session mode |
+| `/plan` / `/build` / `/mode` | Permission session mode |
 | `/skills` | Skill picker then prompt |
 | `/mcp` | Per-repo remote MCP registry + OAuth |
 | `/cancel` | Stop current turn **and clear the queue** (session kept) |

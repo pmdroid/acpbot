@@ -67,9 +67,9 @@ Usage:
 - `/model <value>` → set directly
 - Mid-turn cancels the turn, then applies
 
-`/status` shows **Agent**, **Launch**, **Mode**, and **Model** as distinct fields.
+`/status` shows **Agent**, **Launch**, **Mode**, **Model**, and **Effort** (when advertised) as distinct fields.
 
-## Modes
+## Modes (permission)
 
 | Command | Intent |
 |---|---|
@@ -77,7 +77,26 @@ Usage:
 | `/build` | Build / tools-on mode |
 | `/mode` | Picker or `/mode <id>` / toggle |
 
-Modes use ACP session mode APIs when the agent advertises them.
+Modes come from:
+
+1. ACP `session.modes` / `session/set_mode` (Codex, Claude)
+2. ACP `configOptions` with id/category `"mode"` (OpenCode: `build` / `plan`)
+
+Reasoning effort is **not** a permission mode — use `/effort` when the agent advertises it.
+
+## Effort (reasoning)
+
+| Command | Intent |
+|---|---|
+| `/effort` | Picker of advertised levels (ids only, e.g. `high` / `medium` / `low`) |
+| `/effort <level>` | Set directly |
+
+Sources depend on the agent:
+
+- **Grok Build** — session config under `_meta` (category often labeled `"mode"` in the agent payload; treated as **effort**)
+- **OpenCode** — `configOptions` with id `effort` / category `thought_level` when the model has variants
+
+Setting uses ACP `session/set_mode` or `session/set_config_option` as appropriate. UI shows level **ids**, not marketing labels.
 
 ## Skills
 

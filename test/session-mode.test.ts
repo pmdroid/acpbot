@@ -54,7 +54,7 @@ describe("extractSessionModes", () => {
     ]);
   });
 
-  test("Grok x.ai/sessionConfig effort modes", () => {
+  test("Grok x.ai/sessionConfig effort is NOT session modes", () => {
     const v = extractSessionModes({
       modes: null,
       meta: {
@@ -88,12 +88,13 @@ describe("extractSessionModes", () => {
         },
       },
     });
-    expect(v.source).toBe("x.ai/sessionConfig");
-    expect(v.currentModeId).toBe("high");
-    expect(v.availableModeIds).toEqual(["high", "medium", "low"]);
+    // Effort lives under /effort (session-config), not /mode.
+    expect(v.source).toBe("none");
+    expect(v.availableModeIds).toEqual([]);
+    expect(v.currentModeId).toBeUndefined();
   });
 
-  test("ACP modes win over Grok meta when both present", () => {
+  test("ACP modes still win when present (ignore Grok meta)", () => {
     const v = extractSessionModes({
       modes: {
         availableModes: [{ id: "plan" }, { id: "build" }],
@@ -111,7 +112,7 @@ describe("extractSessionModes", () => {
     expect(v.currentModeId).toBe("build");
   });
 
-  test("empty when agent does not advertise modes (OpenCode-like)", () => {
+  test("empty when agent does not advertise modes", () => {
     const v = extractSessionModes({
       modes: undefined,
       meta: { currentWorkingDirectory: "/tmp" },
@@ -120,6 +121,57 @@ describe("extractSessionModes", () => {
     expect(v.availableModeIds).toEqual([]);
     expect(v.currentModeId).toBeUndefined();
   });
+
+  test("OpenCode configOptions Session Mode (build/plan)", () => {
+    const v = extractSessionModes({
+      modes: null,
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: "opencode/big-pickle",
+          options: [{ value: "opencode/big-pickle", name: "Big Pickle" }],
+        },
+        {
+          id: "mode",
+          name: "Session Mode",
+          type: "select",
+          category: "mode",
+          currentValue: "build",
+          options: [
+            { value: "build", name: "build" },
+            { value: "plan", name: "plan" },
+          ],
+        },
+      ],
+    });
+    expect(v.source).toBe("configOptions");
+    expect(v.currentModeId).toBe("build");
+    expect(v.availableModeIds).toEqual(["build", "plan"]);
+  });
+
+  test("configOptions mode high/medium/low is NOT permission modes", () => {
+    const v = extractSessionModes({
+      configOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          type: "select",
+          category: "mode",
+          currentValue: "high",
+          options: [
+            { value: "high", name: "High" },
+            { value: "medium", name: "Medium" },
+            { value: "low", name: "Low" },
+          ],
+        },
+      ],
+    });
+    expect(v.source).toBe("none");
+    expect(v.availableModeIds).toEqual([]);
+  });
 });
 
 describe("formatSessionStatus mode line", () => {
@@ -127,15 +179,29 @@ describe("formatSessionStatus mode line", () => {
     const t = formatSessionStatus({
       sessionKey: "a/b",
       status: "done",
-      agent: "grok-build",
-      mode: "high",
-      availableModes: ["high", "medium", "low"],
+      agent: "codex",
+      mode: "agent",
+      availableModes: ["read-only", "agent"],
       cwd: "/tmp",
       threadId: 1,
       chatId: 2,
     });
-    expect(t).toMatch(/Mode: `high`/);
+    expect(t).toMatch(/Mode: `agent`/);
     expect(t).not.toMatch(/Mode: _\(not advertised/);
+  });
+
+  test("shows effort id when present", () => {
+    const t = formatSessionStatus({
+      sessionKey: "a/b",
+      status: "done",
+      agent: "grok-build",
+      effort: "high",
+      cwd: "/tmp",
+      threadId: 1,
+      chatId: 2,
+    });
+    expect(t).toMatch(/Effort: `high`/);
+    expect(t).toMatch(/Mode: _\(not advertised/);
   });
 
   test("shows not advertised when mode missing", () => {

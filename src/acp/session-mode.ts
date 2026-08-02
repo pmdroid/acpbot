@@ -1,36 +1,82 @@
 /**
  * Session mode helpers: pick interactive modes at create, resolve plan/build toggles.
+ *
+ * Permission / agent modes:
+ * 1. Codex/Claude ACP `session.modes`
+ * 2. OpenCode (and similar) `configOptions` select with id/category `"mode"`
+ *    (build / plan — not reasoning effort)
+ *
+ * Grok reasoning effort (`x.ai/sessionConfig` category "mode" → high/medium/low)
+ * is **not** a session mode — see session-config + `/effort`.
  */
 
-/** Normalized mode list + current id from ACP (or agent extensions). */
+import {
+  findModeConfigOption,
+  normalizeConfigOptions,
+  type SessionConfigOptionView,
+} from "./session-config";
+
+/** Normalized mode list + current id from ACP. */
 export type SessionModeView = {
   currentModeId?: string | undefined;
   availableModeIds: string[];
   /** Where the modes were found (for logs/tests). */
-  source: "acp.modes" | "x.ai/sessionConfig" | "none";
+  source: "acp.modes" | "configOptions" | "none";
 };
 
 /**
- * Extract session modes from ACP session/new|load payloads.
+ * Extract session modes from session/new|load payloads.
  *
  * Sources (in order):
- * 1. Standard ACP `modes: { availableModes, currentModeId }` (Codex, etc.)
- * 2. Grok Build `_meta["x.ai/sessionConfig"].options` with `category: "mode"`
- *    (high / medium / low effort — not ACP session modes)
+ * 1. Standard ACP `modes: { availableModes, currentModeId }` (Codex, Claude)
+ * 2. configOptions select id/category `"mode"` (OpenCode build/plan)
+ *
+ * Grok effort levels are never treated as modes.
  */
 export function extractSessionModes(input: {
   modes?: unknown;
+  /** @deprecated ignored for Grok effort — use configOptions for OpenCode mode */
   meta?: Record<string, unknown> | null | undefined;
+  /** ACP configOptions (OpenCode puts Session Mode here) */
+  configOptions?: unknown;
 }): SessionModeView {
   const fromAcp = extractAcpModes(input.modes);
   if (fromAcp.availableModeIds.length > 0) {
     return { ...fromAcp, source: "acp.modes" };
   }
-  const fromGrok = extractGrokSessionConfigModes(input.meta);
-  if (fromGrok.availableModeIds.length > 0) {
-    return { ...fromGrok, source: "x.ai/sessionConfig" };
+  const fromCfg = extractModesFromConfigOptions(input.configOptions);
+  if (fromCfg.availableModeIds.length > 0) {
+    return { ...fromCfg, source: "configOptions" };
   }
   return { availableModeIds: [], source: "none" };
+}
+
+function extractModesFromConfigOptions(
+  raw: unknown,
+): Omit<SessionModeView, "source"> {
+  // Accept raw ACP configOptions or already-normalized views.
+  let list = normalizeConfigOptions(raw);
+  if (list.length === 0 && Array.isArray(raw)) {
+    list = raw.filter(
+      (x): x is SessionConfigOptionView =>
+        !!x &&
+        typeof x === "object" &&
+        typeof (x as SessionConfigOptionView).id === "string" &&
+        Array.isArray((x as SessionConfigOptionView).options),
+    );
+  }
+  const modeOpt = findModeConfigOption(list);
+  if (!modeOpt) return { availableModeIds: [] };
+  const availableModeIds = modeOpt.options.map((o) => o.value).filter(Boolean);
+  if (availableModeIds.length === 0) return { availableModeIds: [] };
+  let currentModeId: string | undefined;
+  if (modeOpt.currentValue != null && modeOpt.currentValue !== "") {
+    currentModeId = String(modeOpt.currentValue);
+  }
+  return {
+    availableModeIds,
+    ...(currentModeId !== undefined ? { currentModeId } : {}),
+  };
 }
 
 function extractAcpModes(modes: unknown): Omit<SessionModeView, "source"> {
@@ -61,41 +107,6 @@ function extractAcpModes(modes: unknown): Omit<SessionModeView, "source"> {
   return {
     availableModeIds,
     ...(currentModeId !== undefined ? { currentModeId } : {}),
-  };
-}
-
-/** Grok: effort modes under x.ai/sessionConfig (category "mode"). */
-function extractGrokSessionConfigModes(
-  meta: Record<string, unknown> | null | undefined,
-): Omit<SessionModeView, "source"> {
-  if (!meta || typeof meta !== "object") return { availableModeIds: [] };
-  const sc =
-    meta["x.ai/sessionConfig"] ??
-    meta.sessionConfig ??
-    (meta["x.ai"] as { sessionConfig?: unknown } | undefined)?.sessionConfig;
-  if (!sc || typeof sc !== "object") return { availableModeIds: [] };
-  const options = (sc as { options?: unknown }).options;
-  if (!Array.isArray(options)) return { availableModeIds: [] };
-
-  const modeOpts: Array<{ id: string; selected?: boolean }> = [];
-  for (const item of options) {
-    if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
-    if (o.category !== "mode") continue;
-    const id = typeof o.id === "string" ? o.id : "";
-    if (!id) continue;
-    modeOpts.push({
-      id,
-      ...(o.selected === true ? { selected: true } : {}),
-    });
-  }
-  if (modeOpts.length === 0) return { availableModeIds: [] };
-  const selected = modeOpts.find((o) => o.selected)?.id;
-  return {
-    availableModeIds: modeOpts.map((o) => o.id),
-    ...(selected
-      ? { currentModeId: selected }
-      : { currentModeId: modeOpts[0]!.id }),
   };
 }
 
@@ -241,7 +252,10 @@ export function formatModeStatus(input: {
     "",
   ];
   if (available.length === 0) {
-    lines.push("_Agent did not advertise modes — /plan and /build may no-op._");
+    lines.push(
+      "_Agent did not advertise permission modes — /plan and /build may no-op._",
+      "_Reasoning effort (when available): `/effort`._",
+    );
   } else {
     lines.push("Available:");
     for (const id of available) {
@@ -272,6 +286,8 @@ export function formatSessionStatus(input: {
   mode?: string | undefined;
   /** LLM model label from ACP configOptions */
   model?: string | undefined;
+  /** Reasoning effort (Grok high/medium/low) */
+  effort?: string | undefined;
   availableModes?: string[] | undefined;
   cwd: string;
   threadId: number;
@@ -304,6 +320,9 @@ export function formatSessionStatus(input: {
   } else {
     lines.push(`Model: _(not advertised — try /model or agent CLI)_`);
   }
+  if (input.effort) {
+    lines.push(`Effort: \`${input.effort}\``);
+  }
   if (input.availableModes && input.availableModes.length > 0) {
     lines.push(
       `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
@@ -332,7 +351,7 @@ export function formatSessionStatus(input: {
   }
   lines.push(
     "",
-    "Change: `/mode` · `/model` · `/agent` · `/plan` · `/build`",
+    "Change: `/mode` · `/effort` · `/model` · `/agent` · `/plan` · `/build`",
   );
   return lines.join("\n");
 }

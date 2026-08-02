@@ -32,7 +32,7 @@ By running acpbot you accept these terms.
 
 - **Topic = session** — `/new` opens a forum topic bound to a repo + agent
 - **Real agents** — Grok Build, Claude, Codex, OpenCode
-- **`/model` · `/agent` · `/mode`** — switch mid-session without leaving the topic
+- **`/model` · `/effort` · `/agent` · `/mode`** — switch mid-session without leaving the topic
 - **Working bubble** — one live `⏳` / `❓` status message per turn
 - **Permissions in chat** — inline keyboards for ACP prompts
 - **Media & speech** — photos, files, voice; OpenAI or ElevenLabs TTS/STT
@@ -114,7 +114,7 @@ First plain `acpbot` start also opens the TUI when no bot token is set.
 /new demo hello
 # open the topic → type a prompt
 
-/status  /model  /agent  /mode  /skills  /mcp  /cancel
+/status  /model  /effort  /agent  /mode  /skills  /mcp  /cancel
 # while busy: free-text is queued; /steer <text> interrupts
 ```
 

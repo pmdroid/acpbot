@@ -59,6 +59,8 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   setMode(sessionKey: string, modeId: string): void;
   /** Model config value per session (for /model tests). */
   models: Map<string, string>;
+  /** Effort config value per session (for /effort tests). */
+  efforts: Map<string, string>;
   /** Record of ensureSession calls. */
   ensureCalls: SessionIdentity[];
 } {
@@ -68,6 +70,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   const scripts = options.scripts ?? new Map<string, ScriptedTurn[]>();
   const modes = new Map<string, string>();
   const models = new Map<string, string>();
+  const efforts = new Map<string, string>();
   const ensureCalls: SessionIdentity[] = [];
   const abortBySession = new Map<string, AbortController>();
   let sawTimeoutMs = false;
@@ -109,6 +112,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     }): Promise<Record<string, unknown>>;
     modes: Map<string, string>;
     models: Map<string, string>;
+    efforts: Map<string, string>;
     setMode(sessionKey: string, modeId: string): void;
     ensureCalls: SessionIdentity[];
   } = {
@@ -119,6 +123,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     },
     modes,
     models,
+    efforts,
     ensureCalls,
 
     queueTurn(sessionKey, script) {
@@ -184,6 +189,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
 
     async getSessionConfigOptions(sessionKey) {
       const cur = models.get(sessionKey) ?? "fast";
+      const effort = efforts.get(sessionKey) ?? "high";
       return [
         {
           id: "model",
@@ -196,12 +202,27 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
             { value: "smart", name: "Smart" },
           ],
         },
+        {
+          id: "effort",
+          name: "Effort",
+          type: "select",
+          category: "effort",
+          currentValue: effort,
+          options: [
+            { value: "high", name: "high" },
+            { value: "medium", name: "medium" },
+            { value: "low", name: "low" },
+          ],
+        },
       ];
     },
 
     async setSessionConfigOption(sessionKey, configId, value) {
       if (configId === "model" && typeof value === "string") {
         models.set(sessionKey, value);
+      }
+      if (configId === "effort" && typeof value === "string") {
+        efforts.set(sessionKey, value);
       }
       return port.getSessionConfigOptions!(sessionKey);
     },
@@ -223,6 +244,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       sessions.set(key, handle);
       modes.set(key, "read-only");
       models.set(key, "fast");
+      efforts.set(key, "high");
       return handle;
     },
 
@@ -251,6 +273,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       // Simulate read-only mode being applied immediately after create.
       modes.set(key, "read-only");
       if (!models.has(key)) models.set(key, "fast");
+      if (!efforts.has(key)) efforts.set(key, "high");
       return handle;
     },
 

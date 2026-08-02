@@ -20,6 +20,7 @@ import {
 } from "./ask-user-question";
 import {
   encodeAgentCallback,
+  encodeEffortCallback,
   encodeModeCallback,
   encodeModelCallback,
   encodeNewRepoCallback,
@@ -28,6 +29,7 @@ import {
   newToken,
   parseAgentCallback,
   parseAskQuestionCallback,
+  parseEffortCallback,
   parseElicitationCallback,
   parseModeCallback,
   parseModelCallback,
@@ -108,7 +110,9 @@ import {
 } from "../acp/agent-launch";
 import {
   currentModelLabel,
+  findEffortConfigOption,
   findModelConfigOption,
+  formatEffortStatus,
   formatModelStatus,
   type SessionConfigOptionView,
 } from "../acp/session-config";
@@ -240,6 +244,15 @@ export function createDaemon(
   >();
   /** Model picker: token → configId + values */
   const modelPicks = new Map<
+    string,
+    {
+      sessionKey: string;
+      configId: string;
+      values: Array<{ value: string; name?: string }>;
+    }
+  >();
+  /** Effort picker: token → configId + values */
+  const effortPicks = new Map<
     string,
     {
       sessionKey: string;
@@ -2022,6 +2035,7 @@ export function createDaemon(
     let mode: string | undefined;
     let availableModes: string[] = [];
     let model: string | undefined;
+    let effort: string | undefined;
     try {
       await env.agents.ensureSession(session.identity);
       if (env.agents.getSessionMode) {
@@ -2034,6 +2048,13 @@ export function createDaemon(
           session.sessionKey,
         );
         model = currentModelLabel(opts as SessionConfigOptionView[]);
+        // Status shows the effort id (high/medium/low), not agent display labels.
+        const effortOpt = findEffortConfigOption(
+          opts as SessionConfigOptionView[],
+        );
+        if (effortOpt?.currentValue != null) {
+          effort = String(effortOpt.currentValue);
+        }
       }
     } catch (err) {
       log.warn("status: ensure/getSessionMode failed", {
@@ -2074,6 +2095,7 @@ export function createDaemon(
         launch,
         mode,
         model,
+        effort,
         availableModes,
         cwd: session.cwd,
         threadId: session.messageThreadId,
@@ -2214,6 +2236,136 @@ export function createDaemon(
     await sendInTopic(
       session,
       formatModelStatus({ configOptions: options }) + "\n\n_Pick a model:_",
+      keyboardFromButtons(buttons),
+      { html: true },
+    );
+  }
+
+  async function handleEffortCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    try {
+      await env.agents.ensureSession(session.identity);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Could not attach agent: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    if (!env.agents.getSessionConfigOptions || !env.agents.setSessionConfigOption) {
+      await sendInTopic(
+        session,
+        "This agent backend does not support effort config options.",
+      );
+      return;
+    }
+
+    let options: SessionConfigOptionView[];
+    try {
+      options = (await env.agents.getSessionConfigOptions(
+        session.sessionKey,
+      )) as SessionConfigOptionView[];
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Could not read effort options: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    const effortOpt = findEffortConfigOption(options);
+    if (!effortOpt || effortOpt.options.length === 0) {
+      await sendInTopic(
+        session,
+        formatEffortStatus({ configOptions: options }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    // /effort <value>
+    if (args[0]) {
+      const token = args[0]!.trim();
+      const hit =
+        effortOpt.options.find(
+          (o) =>
+            o.value.toLowerCase() === token.toLowerCase() ||
+            (o.name && o.name.toLowerCase() === token.toLowerCase()),
+        ) ??
+        effortOpt.options.find((o) =>
+          o.value.toLowerCase().includes(token.toLowerCase()),
+        ) ??
+        effortOpt.options.find(
+          (o) => o.name && o.name.toLowerCase().includes(token.toLowerCase()),
+        );
+      if (!hit) {
+        await sendInTopic(
+          session,
+          `No effort matching \`${token}\`.\n\n` +
+            formatEffortStatus({ configOptions: options }),
+          undefined,
+          { html: true },
+        );
+        return;
+      }
+      try {
+        if (session.status === "running") {
+          await env.agents.cancelTurn?.(
+            session.sessionKey,
+            "operator /effort change",
+          );
+        }
+        const next = await env.agents.setSessionConfigOption(
+          session.sessionKey,
+          effortOpt.id,
+          hit.value,
+        );
+        await sendInTopic(
+          session,
+          `Effort → **\`${hit.value}\`**\n\n` +
+            formatEffortStatus({
+              configOptions: next as SessionConfigOptionView[],
+            }),
+          undefined,
+          { html: true },
+        );
+      } catch (err) {
+        await sendInTopic(
+          session,
+          `Failed to set effort \`${hit.value}\`:\n\n${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+      return;
+    }
+
+    // Picker — button labels are level ids (high / medium / low), not agent marketing names
+    const token = newToken();
+    effortPicks.set(token, {
+      sessionKey: session.sessionKey,
+      configId: effortOpt.id,
+      values: effortOpt.options.map((o) => ({
+        value: o.value,
+        ...(o.name ? { name: o.name } : {}),
+      })),
+    });
+    const buttons = effortOpt.options.map((o, i) => ({
+      text:
+        (o.value === effortOpt.currentValue ? "✓ " : "") +
+        o.value.slice(0, 28),
+      callback_data: encodeEffortCallback(token, i),
+    }));
+    buttons.push({
+      text: "Cancel",
+      callback_data: encodeEffortCallback(token, -1),
+    });
+    await sendInTopic(
+      session,
+      formatEffortStatus({ configOptions: options }) + "\n\n_Pick effort:_",
       keyboardFromButtons(buttons),
       { html: true },
     );
@@ -2418,6 +2570,94 @@ export function createDaemon(
       await sendInTopic(
         session,
         `Failed to set model:\n\n${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function handleEffortCallback(
+    data: string,
+    callbackQueryId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    const parsed = parseEffortCallback(data);
+    if (!parsed) return;
+    const pick = effortPicks.get(parsed.token);
+    if (!pick) {
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Picker expired — /effort again",
+        });
+      } catch {
+        /* */
+      }
+      return;
+    }
+    const session = sessionIndex.byKey[pick.sessionKey];
+    if (!session) {
+      effortPicks.delete(parsed.token);
+      return;
+    }
+    if (parsed.valueIndex === -1) {
+      effortPicks.delete(parsed.token);
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Cancelled",
+        });
+      } catch {
+        /* */
+      }
+      if (message) {
+        try {
+          await env.telegram.editMessageText({
+            chatId: message.chat.id,
+            messageId: message.message_id,
+            text: "Effort picker cancelled.",
+            replyMarkup: { inline_keyboard: [] },
+          });
+        } catch {
+          /* */
+        }
+      }
+      return;
+    }
+    const choice = pick.values[parsed.valueIndex];
+    effortPicks.delete(parsed.token);
+    if (!choice || !env.agents.setSessionConfigOption) return;
+    try {
+      await env.telegram.answerCallbackQuery({
+        callbackQueryId,
+        text: `→ ${choice.value}`,
+      });
+    } catch {
+      /* */
+    }
+    try {
+      if (session.status === "running") {
+        await env.agents.cancelTurn?.(
+          session.sessionKey,
+          "operator /effort change",
+        );
+      }
+      const next = await env.agents.setSessionConfigOption(
+        session.sessionKey,
+        pick.configId,
+        choice.value,
+      );
+      await sendInTopic(
+        session,
+        `Effort → **\`${choice.value}\`**\n\n` +
+          formatEffortStatus({
+            configOptions: next as SessionConfigOptionView[],
+          }),
+        undefined,
+        { html: true },
+      );
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Failed to set effort:\n\n${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -2683,6 +2923,10 @@ export function createDaemon(
       }
       if (slash.name === "/model") {
         await handleModelCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/effort") {
+        await handleEffortCommand(session, slash.args);
         return;
       }
       if (slash.name === "/agent") {
@@ -3197,6 +3441,12 @@ export function createDaemon(
     const modelCb = parseModelCallback(cq.data);
     if (modelCb) {
       await handleModelCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const effortCb = parseEffortCallback(cq.data);
+    if (effortCb) {
+      await handleEffortCallback(cq.data, cq.id, cq.message);
       return;
     }
 

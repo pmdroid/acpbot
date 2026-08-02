@@ -74,8 +74,8 @@ const EXPECT: Record<SupportedAgent, AgentCapExpect> = {
   "grok-build": {
     mustModels: true,
     modelValueRe: /grok/i,
-    mustModes: true,
-    modeMustInclude: ["high", "medium", "low"],
+    // Grok advertises high/medium/low as effort (/effort), not ACP permission modes.
+    mustModes: false,
     mustLoad: true,
   },
   claude: {
@@ -91,8 +91,9 @@ const EXPECT: Record<SupportedAgent, AgentCapExpect> = {
   },
   opencode: {
     mustModels: true,
-    // OpenCode does not advertise ACP session modes today.
-    mustModes: false,
+    // OpenCode advertises build/plan via configOptions id "mode".
+    mustModes: true,
+    modeMustInclude: ["build", "plan"],
     mustLoad: true,
   },
 };

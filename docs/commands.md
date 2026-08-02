@@ -20,10 +20,11 @@ Commands are registered in `src/core/commands.ts`.
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` | List messages waiting until the current turn ends |
 | `/unqueue` | Remove queued msgs: bare = last · `<n>` · `all` |
-| `/status` | Context dump: agent, launch, mode, model, cwd, MCP |
+| `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP |
 | `/model` | LLM picker buttons, or `/model <value>` |
+| `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
-| `/mode` | Mode picker, or `/mode <id>` / toggle |
+| `/mode` | Permission mode picker, or `/mode <id>` / toggle |
 | `/plan` | Switch to plan mode (read-only-ish) |
 | `/build` | Switch to build/code mode (tools on) |
 | `/skills` | Pick a skill, then send a prompt |
@@ -69,7 +70,7 @@ On startup acpbot clears stale `setMyCommands` scopes (default + private, `en`) 
 | Plain text in topic (turn busy) | Enqueued until turn ends (see **Queue vs steer**) |
 | Photo / document | Saved to `.acpbot-inbox/` (or ACP attach if enabled) + prompt (or queue if busy) |
 | Voice | STT when configured, then prompt (or queue if busy) |
-| Callback button | Permission / question / mode / model / agent pickers; **Remove** on queue acks |
+| Callback button | Permission / question / mode / effort / model / agent pickers; **Remove** on queue acks |
 
 ## Wrong scope
 

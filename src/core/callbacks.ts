@@ -18,6 +18,8 @@ export const CALLBACK = {
   modePrefix: "m:",
   /** LLM model pick: M:<token>:<valueIndex> (-1 = cancel) */
   modelPrefix: "M:",
+  /** Reasoning effort pick: E:<token>:<valueIndex> (-1 = cancel) */
+  effortPrefix: "E:",
   /** Agent binary pick: A:<token>:<agentIndex> (-1 = cancel) */
   agentPrefix: "A:",
   /** Remove queued prompt: Q:<token> */
@@ -187,6 +189,30 @@ export function parseModelCallback(
 ): { token: string; valueIndex: number } | undefined {
   if (!data.startsWith(CALLBACK.modelPrefix)) return undefined;
   const rest = data.slice(CALLBACK.modelPrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const valueIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(valueIndex)) return undefined;
+  return { token, valueIndex };
+}
+
+export function encodeEffortCallback(
+  token: string,
+  valueIndex: number,
+): string {
+  const data = `${CALLBACK.effortPrefix}${token}:${valueIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseEffortCallback(
+  data: string,
+): { token: string; valueIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.effortPrefix)) return undefined;
+  const rest = data.slice(CALLBACK.effortPrefix.length);
   const colon = rest.lastIndexOf(":");
   if (colon <= 0) return undefined;
   const token = rest.slice(0, colon);
