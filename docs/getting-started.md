@@ -45,7 +45,8 @@ Full reference: [configuration.md](configuration.md).
 
 ```bash
 acpbot setup
-# Guided TUI: config + API keys.
+# Guided TUI: config + API keys + optional OAuth callback.
+# OAuth step can suggest Tailscale DNS / Tailscale IP / LAN IP, or a custom URL.
 # Daemon step installs BOTH:
 #   • acpbot-host  (LaunchAgent / systemd user unit)
 #   • acpbot       (LaunchAgent / systemd user unit)

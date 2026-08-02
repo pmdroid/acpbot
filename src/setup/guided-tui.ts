@@ -25,6 +25,11 @@ import {
   installUserDaemons,
   resolveExecutable,
 } from "./daemon-install";
+import {
+  detectOAuthCallbackSuggestions,
+  resolveOAuthSuggestPort,
+  type OAuthCallbackSuggestion,
+} from "./oauth-callback-detect";
 
 export type GuidedSetupResult = {
   configPath: string;
@@ -55,6 +60,117 @@ function maskSecret(s: string | undefined): string {
   if (!s?.trim()) return "(not set)";
   if (s.length <= 8) return "••••";
   return `…${s.slice(-6)}`;
+}
+
+/**
+ * OAuth callback_base picker.
+ * Always lists every detection row: MagicDNS, Tailscale IP, LAN IPs — never
+ * hide MagicDNS just because it matches the current config value.
+ */
+async function promptOAuthCallbackBase(input: {
+  current?: string;
+  suggestions: OAuthCallbackSuggestion[];
+}): Promise<string | undefined> {
+  type Choice =
+    | { kind: "keep"; url: string }
+    | { kind: "suggest"; url: string }
+    | { kind: "custom" }
+    | { kind: "skip" };
+
+  const options: Array<{ value: Choice; label: string; hint?: string }> = [];
+  const current = input.current?.trim() || undefined;
+  const suggestionUrls = new Set(input.suggestions.map((s) => s.url));
+
+  // Keep current only when it is not already one of the detected options
+  if (current && !suggestionUrls.has(current)) {
+    options.push({
+      value: { kind: "keep", url: current },
+      label: `Keep current · ${current}`,
+      hint: "Custom value from config.toml (not in detected list)",
+    });
+  }
+
+  // Always show MagicDNS, Tailscale IP, and LAN rows (in detection order)
+  for (const s of input.suggestions) {
+    const isCurrent = current === s.url;
+    options.push({
+      value: { kind: "suggest", url: s.url },
+      label: isCurrent ? `${s.label} · ${s.url}  ← current` : `${s.label} · ${s.url}`,
+      hint: s.hint,
+    });
+  }
+
+  options.push({
+    value: { kind: "custom" },
+    label: "Custom URL…",
+    hint: "e.g. http://host:8788 or https://your-tunnel.example",
+  });
+
+  options.push({
+    value: { kind: "skip" },
+    label: current ? "Clear OAuth callback (disable)" : "Skip (no OAuth callback)",
+    hint: current
+      ? "Remove callback_base from config"
+      : "You can still use /mcp code paste fallback",
+  });
+
+  // Prefer current match in suggestions; else MagicDNS/first; else skip
+  let initialIdx = 0;
+  if (current) {
+    const match = options.findIndex(
+      (o) =>
+        (o.value.kind === "suggest" || o.value.kind === "keep") &&
+        "url" in o.value &&
+        o.value.url === current,
+    );
+    if (match >= 0) initialIdx = match;
+  } else if (input.suggestions[0]) {
+    const first = options.findIndex(
+      (o) => o.value.kind === "suggest" && o.value.url === input.suggestions[0]!.url,
+    );
+    if (first >= 0) initialIdx = first;
+  } else {
+    initialIdx = options.findIndex((o) => o.value.kind === "skip");
+    if (initialIdx < 0) initialIdx = options.length - 1;
+  }
+
+  // clack compares by value reference — use string tokens instead
+  const tokens = options.map((o, i) => ({
+    ...o,
+    value: String(i),
+  }));
+
+  const picked = await p.select({
+    message: "OAuth callback base (phone browser must reach this host)",
+    options: tokens,
+    initialValue: String(initialIdx),
+  });
+  if (cancelled(picked)) abort();
+
+  const choice = options[Number(picked)]?.value;
+  if (!choice || choice.kind === "skip") return undefined;
+  if (choice.kind === "keep" || choice.kind === "suggest") return choice.url;
+
+  const base = await p.text({
+    message: "Public callback base URL",
+    placeholder: "http://mac-mini.taile07e4.ts.net:8788",
+    initialValue: current,
+    validate: (v) => {
+      const t = String(v ?? "").trim();
+      if (!t) return "Enter a URL or go back and pick Skip";
+      try {
+        const u = new URL(t.includes("://") ? t : `http://${t}`);
+        if (!u.hostname) return "URL needs a hostname";
+      } catch {
+        return "Invalid URL";
+      }
+      return undefined;
+    },
+  });
+  if (cancelled(base)) abort();
+  const trimmed = String(base).trim().replace(/\/+$/, "");
+  if (!trimmed) return undefined;
+  return trimmed.includes("://") ? trimmed : `http://${trimmed}`;
 }
 
 /** Fields the wizard manages + optional preserved extras from an existing config. */
@@ -567,24 +683,37 @@ export async function runGuidedSetupTui(
 
   // ── OAuth (optional) ──────────────────────────────────────────────────
   p.log.step("Remote MCP OAuth (optional)");
+  p.log.message(
+    "Remote MCP providers redirect the browser back to this host. " +
+      "Use a URL your phone can open (Tailscale MagicDNS / 100.x, or a custom tunnel).",
+  );
 
-  let oauthCallbackBase = existing?.oauthCallbackBase;
-  const wantOauth = await p.confirm({
-    message: oauthCallbackBase
-      ? `Change OAuth callback? (current: ${oauthCallbackBase})`
-      : "Configure OAuth callback for remote MCP?",
-    initialValue: false,
+  const oauthPort = resolveOAuthSuggestPort({
+    oauthListenPort: existing?.oauthListenPort,
+    oauthCallbackBase: existing?.oauthCallbackBase,
   });
-  if (cancelled(wantOauth)) abort();
-  if (wantOauth) {
-    const base = await p.text({
-      message: "Public callback base URL (phone browser must reach it)",
-      placeholder: "https://your-host.ts.net",
-      initialValue: oauthCallbackBase,
-    });
-    if (cancelled(base)) abort();
-    oauthCallbackBase = String(base).trim() || undefined;
+  let detected: OAuthCallbackSuggestion[] = [];
+  try {
+    detected = detectOAuthCallbackSuggestions({ port: oauthPort });
+  } catch {
+    detected = [];
   }
+  if (detected.length > 0) {
+    p.log.info(
+      `Detected: ${detected.map((d) => d.url).join(" · ")}`,
+    );
+  } else {
+    p.log.message(
+      "No Tailscale MagicDNS/IP detected (is `tailscale` installed and logged in?). " +
+        "You can still enter a custom callback URL.",
+    );
+  }
+
+  let oauthCallbackBase = existing?.oauthCallbackBase?.trim() || undefined;
+  oauthCallbackBase = await promptOAuthCallbackBase({
+    current: oauthCallbackBase,
+    suggestions: detected,
+  });
 
   // ── Log level ─────────────────────────────────────────────────────────
   const logLevel = await p.select({
