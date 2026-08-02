@@ -92,7 +92,7 @@ In a topic:
 | `/status` | Agent, model, mode, effort, cwd, MCP |
 | `/model` | LLM picker (or `/model <id>`) |
 | `/effort` | Reasoning effort (when the agent advertises it) |
-| `/permissions` | Tool auto-approve: `ask` (default) or `always` |
+| `/permissions` | Tool policy: `ask` (default) or `bypass` |
 | `/agent` | Switch agent process for this session |
 | `/plan` / `/build` / `/mode` | Session plan/agent mode |
 | `/skills` | Skill picker then prompt |

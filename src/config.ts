@@ -630,7 +630,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     config.mcpEnabled = true;
   }
 
-  // Tool permission policy (ask vs always-approve). Features table or top-level.
+  // Tool permission policy (ask vs bypass). Features table or top-level.
   const permRaw =
     (file.permissionMode as string | undefined) ??
     firstEnv(env, "ACPBOT_PERMISSION_MODE", "TACP_PERMISSION_MODE");

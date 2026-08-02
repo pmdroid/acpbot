@@ -37,7 +37,7 @@ type Slot = {
   agent: string;
   cwd: string;
   /** Tool-permission policy for this slot (from ensure config). */
-  permissionMode?: "ask" | "always-approve";
+  permissionMode?: "ask" | "bypass";
   host: SessionHost;
   agentSessionId: string | null;
   owner: Socket | null;
@@ -114,8 +114,8 @@ export async function startAcpHostServer(
     return {
       onPermissionRequest: async (req, ctx) => {
         const slot = slots.get(slotKey);
-        if (slot?.permissionMode === "always-approve") {
-          log.info("permission auto-approved (always-approve)", {
+        if (slot?.permissionMode === "bypass") {
+          log.info("permission auto-approved (bypass)", {
             slotKey,
             toolCallId: req.toolCallId,
           });

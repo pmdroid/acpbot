@@ -8,13 +8,13 @@ import { applyAlwaysApproveArgs } from "../src/acp/agent-launch";
 import { loadConfig } from "../src/config";
 
 describe("parsePermissionMode", () => {
-  test("maps aliases", () => {
+  test("maps aliases to ask | bypass", () => {
     expect(parsePermissionMode("ask")).toBe("ask");
     expect(parsePermissionMode("prompt")).toBe("ask");
-    expect(parsePermissionMode("always")).toBe("always-approve");
-    expect(parsePermissionMode("always-approve")).toBe("always-approve");
-    expect(parsePermissionMode("yolo")).toBe("always-approve");
-    expect(parsePermissionMode("bypass")).toBe("always-approve");
+    expect(parsePermissionMode("bypass")).toBe("bypass");
+    expect(parsePermissionMode("always")).toBe("bypass");
+    expect(parsePermissionMode("always-approve")).toBe("bypass");
+    expect(parsePermissionMode("yolo")).toBe("bypass");
     expect(parsePermissionMode("nope")).toBeUndefined();
   });
 });
@@ -23,10 +23,10 @@ describe("formatPermissionStatus", () => {
   test("shows default and session", () => {
     const t = formatPermissionStatus({
       defaultMode: "ask",
-      session: "always-approve",
+      session: "bypass",
     });
     expect(t).toMatch(/Default.*`ask`/);
-    expect(t).toMatch(/This topic.*`always-approve`/);
+    expect(t).toMatch(/This topic.*`bypass`/);
   });
 });
 
@@ -57,7 +57,20 @@ describe("applyAlwaysApproveArgs", () => {
 });
 
 describe("loadConfig permission_mode", () => {
-  test("features.permission_mode always-approve", () => {
+  test("features.permission_mode bypass", () => {
+    const cfg = loadConfig({
+      skipFile: true,
+      requireTelegram: false,
+      file: {
+        botToken: "t",
+        operatorUserId: 1,
+        features: { permission_mode: "bypass" },
+      },
+    });
+    expect(cfg.permissionMode).toBe("bypass");
+  });
+
+  test("always-approve alias still loads as bypass", () => {
     const cfg = loadConfig({
       skipFile: true,
       requireTelegram: false,
@@ -67,7 +80,7 @@ describe("loadConfig permission_mode", () => {
         features: { permission_mode: "always-approve" },
       },
     });
-    expect(cfg.permissionMode).toBe("always-approve");
+    expect(cfg.permissionMode).toBe("bypass");
   });
 
   test("defaults to ask", () => {
@@ -83,6 +96,6 @@ describe("loadConfig permission_mode", () => {
 describe("permissionModeLabel", () => {
   test("labels", () => {
     expect(permissionModeLabel("ask")).toBe("ask");
-    expect(permissionModeLabel("always-approve")).toBe("always-approve");
+    expect(permissionModeLabel("bypass")).toBe("bypass");
   });
 });

@@ -69,20 +69,20 @@ Usage:
 
 `/status` shows **Agent**, **Launch**, **Mode**, **Model**, **Effort**, and **Permissions** as distinct fields.
 
-## Tool permissions (ask vs always-approve)
+## Tool permissions (ask vs bypass)
 
 Separate from session **mode** (plan/build). Controls whether tool calls show Telegram approve buttons.
 
 | Setting | Effect |
 |---|---|
 | `ask` (default) | Each tool permission → Telegram keyboard |
-| `always-approve` | Auto-allow tools (Grok: `--always-approve` + `yoloMode`; all agents: host auto-allow) |
+| `bypass` | Auto-allow tools (Grok: `--always-approve` + `yoloMode`; all agents: host auto-allow) |
 
 **Config** (`config.toml`):
 
 ```toml
 [features]
-permission_mode = "ask"            # or "always-approve"
+permission_mode = "ask"            # or "bypass"
 ```
 
 **Setup TUI** asks once on `acpbot setup`.
@@ -92,8 +92,8 @@ permission_mode = "ask"            # or "always-approve"
 | Command | Scope |
 |---|---|
 | `/permissions` | Status (default + this topic) |
-| `/permissions ask\|always` | This topic only |
-| `/permissions default ask\|always` | New topics (persists under `state_dir/permission-mode.json`) |
+| `/permissions ask\|bypass` | This topic only |
+| `/permissions default ask\|bypass` | New topics (persists under `state_dir/permission-mode.json`) |
 
 Changing a topic’s policy re-ensures the agent slot so Grok spawn flags apply.
 

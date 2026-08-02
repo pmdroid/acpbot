@@ -7,7 +7,7 @@
 // ── Config (no local-path / TTY / cached-credential assumptions) ────────────
 
 /** Tool-permission policy (not session plan/build mode). */
-export type PermissionMode = "ask" | "always-approve";
+export type PermissionMode = "ask" | "bypass";
 
 /** Runtime config for the acpbot worker / host. */
 export type AcpbotConfig = {
@@ -29,7 +29,7 @@ export type AcpbotConfig = {
   /**
    * Default tool-permission policy for **new** sessions.
    * - ask (default): Telegram keyboard for each permission
-   * - always-approve: auto-allow (Grok yoloMode / spawn --always-approve)
+   * - bypass: auto-allow (Grok yoloMode / spawn --always-approve)
    */
   permissionMode?: PermissionMode;
   /**
@@ -391,7 +391,7 @@ export type ElicitationDecision =
 export interface AgentsPort {
   /**
    * Create (or ensure) an ACP session for the given identity.
-   * Optional permissionMode: always-approve → host auto-allows + Grok yoloMode.
+   * Optional permissionMode: bypass → host auto-allows + Grok yoloMode.
    */
   ensureSession(
     identity: SessionIdentity,

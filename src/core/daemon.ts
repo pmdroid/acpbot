@@ -713,8 +713,8 @@ export function createDaemon(
       return { outcome: "reject_once" };
     }
 
-    if (effectivePermissionMode(session) === "always-approve") {
-      log.info("permission auto-approved (always-approve)", {
+    if (effectivePermissionMode(session) === "bypass") {
+      log.info("permission auto-approved (bypass)", {
         sessionKey,
         toolCallId: req.toolCallId,
       });
@@ -2947,7 +2947,7 @@ export function createDaemon(
     const a0 = args[0]?.toLowerCase();
     const a1 = args[1]?.toLowerCase();
 
-    // /permissions default ask|always
+    // /permissions default ask|bypass
     if (a0 === "default") {
       if (!a1) {
         await reply(
@@ -2955,7 +2955,7 @@ export function createDaemon(
             defaultMode: getDefaultPermissionMode(),
             session: session?.permissionMode,
           }) +
-            "\n\nSet default: `/permissions default ask` or `/permissions default always`",
+            "\n\nSet default: `/permissions default ask` or `/permissions default bypass`",
           undefined,
           { html: true },
         );
@@ -2964,7 +2964,7 @@ export function createDaemon(
       const mode = parsePermissionMode(a1);
       if (!mode) {
         await reply(
-          `Unknown mode \`${a1}\`. Use \`ask\` or \`always\` (always-approve).`,
+          `Unknown mode \`${a1}\`. Use \`ask\` or \`bypass\`.`,
           undefined,
           { html: true },
         );
@@ -2974,7 +2974,7 @@ export function createDaemon(
       log.info("permission default updated", { mode, via: "slash" });
       await reply(
         `Default for **new topics** → \`${permissionModeLabel(mode)}\`\n\n` +
-          (mode === "always-approve"
+          (mode === "bypass"
             ? "_Tools will auto-approve. Deny rules / hooks may still apply in some agents._\n\n"
             : "") +
           formatPermissionStatus({
@@ -3000,10 +3000,10 @@ export function createDaemon(
       return;
     }
 
-    // Topic-only: /permissions ask|always
+    // Topic-only: /permissions ask|bypass
     if (scope === "lobby") {
       await reply(
-        "Change the default with `/permissions default ask|always`.\n" +
+        "Change the default with `/permissions default ask|bypass`.\n" +
           "Per-topic overrides only work inside a session topic.",
         undefined,
         { html: true },
@@ -3066,7 +3066,7 @@ export function createDaemon(
     });
     await reply(
       `This topic → **\`${permissionModeLabel(mode)}\`**\n\n` +
-        (mode === "always-approve"
+        (mode === "bypass"
           ? "_Tools auto-approve until you switch back to ask._\n\n"
           : "_You will get approve/reject buttons for tools._\n\n") +
         formatPermissionStatus({
