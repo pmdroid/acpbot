@@ -26,35 +26,14 @@ acpbot only accepts updates from `operator_user_id` in your config. Everyone els
 git clone https://github.com/pmdroid/acpbot.git
 cd acpbot
 bun install
-
-mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-cp config.example.toml ~/.config/acpbot/config.toml
-chmod 600 ~/.config/acpbot/config.toml
-# edit: bot_token, operator_user_id, [repos]
-$EDITOR ~/.config/acpbot/config.toml
-
-# Install operator skills (telegram + schedules) into global agent skill dirs
-bun run skills:install
+bun run skills:install   # once — global agent skills
 ```
 
 `skills:install` symlinks (or copies) package skills into `~/.agents/skills`,
-`~/.grok/skills`, and `~/.claude/skills` so **all** coding agents see them, not
-only a single workspace. Run it after clone or skill upgrades — the worker does
-**not** install skills on boot.
+`~/.grok/skills`, and `~/.claude/skills`. The worker does **not** install skills on boot.
 
-Minimal `~/.config/acpbot/config.toml`:
-
-```toml
-bot_token = "…"
-operator_user_id = 12345
-default_agent = "grok-build"
-
-[repos]
-acpbot = "/absolute/path/to/acpbot"
-```
-
-Paths default to `~/.local/share/acpbot/{store.json,state}` — no env file required.
-Full reference: [configuration.md](configuration.md) and [`config.example.toml`](../config.example.toml).
+**Config is created automatically** on first start (no manual `mkdir` / `cp`).  
+Full reference: [configuration.md](configuration.md).
 
 ## 3. Start host + worker (real ACP)
 
@@ -63,11 +42,11 @@ Full reference: [configuration.md](configuration.md) and [`config.example.toml`]
 ```bash
 # Terminal 1 — owns agent stdio + schedule ticker + OAuth callback
 bun run acp-host
-# or: acpbot-host --config ~/.config/acpbot/config.toml
+# or: acpbot-host
 
-# Terminal 2 — Telegram worker + worker API
+# Terminal 2 — first run opens setup wizard (bot token, user id, optional repo)
 bun run start
-# or: acpbot --config ~/.config/acpbot/config.toml
+# or: acpbot
 ```
 
 In the private chat with the bot:

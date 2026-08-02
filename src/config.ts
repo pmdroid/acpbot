@@ -469,15 +469,20 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   }
   const file = normalizeToml(rawFile);
 
-  const botToken =
+  const botTokenRaw =
     str(file.botToken) ??
     firstEnv(env, "ACPBOT_BOT_TOKEN", "TACP_BOT_TOKEN", "BOT_TOKEN");
+  const botTokenPlaceholder =
+    !botTokenRaw ||
+    botTokenRaw.includes("REPLACE_ME") ||
+    /^123456:/i.test(botTokenRaw);
+  const botToken = botTokenPlaceholder ? "" : botTokenRaw;
   if (requireTelegram && !botToken) {
     throw new Error(
       missingMsg(
         "bot_token",
         configPath,
-        "Set bot_token in config.toml (or legacy ACPBOT_BOT_TOKEN).",
+        "Run `acpbot` once in a terminal for first-run setup, or set bot_token in config.toml.",
       ),
     );
   }
@@ -491,17 +496,12 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
           "TACP_OPERATOR_USER_ID",
           "OPERATOR_USER_ID",
         );
-  if (requireTelegram && !operatorRaw) {
-    throw new Error(
-      missingMsg(
-        "operator_user_id",
-        configPath,
-        "Set operator_user_id in config.toml (Telegram user id).",
-      ),
-    );
-  }
-  const operatorUserId = operatorRaw ? Number(operatorRaw) : 0;
-  if (requireTelegram && !Number.isFinite(operatorUserId)) {
+  // 0 = unclaimed: first private Telegram user who messages becomes operator.
+  const operatorUserId =
+    operatorRaw && Number.isFinite(Number(operatorRaw))
+      ? Number(operatorRaw)
+      : 0;
+  if (requireTelegram && operatorRaw && !Number.isFinite(Number(operatorRaw))) {
     throw new Error(`Invalid operator_user_id: ${operatorRaw}`);
   }
 
@@ -747,7 +747,7 @@ function missingMsg(
 ): string {
   const where = configPath
     ? `config file ${configPath}`
-    : `config file (create ${defaultConfigPath()} — see config.example.toml)`;
+    : `config file (${defaultConfigPath()})`;
   return `Missing ${field} in ${where}. ${hint}`;
 }
 

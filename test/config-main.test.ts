@@ -14,19 +14,19 @@ import {
 } from "../src/config";
 
 describe("loadConfig (TOML + defaults)", () => {
-  test("requires bot token and operator for worker role", () => {
+  test("requires bot token for worker role (operator optional / claim later)", () => {
     expect(() =>
       loadConfig({ env: { HOME: "/tmp/acpbot-home-test" }, skipFile: true }),
     ).toThrow(/bot_token|bot token/i);
-    expect(() =>
-      loadConfig({
-        env: {
-          HOME: "/tmp/acpbot-home-test",
-          ACPBOT_BOT_TOKEN: "t",
-        },
-        skipFile: true,
-      }),
-    ).toThrow(/operator_user_id|operator/i);
+    const cfg = loadConfig({
+      env: {
+        HOME: "/tmp/acpbot-home-test",
+        ACPBOT_BOT_TOKEN: "999:not-a-placeholder-token-xxxx",
+      },
+      skipFile: true,
+    });
+    expect(cfg.botToken).toContain("999:");
+    expect(cfg.operatorUserId).toBe(0);
   });
 
   test("defaults store + state under XDG data home", () => {
@@ -204,7 +204,6 @@ describe("main entry wiring (structural + import)", () => {
     }
     // Isolated HOME so we don't pick up the developer's real config.toml
     const home = mkdtempSync(join(tmpdir(), "acpbot-empty-home-"));
-    mkdirSync(join(home, ".config", "acpbot"), { recursive: true });
     env.HOME = home;
     env.XDG_CONFIG_HOME = join(home, ".config");
     env.XDG_DATA_HOME = join(home, ".local", "share");
@@ -217,6 +216,8 @@ describe("main entry wiring (structural + import)", () => {
         env,
         stdout: "pipe",
         stderr: "pipe",
+        // non-TTY → no interactive wizard
+        stdin: "ignore",
       },
     );
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -226,7 +227,7 @@ describe("main entry wiring (structural + import)", () => {
     ]);
     expect(exitCode).not.toBe(0);
     const out = `${stdout}\n${stderr}`;
-    expect(out).toMatch(/bot_token|bot token|Missing/i);
+    expect(out).toMatch(/bot_token|operator|Config needs setup|first-run|Missing/i);
     expect(out).not.toMatch(/Cannot find module/i);
   });
 });

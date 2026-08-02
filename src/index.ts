@@ -25,4 +25,10 @@ export {
   defaultStateDir,
   defaultStorePath,
 } from "./config";
+export {
+  ensureAcpbotLayout,
+  loadConfigWithSetup,
+  runFirstRunSetup,
+  configNeedsTelegramSetup,
+} from "./config-setup";
 export { chunkForTelegram } from "./core/messages";

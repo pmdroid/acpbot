@@ -139,6 +139,11 @@ export type DaemonOptions = {
    * `TACP_STATE_DIR` so OAuth pending/tokens are shared across processes.
    */
   stateDir?: string;
+  /**
+   * Path to config.toml — used to persist operator_user_id after
+   * claim-on-first-DM when operator_user_id was 0.
+   */
+  configPath?: string;
 };
 
 export type Daemon = {
@@ -184,6 +189,7 @@ export function createDaemon(
   const log = (env.log ?? silentLogger()).child("daemon");
   // Same absolute path worker + acp-host must share for OAuth pending/tokens.
   const stateDir = resolveOAuthStateDir(options.stateDir);
+  const configPath = options.configPath;
 
   let sessionIndex: SessionIndex = emptySessionIndex();
   let operatorChatId: number | undefined = env.config.operatorChatId;
@@ -274,7 +280,47 @@ export function createDaemon(
   }
 
   const isOperator = (userId: number | undefined): boolean =>
-    userId !== undefined && userId === env.config.operatorUserId;
+    userId !== undefined &&
+    env.config.operatorUserId > 0 &&
+    userId === env.config.operatorUserId;
+
+  /** operator_user_id = 0 → first real user who messages becomes the only operator. */
+  async function tryClaimOperator(
+    userId: number,
+    chatId: number,
+  ): Promise<boolean> {
+    if (env.config.operatorUserId > 0) return false;
+    env.config.operatorUserId = userId;
+    await ensureOperatorChat(chatId);
+    if (configPath) {
+      try {
+        const { patchConfigOperatorUserId } = await import("../config-setup");
+        patchConfigOperatorUserId(configPath, userId);
+      } catch (err) {
+        log.warn("could not persist operator_user_id to config", {
+          configPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    log.info("operator claimed on first message", { userId, chatId });
+    try {
+      await env.telegram.sendMessage({
+        chatId,
+        text:
+          `✅ You're the acpbot operator (user id \`${userId}\`).\n` +
+          `Only this account can control the bot.\n` +
+          (configPath
+            ? `Saved to config as operator_user_id.\n`
+            : "") +
+          `Try /ping or /new.`,
+        parseMode: "HTML",
+      });
+    } catch {
+      /* ignore */
+    }
+    return true;
+  }
 
   const senderOf = (update: TelegramUpdate): number | undefined => {
     if (update.message?.from?.id !== undefined) return update.message.from.id;
@@ -3120,7 +3166,19 @@ export function createDaemon(
       log.debug("ignore bot self update", summary);
       return;
     }
-    if (!isOperator(senderOf(update))) {
+
+    const senderId = senderOf(update);
+    if (env.config.operatorUserId <= 0) {
+      const chatId =
+        update.message?.chat.id ??
+        update.edited_message?.chat.id ??
+        update.callback_query?.message?.chat.id;
+      if (senderId !== undefined && chatId !== undefined) {
+        await tryClaimOperator(senderId, chatId);
+      } else {
+        return;
+      }
+    } else if (!isOperator(senderId)) {
       log.debug("ignore non-operator update", summary);
       return;
     }

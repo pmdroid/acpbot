@@ -65,42 +65,27 @@ sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 ```
 
-### 3. Config file
-
-```bash
-mkdir -p ~/.config/acpbot ~/.local/share/acpbot
-# config.example.toml is in this repo (or copy from the quick-start docs)
-cp config.example.toml ~/.config/acpbot/config.toml
-chmod 600 ~/.config/acpbot/config.toml
-```
-
-Edit `~/.config/acpbot/config.toml`:
-
-```toml
-bot_token = "…"              # from @BotFather
-operator_user_id = 12345     # your Telegram user id
-default_agent = "grok-build"
-
-[repos]
-demo = "/absolute/path/to/your/repo"
-```
-
-Store and state default under `~/.local/share/acpbot/`. Same config for host and worker.  
-Details: [docs/configuration.md](docs/configuration.md).
-
-### 4. Run (two processes)
+### 3. Run (first start sets up config)
 
 **Host first.** The worker will not start without it.
 
-```bash
-# terminal 1
-acpbot-host --config ~/.config/acpbot/config.toml
+On first launch the app creates config + data dirs for you.  
+Start the **worker once in a terminal** for a short wizard (**bot token** required; operator id optional).
 
-# terminal 2
-acpbot --config ~/.config/acpbot/config.toml
+**Why an operator id?** Only that Telegram account may control the bot (agents can run tools on your machine). Leave it blank to claim the bot with your first private `/ping`.
+
+```bash
+# terminal 1 — creates dirs/default config if needed
+acpbot-host
+
+# terminal 2 — onboarding wizard, then Telegram
+acpbot
 ```
 
-### 5. Telegram
+Default config: `~/.config/acpbot/config.toml`. Override with `--config PATH` if you want.  
+Details: [docs/configuration.md](docs/configuration.md).
+
+### 4. Telegram
 
 ```text
 /ping

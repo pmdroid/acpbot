@@ -11,7 +11,8 @@
  *
  * Worker and acp-host must share the same state_dir from config.
  */
-import { applyConfigToEnv, loadConfig } from "../config";
+import { applyConfigToEnv } from "../config";
+import { ensureAcpbotLayout, loadConfigWithSetup } from "../config-setup";
 import { createLogger } from "../env/logger";
 import { startAcpHostServer } from "./server";
 import { defaultAcpHostSock } from "./protocol";
@@ -19,13 +20,26 @@ import { maybeStartOauthHttpServer } from "./oauth-http";
 import { parseReposFromEnv, scheduleTickMs } from "./scheduler";
 
 async function main(): Promise<void> {
-  const cfg = loadConfig({ requireTelegram: false });
+  // Create config/data/state dirs (and default config.toml if missing).
+  // Host does not require bot token — worker first-run wizard fills that in.
+  const layout = ensureAcpbotLayout();
+  const { cfg } = await loadConfigWithSetup({
+    requireTelegram: false,
+    interactive: false,
+    configPath: layout.configPath,
+  });
   applyConfigToEnv(cfg);
 
   const log = createLogger({
     level: cfg.logLevel === "debug" || cfg.verbose ? "debug" : cfg.logLevel,
     name: "acp-host",
   });
+  if (layout.createdConfig) {
+    console.error(
+      `acpbot acp-host created config: ${layout.configPath}\n` +
+        `  Run \`acpbot\` once in a terminal to set bot_token / operator_user_id.`,
+    );
+  }
 
   const stateDir = cfg.stateDir;
   const repos = cfg.repos ?? parseReposFromEnv(process.env);
