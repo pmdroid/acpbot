@@ -54,7 +54,7 @@ describe("extractSessionModes", () => {
     ]);
   });
 
-  test("Grok x.ai/sessionConfig effort is NOT session modes", () => {
+  test("Grok x.ai/sessionConfig effort is NOT session modes (no agent)", () => {
     const v = extractSessionModes({
       modes: null,
       meta: {
@@ -88,10 +88,47 @@ describe("extractSessionModes", () => {
         },
       },
     });
-    // Effort lives under /effort (session-config), not /mode.
+    // Without agent id, effort alone is not a mode catalog.
     expect(v.source).toBe("none");
     expect(v.availableModeIds).toEqual([]);
     expect(v.currentModeId).toBeUndefined();
+  });
+
+  test("Grok agent seeds builtin default/plan/ask (xai-org/grok-build SessionMode)", () => {
+    const v = extractSessionModes({
+      modes: null,
+      agent: "grok-build",
+      meta: {
+        "x.ai/sessionConfig": {
+          options: [
+            { id: "high", category: "mode", selected: true },
+            { id: "medium", category: "mode", selected: false },
+          ],
+        },
+      },
+    });
+    expect(v.source).toBe("grok.builtin");
+    expect(v.availableModeIds).toEqual(["default", "plan", "ask"]);
+    expect(v.currentModeId).toBe("default");
+    // Effort ids must not become current mode
+    expect(v.currentModeId).not.toBe("high");
+  });
+
+  test("Grok prior plan mode is restored from store", () => {
+    const v = extractSessionModes({
+      agent: "grok-build",
+      priorModeId: "plan",
+    });
+    expect(v.source).toBe("grok.builtin");
+    expect(v.currentModeId).toBe("plan");
+  });
+
+  test("Grok prior effort id is ignored when seeding builtins", () => {
+    const v = extractSessionModes({
+      agent: "grok-build",
+      priorModeId: "high",
+    });
+    expect(v.currentModeId).toBe("default");
   });
 
   test("ACP modes still win when present (ignore Grok meta)", () => {
@@ -190,22 +227,23 @@ describe("formatSessionStatus mode line", () => {
     expect(t).not.toMatch(/Mode: _\(not advertised/);
   });
 
-  test("Grok-like: no mode catalog but effort id shown", () => {
+  test("Grok: mode default + effort high are distinct", () => {
     const t = formatSessionStatus({
       sessionKey: "a/b",
       status: "done",
       agent: "grok-build",
+      mode: "default",
+      availableModes: ["default", "plan", "ask"],
       effort: "high",
       model: "Grok 4.5",
       cwd: "/tmp",
       threadId: 1,
       chatId: 2,
     });
+    expect(t).toMatch(/Mode: `default`/);
     expect(t).toMatch(/Effort: `high`/);
-    expect(t).toMatch(/Mode: _\(not advertised — permission modes N\/A; see Effort\)_/);
     expect(t).toMatch(/Model: `Grok 4\.5`/);
-    // Must not imply effort is a session mode
-    expect(t).not.toMatch(/Mode: `high`/);
+    expect(t).toMatch(/Modes: \*\*default\*\*, plan, ask/);
   });
 
   test("shows not advertised when mode missing", () => {
