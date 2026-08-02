@@ -121,6 +121,7 @@ ${serviceCliHelp()}`);
       : {}),
     ...(cfg.ttsMode ? { ttsMode: cfg.ttsMode } : {}),
     ...(cfg.mcpEnabled !== undefined ? { mcpEnabled: cfg.mcpEnabled } : {}),
+    ...(cfg.permissionMode ? { permissionMode: cfg.permissionMode } : {}),
   };
 
   const speech = speechFromConfig(cfg.speech, process.env, log);
@@ -132,6 +133,7 @@ ${serviceCliHelp()}`);
     repos: Object.keys(cfg.repos ?? {}),
     ttsMode: cfg.ttsMode,
     mcpEnabled: cfg.mcpEnabled !== false,
+    permissionMode: cfg.permissionMode ?? "ask",
     speech: {
       ttsProvider: cfg.speech?.ttsProvider ?? "auto",
       sttProvider: cfg.speech?.sttProvider ?? "auto",

@@ -199,17 +199,60 @@ function parseOverrides(
   }
 }
 
+export type ResolveLaunchOptions = {
+  /**
+   * When true, inject agent-specific always-approve / yolo CLI flags
+   * (e.g. Grok `agent --always-approve stdio`).
+   */
+  alwaysApprove?: boolean;
+};
+
 export function resolveAgentLaunch(
   agentName: string,
   env: NodeJS.ProcessEnv = process.env,
+  opts?: ResolveLaunchOptions,
 ): AgentLaunch {
   const id = normalizeAgentName(agentName);
   const overrides = parseOverrides(env.ACPBOT_AGENT_COMMAND_JSON);
-  if (overrides[id]) return overrides[id]!;
-  if (BUILTINS_BASE[id]) return BUILTINS_BASE[id]!.launchFor(env);
+  let launch: AgentLaunch;
+  if (overrides[id]) launch = { ...overrides[id]!, args: [...overrides[id]!.args] };
+  else if (BUILTINS_BASE[id]) launch = BUILTINS_BASE[id]!.launchFor(env);
+  else launch = { command: agentName.trim(), args: [] };
 
-  // Last resort: treat the name as a bare binary that speaks ACP on stdio.
-  return { command: agentName.trim(), args: [] };
+  if (opts?.alwaysApprove) {
+    launch = applyAlwaysApproveArgs(id, launch);
+  }
+  return launch;
+}
+
+/**
+ * Inject process-level always-approve flags where the agent CLI supports them.
+ * Grok: `grok agent --always-approve stdio` (or insert before trailing `stdio`/`serve`).
+ */
+export function applyAlwaysApproveArgs(
+  agentId: string,
+  launch: AgentLaunch,
+): AgentLaunch {
+  const id = normalizeAgentName(agentId);
+  const args = [...launch.args];
+  if (id === "grok-build" || id === "grok") {
+    if (args.some((a) => a === "--always-approve" || a === "--yolo")) {
+      return { command: launch.command, args };
+    }
+    // Prefer: agent --always-approve stdio
+    const stdioIdx = args.lastIndexOf("stdio");
+    if (stdioIdx >= 0) {
+      args.splice(stdioIdx, 0, "--always-approve");
+    } else if (args[0] === "agent") {
+      args.splice(1, 0, "--always-approve");
+    } else {
+      args.unshift("--always-approve");
+    }
+    return { command: launch.command, args };
+  }
+  // Claude / Codex / OpenCode: rely on host auto-approve of ACP permission
+  // requests (CLI flags differ and are not standardized here).
+  return { command: launch.command, args };
 }
 
 /**
@@ -242,8 +285,9 @@ export function resolveAgentLaunchForSpawn(
   agentName: string,
   env: NodeJS.ProcessEnv = process.env,
   which: WhichFn = defaultWhich,
+  opts?: ResolveLaunchOptions,
 ): AgentLaunch {
-  const launch = resolveAgentLaunch(agentName, env);
+  const launch = resolveAgentLaunch(agentName, env, opts);
   const abs = resolveLaunchCommandPath(launch.command, which);
   if (!abs) {
     throw new Error(

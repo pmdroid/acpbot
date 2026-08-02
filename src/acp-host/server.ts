@@ -36,6 +36,8 @@ type Slot = {
   slotKey: string;
   agent: string;
   cwd: string;
+  /** Tool-permission policy for this slot (from ensure config). */
+  permissionMode?: "ask" | "always-approve";
   host: SessionHost;
   agentSessionId: string | null;
   owner: Socket | null;
@@ -112,6 +114,13 @@ export async function startAcpHostServer(
     return {
       onPermissionRequest: async (req, ctx) => {
         const slot = slots.get(slotKey);
+        if (slot?.permissionMode === "always-approve") {
+          log.info("permission auto-approved (always-approve)", {
+            slotKey,
+            toolCallId: req.toolCallId,
+          });
+          return { outcome: "allow_always" };
+        }
         if (!slot?.owner || slot.owner.destroyed) {
           log.warn("permission fail-closed (no worker)", { slotKey });
           return { outcome: "reject_once" };
@@ -221,7 +230,9 @@ export async function startAcpHostServer(
     // Reattach: same agent+cwd, prefer resume if agentSessionId matches or any live
     if (slot) {
       const same =
-        slot.agent === config.agent && slot.cwd === config.cwd;
+        slot.agent === config.agent &&
+        slot.cwd === config.cwd &&
+        (slot.permissionMode ?? "ask") === (config.permissionMode ?? "ask");
       if (same) {
         slot.owner = sock;
         try {
@@ -229,6 +240,9 @@ export async function startAcpHostServer(
             sessionKey: slotKey,
             agent: config.agent,
             cwd: config.cwd,
+            ...(config.permissionMode
+              ? { permissionMode: config.permissionMode }
+              : {}),
           });
           slot.agentSessionId = hs.agentSessionId;
           const mode = await slot.host.getModeState(slotKey);
@@ -292,12 +306,18 @@ export async function startAcpHostServer(
         sessionKey: slotKey,
         agent: config.agent,
         cwd: config.cwd,
+        ...(config.permissionMode
+          ? { permissionMode: config.permissionMode }
+          : {}),
       });
       const mode = await host.getModeState(slotKey);
       slots.set(slotKey, {
         slotKey,
         agent: config.agent,
         cwd: config.cwd,
+        ...(config.permissionMode
+          ? { permissionMode: config.permissionMode }
+          : {}),
         host,
         agentSessionId: hs.agentSessionId,
         owner: sock,

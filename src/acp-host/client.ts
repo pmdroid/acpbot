@@ -409,6 +409,9 @@ export function createAcpHostClient(
       const config: HostAgentConfig = {
         agent: input.agent,
         cwd: input.cwd,
+        ...(input.permissionMode
+          ? { permissionMode: input.permissionMode }
+          : {}),
       };
       const msg = await request({
         type: "ensure",

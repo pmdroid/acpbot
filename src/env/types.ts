@@ -6,6 +6,9 @@
 
 // ── Config (no local-path / TTY / cached-credential assumptions) ────────────
 
+/** Tool-permission policy (not session plan/build mode). */
+export type PermissionMode = "ask" | "always-approve";
+
 /** Runtime config for the acpbot worker / host. */
 export type AcpbotConfig = {
   /** Paired Telegram user id (from state_dir pairing; 0 = unpaired). Every other sender is ignored. */
@@ -23,6 +26,12 @@ export type AcpbotConfig = {
   repos?: Record<string, string>;
   /** Default agent adapter name (e.g. "codex"). */
   defaultAgent?: string;
+  /**
+   * Default tool-permission policy for **new** sessions.
+   * - ask (default): Telegram keyboard for each permission
+   * - always-approve: auto-allow (Grok yoloMode / spawn --always-approve)
+   */
+  permissionMode?: PermissionMode;
   /**
    * Extra skill roots (absolute dirs of skill collections or single skills).
    * Session cwd skill subdirs are always scanned in addition.
@@ -382,9 +391,12 @@ export type ElicitationDecision =
 export interface AgentsPort {
   /**
    * Create (or ensure) an ACP session for the given identity.
-   * Must place the session in read-only mode before returning.
+   * Optional permissionMode: always-approve → host auto-allows + Grok yoloMode.
    */
-  ensureSession(identity: SessionIdentity): Promise<AgentSessionHandle>;
+  ensureSession(
+    identity: SessionIdentity,
+    opts?: { permissionMode?: PermissionMode },
+  ): Promise<AgentSessionHandle>;
 
   /**
    * Run a prompt turn. timeoutMs must never be set on the underlying runtime.

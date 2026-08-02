@@ -12,13 +12,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { LogLevel, AcpbotConfig } from "./env/types";
+import type { LogLevel, AcpbotConfig, PermissionMode } from "./env/types";
 import { parseLogLevel } from "./env/logger";
 import { resolveStateDir } from "./env/state-dir";
 import {
   parseSpeechProvider,
   type SpeechSettings,
 } from "./env/speech";
+import { parsePermissionMode } from "./acp/permission-mode";
 
 export type ProcessConfig = AcpbotConfig & {
   botToken: string;
@@ -186,6 +187,7 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
   pick("ttsMode", "tts_mode");
   pick("mcpEnabled", "mcp");
   pick("mcpEnabled", "mcp_enabled");
+  pick("permissionMode", "permission_mode");
   pick("scheduleTickMs", "schedule_tick_ms");
   pick("agentCommandJson", "agent_command_json");
   pick("claudeAcpPkg", "claude_acp_pkg");
@@ -202,6 +204,8 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     if (f.mcp_enabled !== undefined) out.mcpEnabled = f.mcp_enabled;
     if (f.tts_mode !== undefined) out.ttsMode = f.tts_mode;
     if (f.ttsMode !== undefined) out.ttsMode = f.ttsMode;
+    if (f.permission_mode !== undefined) out.permissionMode = f.permission_mode;
+    if (f.permissionMode !== undefined) out.permissionMode = f.permissionMode;
     if (f.acp_media_attachments !== undefined) {
       out.acpMediaAttachments = f.acp_media_attachments;
     }
@@ -625,6 +629,15 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   } else {
     config.mcpEnabled = true;
   }
+
+  // Tool permission policy (ask vs always-approve). Features table or top-level.
+  const permRaw =
+    (file.permissionMode as string | undefined) ??
+    firstEnv(env, "ACPBOT_PERMISSION_MODE", "TACP_PERMISSION_MODE");
+  const perm = parsePermissionMode(
+    permRaw !== undefined ? String(permRaw) : undefined,
+  );
+  config.permissionMode = (perm ?? "ask") as PermissionMode;
 
   // OAuth / schedule / agents / speech from file + env
   config.oauthCallbackBase =

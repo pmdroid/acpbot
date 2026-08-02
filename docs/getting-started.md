@@ -92,8 +92,9 @@ In a topic:
 | `/status` | Agent, model, mode, effort, cwd, MCP |
 | `/model` | LLM picker (or `/model <id>`) |
 | `/effort` | Reasoning effort (when the agent advertises it) |
+| `/permissions` | Tool auto-approve: `ask` (default) or `always` |
 | `/agent` | Switch agent process for this session |
-| `/plan` / `/build` / `/mode` | Permission session mode |
+| `/plan` / `/build` / `/mode` | Session plan/agent mode |
 | `/skills` | Skill picker then prompt |
 | `/mcp` | Per-repo remote MCP registry + OAuth |
 | `/cancel` | Stop current turn **and clear the queue** (session kept) |

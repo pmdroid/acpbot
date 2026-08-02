@@ -64,6 +64,13 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Pick session mode from a list, or /mode <id>|toggle",
   },
   {
+    name: "/permissions",
+    aliases: ["/permission", "/yolo"],
+    scope: "both",
+    summary:
+      "Tool permissions: ask|always (topic) or default ask|always (new topics)",
+  },
+  {
     name: "/plan",
     scope: "topic",
     summary: "Switch agent to plan mode (read-only-ish)",

@@ -214,6 +214,8 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         sessionKey: key,
         agent,
         cwd,
+        permissionMode:
+          options.config.permissionMode ?? "ask",
       });
       const resolvedIdentity = { ...identity, agent };
       handles.set(key, {
@@ -228,7 +230,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       };
     },
 
-    async ensureSession(identity) {
+    async ensureSession(identity, opts) {
       const key = sessionKeyOf(identity);
       const agent =
         identity.agent ?? options.config.defaultAgent ?? "grok-build";
@@ -246,13 +248,24 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         );
       }
 
+      const permissionMode =
+        opts?.permissionMode ??
+        options.config.permissionMode ??
+        "ask";
+
       // Always ask acp-host (reattach if live, spawn/load if cold). Never skip.
-      log.info("ensureSession", { sessionKey: key, agent, cwd });
+      log.info("ensureSession", {
+        sessionKey: key,
+        agent,
+        cwd,
+        permissionMode,
+      });
       try {
         const hs = await host.ensureSession({
           sessionKey: key,
           agent,
           cwd,
+          permissionMode,
         });
         if (options.forceReadOnly) {
           const modes = await host.getAvailableModes(key);

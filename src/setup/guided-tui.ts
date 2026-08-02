@@ -58,6 +58,7 @@ export function renderFullConfigToml(a: {
   logLevel: string;
   repos: Record<string, string>;
   ttsMode: string;
+  permissionMode: string;
   ttsProvider: string;
   sttProvider: string;
   openaiApiKey?: string;
@@ -94,6 +95,9 @@ export function renderFullConfigToml(a: {
   lines.push(`[features]`);
   lines.push(`mcp = true`);
   lines.push(`tts_mode = ${tomlString(a.ttsMode)}`);
+  lines.push(
+    `permission_mode = ${tomlString(a.permissionMode)}  # ask | always-approve`,
+  );
   lines.push(``);
 
   lines.push(`[speech]`);
@@ -214,6 +218,29 @@ export async function runGuidedSetupTui(
   });
   if (cancelled(agent)) abort();
   const defaultAgent = normalizeAgentName(String(agent));
+
+  // ── Tool permissions ──────────────────────────────────────────────────
+  p.log.step("Tool permissions");
+  const permSel = await p.select({
+    message: "Default tool permission policy for new sessions",
+    options: [
+      {
+        value: "ask",
+        label: "Ask (recommended)",
+        hint: "Telegram approve/reject buttons for tools",
+      },
+      {
+        value: "always-approve",
+        label: "Always-approve (yolo)",
+        hint: "Auto-allow tools — use only on trusted machines",
+      },
+    ],
+    initialValue: existing?.permissionMode ?? "ask",
+  });
+  if (cancelled(permSel)) abort();
+  const permissionMode = String(permSel) === "always-approve"
+    ? "always-approve"
+    : "ask";
 
   // ── Repos ─────────────────────────────────────────────────────────────
   p.log.step("Workspace");
@@ -390,6 +417,7 @@ export async function runGuidedSetupTui(
     logLevel: String(logLevel),
     repos,
     ttsMode,
+    permissionMode,
     ttsProvider,
     sttProvider,
     openaiApiKey,

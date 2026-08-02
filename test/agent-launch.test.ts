@@ -49,6 +49,13 @@ describe("agent-launch", () => {
     expect(launch).toEqual({ command: "grok", args: ["agent", "stdio"] });
   });
 
+  test("grok-build always-approve injects flag", () => {
+    const launch = resolveAgentLaunch("grok-build", process.env, {
+      alwaysApprove: true,
+    });
+    expect(launch.args).toEqual(["agent", "--always-approve", "stdio"]);
+  });
+
   test("resolveLaunchCommandPath looks up bare names", () => {
     const which: WhichFn = (cmd) =>
       cmd === "grok" ? "/Users/me/.grok/bin/grok" : null;
