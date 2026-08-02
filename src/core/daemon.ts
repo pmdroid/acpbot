@@ -133,6 +133,8 @@ import {
   issuePairingCode,
   pairingMessageForUser,
   takeAppliedPairing,
+  loadPairedOperator,
+  takePairingCleared,
 } from "./pairing";
 import type { PromptAttachment } from "../env/types";
 
@@ -145,8 +147,7 @@ export type DaemonOptions = {
    */
   stateDir?: string;
   /**
-   * Path to config.toml — used to persist operator_user_id after
-   * claim-on-first-DM when operator_user_id was 0.
+   * Path to config.toml (optional; operator pairing uses state_dir only).
    */
   configPath?: string;
 };
@@ -290,8 +291,7 @@ export function createDaemon(
     userId === env.config.operatorUserId;
 
   /**
-   * operator_user_id = 0 → unclaimed. Issue a pairing code for CLI approve
-   * (`acpbot pair approve <code>`). Does not claim automatically.
+   * Unpaired → issue a pairing code for CLI approve (`acpbot pair approve <code>`).
    */
   async function issuePairingForUser(
     userId: number,
@@ -336,23 +336,31 @@ export function createDaemon(
 
   /** Apply CLI `acpbot pair approve` if present (no restart required). */
   async function applyCliPairingIfAny(): Promise<boolean> {
-    if (env.config.operatorUserId > 0) return false;
-    const applied = await takeAppliedPairing(stateDir);
-    if (!applied) return false;
-    env.config.operatorUserId = applied.userId;
-    await ensureOperatorChat(applied.chatId);
-    if (configPath) {
-      try {
-        const { patchConfigOperatorUserId } = await import("../config-setup");
-        // Config usually already written by CLI; re-patch is harmless.
-        patchConfigOperatorUserId(configPath, applied.userId);
-      } catch (err) {
-        log.warn("could not persist operator_user_id to config", {
-          configPath,
-          error: err instanceof Error ? err.message : String(err),
+    // Explicit unpair from `acpbot pair clear` (do not wipe test-injected operators).
+    if (await takePairingCleared(stateDir)) {
+      if (env.config.operatorUserId > 0) {
+        log.info("operator unpaired via CLI clear", {
+          previous: env.config.operatorUserId,
         });
       }
+      env.config.operatorUserId = 0;
     }
+
+    // Durable operator from state (CLI approve or previous session).
+    const durable = await loadPairedOperator(stateDir);
+    if (durable && durable.userId > 0 && env.config.operatorUserId !== durable.userId) {
+      env.config.operatorUserId = durable.userId;
+      if (durable.chatId !== undefined) {
+        await ensureOperatorChat(durable.chatId);
+      }
+    }
+
+    const applied = await takeAppliedPairing(stateDir);
+    if (!applied) {
+      return env.config.operatorUserId > 0;
+    }
+    env.config.operatorUserId = applied.userId;
+    await ensureOperatorChat(applied.chatId);
     log.info("operator claimed via CLI pair approve", {
       userId: applied.userId,
       chatId: applied.chatId,

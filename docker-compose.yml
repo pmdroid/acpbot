@@ -2,7 +2,7 @@
 # internal except OAuth (optional) and outbound HTTPS for Telegram/agents.
 #
 # Local build:
-#   cp config.example.toml config.toml   # bot_token, operator_user_id, [repos]
+#   cp config.example.toml config.toml   # bot_token, [repos]; pair via: acpbot pair approve
 #   # set store_path/state_dir under /data inside the TOML for containers
 #   docker compose up --build
 #

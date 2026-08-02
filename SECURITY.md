@@ -24,15 +24,16 @@ Out of scope:
 
 ## Operator responsibilities
 
-Config is **TOML-first** (`~/.config/acpbot/config.toml`).
+Config is **TOML-first** (`~/.config/acpbot/config.toml`) for the bot token and paths. The **operator is not in config** — only via CLI pairing:
 
-- Prefer **`operator_user_id = 0`** (unclaimed) and complete pairing:
-  1. DM the bot in a private chat → receive a pairing code  
-  2. On the host: `acpbot pair approve <code>`  
-  Only someone with **shell access to the host** can approve. See [docs/pairing.md](docs/pairing.md).
-- Or set **`operator_user_id`** to your numeric Telegram id before sharing the bot username.
-- Keep **`state_dir`** absolute and private (sessions, sockets, OAuth tokens, pending pairing codes).
+1. DM the bot in a private chat → receive a pairing code  
+2. On the host: `acpbot pair approve <code>`  
+
+Only someone with **shell access to the host** can approve. See [docs/pairing.md](docs/pairing.md).
+
+- Keep **`state_dir`** absolute and private (sessions, sockets, OAuth tokens, pairing state).
 - Treat mounted workspaces as fully trusted by the agent.
 - Review permission prompts; default mode prefers **ask** when advertised.
+- Do not share the bot username until you have paired.
 
 See also the [README disclaimer](README.md#disclaimer--use-at-your-own-risk) and [LICENSE](LICENSE).

@@ -150,7 +150,7 @@ Host `promptQueue` (acp-host) remains a separate serialization for concurrent ho
 
 ## Security notes
 
-- Single-operator allowlist (`operator_user_id` in config.toml)
+- Single-operator allowlist via CLI pairing (`acpbot pair approve`; state under `$state_dir/pairing/`)
 - Bot token only in the worker process
 - Repo path containment for photo/file tools ([worker-api.md](worker-api.md))
 - OAuth tokens never written under the repo tree

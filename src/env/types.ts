@@ -8,7 +8,7 @@
 
 /** Runtime config for the acpbot worker / host. */
 export type AcpbotConfig = {
-  /** Allowlisted Telegram user id. Every other sender is ignored. */
+  /** Paired Telegram user id (from state_dir pairing; 0 = unpaired). Every other sender is ignored. */
   operatorUserId: number;
   /**
    * Optional chat id of the operator's private chat with the bot.

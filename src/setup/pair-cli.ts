@@ -1,21 +1,20 @@
 /**
- * CLI: acpbot pair list | approve <code> | status
+ * CLI: acpbot pair list | approve <code> | status | clear
  *
  * Approves a Telegram pairing code issued by the worker when the bot is unclaimed.
+ * Operator identity is stored under `$state_dir/pairing/operator.json` (not config.toml).
  */
 import { loadConfig } from "../config";
+import type { LoadConfigOptions } from "../config";
 import {
   approvePairingCode,
+  clearPairedOperator,
   formatPairingCodeDisplay,
   listPendingPairs,
+  loadPairedOperator,
   normalizePairingCode,
 } from "../core/pairing";
-import {
-  ensureAcpbotLayout,
-  patchConfigOperatorUserId,
-  resolveConfigWritePath,
-} from "../config-setup";
-import type { LoadConfigOptions } from "../config";
+import { ensureAcpbotLayout, resolveConfigWritePath } from "../config-setup";
 
 export function isPairCliCommand(argv: string[] = process.argv): boolean {
   const args = argv.slice(2);
@@ -25,11 +24,12 @@ export function isPairCliCommand(argv: string[] = process.argv): boolean {
 export function pairCliHelp(): string {
   return `Pairing (operator claim via CLI)
   acpbot pair list              List pending Telegram pairing codes
-  acpbot pair approve <code>    Approve a code (sets operator_user_id in config)
-  acpbot pair status            Show current operator from config
+  acpbot pair approve <code>    Approve a code (stores operator in state dir)
+  acpbot pair status            Show paired operator
+  acpbot pair clear             Unpair (allows a new approve)
 
 Flow:
-  1. Leave operator_user_id = 0 (or unset) in config.toml
+  1. Start host + worker with a bot token
   2. User DMs the bot → receives a pairing code
   3. On this machine: acpbot pair approve ABCD-1234
   4. Worker applies claim (no restart required if already running)`;
@@ -40,7 +40,6 @@ export async function runPairCli(
   options: LoadConfigOptions = {},
 ): Promise<number> {
   const args = argv.slice(2);
-  // pair | pairing
   const sub = (args[1] ?? "status").toLowerCase();
 
   const layout = ensureAcpbotLayout(options);
@@ -57,9 +56,7 @@ export async function runPairCli(
       requireTelegram: false,
     });
   } catch (err) {
-    console.error(
-      err instanceof Error ? err.message : String(err),
-    );
+    console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
   const stateDir = cfg.stateDir;
@@ -70,22 +67,21 @@ export async function runPairCli(
   }
 
   if (sub === "status") {
-    if (cfg.operatorUserId > 0) {
-      console.log(`operator_user_id = ${cfg.operatorUserId} (claimed)`);
-      console.log(`config: ${cfg.configPath ?? configPath}`);
-      console.log(`state_dir: ${stateDir}`);
+    const paired = await loadPairedOperator(stateDir);
+    if (paired) {
+      console.log(`paired: Telegram user ${paired.userId}`);
+      if (paired.chatId !== undefined) console.log(`  chat id: ${paired.chatId}`);
+      console.log(`  since: ${new Date(paired.pairedAt).toISOString()}`);
+      console.log(`  state: ${stateDir}/pairing/operator.json`);
     } else {
-      console.log("operator_user_id = 0 (unclaimed — waiting for pair approve)");
-      console.log(`config: ${cfg.configPath ?? configPath}`);
+      console.log("paired: no (waiting for pair approve)");
       console.log(`state_dir: ${stateDir}`);
       const pending = await listPendingPairs(stateDir);
       if (pending.length === 0) {
-        console.log("No pending pairing codes. DM the bot from Telegram first.");
+        console.log("No pending codes. DM the bot from Telegram first.");
       } else {
         console.log(`Pending codes: ${pending.length}`);
-        for (const p of pending) {
-          printPending(p);
-        }
+        for (const p of pending) printPending(p);
       }
     }
     return 0;
@@ -102,28 +98,35 @@ export async function runPairCli(
     return 0;
   }
 
+  if (sub === "clear" || sub === "unpair" || sub === "reset") {
+    const paired = await loadPairedOperator(stateDir);
+    if (!paired) {
+      console.log("Not paired — nothing to clear.");
+      return 0;
+    }
+    await clearPairedOperator(stateDir);
+    console.log(`Cleared pairing for Telegram user ${paired.userId}.`);
+    console.log("Restart is not required; worker will treat the bot as unclaimed.");
+    console.log("DM the bot again to get a new code, then: acpbot pair approve <code>");
+    return 0;
+  }
+
   if (sub === "approve") {
     const code = args[2];
     if (!code) {
       console.error("Usage: acpbot pair approve <code>");
       return 2;
     }
-    if (cfg.operatorUserId > 0) {
-      console.error(
-        `Already claimed as operator_user_id = ${cfg.operatorUserId}.\n` +
-          `Edit config.toml to set operator_user_id = 0 if you want to re-pair.`,
-      );
-      return 1;
-    }
     try {
       const pending = await approvePairingCode(stateDir, code);
-      patchConfigOperatorUserId(configPath, pending.userId);
-      console.log(`Approved ${formatPairingCodeDisplay(normalizePairingCode(code))}`);
+      console.log(
+        `Approved ${formatPairingCodeDisplay(normalizePairingCode(code))}`,
+      );
       console.log(`  Telegram user id: ${pending.userId}`);
       console.log(`  chat id: ${pending.chatId}`);
-      console.log(`  wrote operator_user_id = ${pending.userId} → ${configPath}`);
+      console.log(`  stored: ${stateDir}/pairing/operator.json`);
       console.log(
-        "If the worker is running, it will pick this up on the next update (or within a few seconds).",
+        "If the worker is running, it will pick this up on the next poll (or within a few seconds).",
       );
       return 0;
     } catch (err) {

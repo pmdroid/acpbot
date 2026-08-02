@@ -18,8 +18,9 @@
 2. Enable **topics in private chats** for that bot
 3. Note your Telegram **user id** (e.g. `@userinfobot`)
 
-Only the configured **`operator_user_id`** can control the bot; everyone else is ignored.  
-If `operator_user_id = 0` (default / claim-on-first-DM), the **first** private-chat sender becomes the sole operator — set your id explicitly, or DM the bot yourself right after first start.
+Pair as operator after start: DM the bot for a code, then run `acpbot pair approve <code>` on the host. See [pairing.md](pairing.md).
+
+
 
 ## 2. Install & configure
 
@@ -130,7 +131,7 @@ Full provider options: [configuration.md](configuration.md#speech-tts--stt-provi
 | Symptom | Likely cause |
 |---|---|
 | Boot fails: topics disabled | Enable private-chat topics in @BotFather |
-| No reply from non-you | `operator_user_id` mismatch in `config.toml` |
+| No reply from non-you | Not paired, or a different Telegram account |
 | Missing bot token | Create `~/.config/acpbot/config.toml` (see `config.example.toml`) |
 | Agent picker empty | No agent CLIs on `PATH` (`grok`, `claude`, …) |
 | Spawn dies immediately | Check agent login / adapter; stderr is logged |

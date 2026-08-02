@@ -54,7 +54,6 @@ function tomlString(value: string): string {
 /** Full config TOML from guided answers (includes speech / oauth). */
 export function renderFullConfigToml(a: {
   botToken: string;
-  operatorUserId: number;
   defaultAgent: string;
   logLevel: string;
   repos: Record<string, string>;
@@ -73,9 +72,6 @@ export function renderFullConfigToml(a: {
     `# Re-run: acpbot setup`,
     ``,
     `bot_token = ${tomlString(a.botToken)}`,
-    `# Allowlist — only this Telegram user controls the bot.`,
-    `# 0 = unclaimed; acpbot pair approve <code> after Telegram DM.`,
-    `operator_user_id = ${a.operatorUserId}`,
     ``,
     `default_agent = ${tomlString(a.defaultAgent)}`,
     `log_level = ${tomlString(a.logLevel)}`,
@@ -201,43 +197,6 @@ export async function runGuidedSetupTui(
     });
     if (cancelled(entered)) abort();
     botToken = String(entered).trim();
-  }
-
-  const opMode = await p.select({
-    message: "Who can control the bot? (security allowlist)",
-    options: [
-      {
-        value: "pair",
-        label: "CLI pairing code (recommended)",
-        hint: "DM bot → acpbot pair approve <code>",
-      },
-      {
-        value: "id",
-        label: "Set my Telegram user id now",
-        hint: "from @userinfobot",
-      },
-    ],
-    initialValue:
-      existing && existing.operatorUserId > 0 ? "id" : "pair",
-  });
-  if (cancelled(opMode)) abort();
-
-  let operatorUserId = 0;
-  if (opMode === "id") {
-    const idRaw = await p.text({
-      message: "Your Telegram user id (number)",
-      placeholder: "123456789",
-      initialValue:
-        existing && existing.operatorUserId > 0
-          ? String(existing.operatorUserId)
-          : undefined,
-      validate: (v) => {
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) return "Enter a positive number";
-      },
-    });
-    if (cancelled(idRaw)) abort();
-    operatorUserId = Number(idRaw);
   }
 
   // ── Agent ─────────────────────────────────────────────────────────────
@@ -427,7 +386,6 @@ export async function runGuidedSetupTui(
   s.start("Writing config.toml");
   const body = renderFullConfigToml({
     botToken,
-    operatorUserId,
     defaultAgent,
     logLevel: String(logLevel),
     repos,
@@ -502,9 +460,7 @@ export async function runGuidedSetupTui(
   // ── Done ──────────────────────────────────────────────────────────────
   const nextLines = [
     `Config: ${layout.configPath}`,
-    operatorUserId > 0
-      ? `Operator: ${operatorUserId}`
-      : "Operator: DM the bot → acpbot pair approve <code>",
+    "Pair: DM the bot → acpbot pair approve <code>",
     `Agent: ${defaultAgent}`,
   ];
   if (!daemonResult?.installed) {

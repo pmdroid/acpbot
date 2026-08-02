@@ -1,14 +1,17 @@
 /**
  * CLI-approved operator pairing.
  *
- * Unclaimed bot (operator_user_id = 0): a Telegram user messages the bot and
- * receives a short pairing code. On the machine running acpbot:
+ * Unclaimed bot: a Telegram user messages the bot and receives a short pairing
+ * code. On the machine running acpbot:
  *
  *   acpbot pair approve <code>
  *
  * That proves control of the host (CLI) + the Telegram account (code).
+ * The paired operator is stored under `$state_dir/pairing/operator.json`
+ * (not in config.toml).
  */
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   mkdir,
   readFile,
@@ -22,6 +25,8 @@ import { resolveStateDir } from "../env/state-dir";
 export const PAIRING_DIR_NAME = "pairing";
 export const PENDING_FILE = "pending.json";
 export const APPLIED_FILE = "applied.json";
+export const OPERATOR_FILE = "operator.json";
+export const CLEARED_FILE = "cleared.json";
 
 /** Default TTL for a pending code (15 minutes). */
 export const PAIRING_CODE_TTL_MS = 15 * 60 * 1000;
@@ -45,6 +50,14 @@ export type AppliedPair = {
   consumedAt?: number;
 };
 
+/** Durable paired operator (not stored in config.toml). */
+export type PairedOperator = {
+  userId: number;
+  chatId?: number;
+  pairedAt: number;
+  code?: string;
+};
+
 type PendingFile = {
   /** code (uppercase) → pending */
   byCode: Record<string, PendingPair>;
@@ -60,6 +73,14 @@ function pendingPath(stateDir: string): string {
 
 function appliedPath(stateDir: string): string {
   return join(pairingDir(stateDir), APPLIED_FILE);
+}
+
+function operatorPath(stateDir: string): string {
+  return join(pairingDir(stateDir), OPERATOR_FILE);
+}
+
+function clearedPath(stateDir: string): string {
+  return join(pairingDir(stateDir), CLEARED_FILE);
 }
 
 async function ensurePairingDir(stateDir: string): Promise<string> {
@@ -220,8 +241,8 @@ export async function getPendingByCode(
 }
 
 /**
- * CLI approve: mark pair applied for the worker and return the pending record.
- * Does not write config — caller patches config.toml.
+ * CLI approve: persist operator under state_dir and signal worker to notify.
+ * Does not write config.toml.
  */
 export async function approvePairingCode(
   stateDir: string,
@@ -231,6 +252,13 @@ export async function approvePairingCode(
   const norm = normalizePairingCode(codeRaw);
   if (!norm) {
     throw new Error("Pairing code is empty. Usage: acpbot pair approve <code>");
+  }
+  const existing = await loadPairedOperator(stateDir);
+  if (existing) {
+    throw new Error(
+      `Already paired as Telegram user ${existing.userId}.\n` +
+        `Run: acpbot pair clear   then issue a new code to re-pair.`,
+    );
   }
   const file = await loadPending(stateDir);
   file.byCode = pruneExpired(file.byCode, now);
@@ -244,6 +272,13 @@ export async function approvePairingCode(
   delete file.byCode[norm];
   await savePending(stateDir, file);
 
+  await savePairedOperator(stateDir, {
+    userId: pending.userId,
+    chatId: pending.chatId,
+    pairedAt: now,
+    code: pending.code,
+  });
+
   const applied: AppliedPair = {
     userId: pending.userId,
     chatId: pending.chatId,
@@ -252,6 +287,58 @@ export async function approvePairingCode(
   };
   await writeJsonAtomic(appliedPath(stateDir), applied);
   return pending;
+}
+
+export async function loadPairedOperator(
+  stateDir: string,
+): Promise<PairedOperator | undefined> {
+  const rec = await readJsonFile<PairedOperator>(operatorPath(stateDir));
+  if (!rec || typeof rec.userId !== "number" || rec.userId <= 0) return undefined;
+  return rec;
+}
+
+/** Sync load for boot paths that are not yet async. */
+export function loadPairedOperatorSync(
+  stateDir: string,
+): PairedOperator | undefined {
+  try {
+    const raw = readFileSync(operatorPath(stateDir), "utf8");
+    const rec = JSON.parse(raw) as PairedOperator;
+    if (!rec || typeof rec.userId !== "number" || rec.userId <= 0) return undefined;
+    return rec;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function savePairedOperator(
+  stateDir: string,
+  op: PairedOperator,
+): Promise<void> {
+  await writeJsonAtomic(operatorPath(stateDir), op);
+}
+
+export async function clearPairedOperator(stateDir: string): Promise<void> {
+  try {
+    await unlink(operatorPath(stateDir));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  await clearAppliedPairing(stateDir);
+  await writeJsonAtomic(clearedPath(stateDir), { clearedAt: Date.now() });
+}
+
+/** Worker: consume a one-shot unpair signal from `acpbot pair clear`. */
+export async function takePairingCleared(stateDir: string): Promise<boolean> {
+  const path = clearedPath(stateDir);
+  const rec = await readJsonFile<{ clearedAt?: number }>(path);
+  if (!rec) return false;
+  try {
+    await unlink(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  return true;
 }
 
 /** Worker: consume a CLI approval once (apply operator in memory + notify). */

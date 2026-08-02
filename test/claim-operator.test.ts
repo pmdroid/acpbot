@@ -11,7 +11,7 @@ describe("claim operator (CLI pairing)", () => {
     const dir = mkdtempSync(join(tmpdir(), "claim-"));
     const state = join(dir, "state");
     const cfgPath = join(dir, "config.toml");
-    writeFileSync(cfgPath, 'bot_token = "x"\noperator_user_id = 0\n');
+    writeFileSync(cfgPath, 'bot_token = "x"\n');
     const env = createFakeEnvironment({
       config: { operatorUserId: 0, repos: { demo: "/tmp/d" } },
     });
