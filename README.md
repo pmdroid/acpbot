@@ -69,18 +69,21 @@ sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
 
 **Host first.** The worker will not start without it.
 
-On first launch the app creates config + data dirs for you.  
-Start the **worker once in a terminal** for a short wizard (**bot token** required; operator id optional).
-
-**Why an operator id?** Only that Telegram account may control the bot (agents can run tools on your machine). Leave it blank to claim the bot with your first private `/ping`.
+On first launch the app creates config + data dirs for you.
 
 ```bash
-# terminal 1 — creates dirs/default config if needed
-acpbot-host
+# One-time (or re-run anytime) — interactive onboarding wizard
+acpbot setup
+# asks: bot token, operator id (optional), default agent, optional repo
 
-# terminal 2 — onboarding wizard, then Telegram
-acpbot
+# Then two processes:
+acpbot-host    # terminal 1
+acpbot         # terminal 2 — Telegram worker
 ```
+
+If you skip `setup`, the first `acpbot` start in a terminal also opens the wizard when no bot token is set.
+
+**Operator id:** only that Telegram account may control the bot (agents can run tools on your machine). Leave blank to claim with the first private `/ping`.
 
 Default config: `~/.config/acpbot/config.toml`. Override with `--config PATH` if you want.  
 Details: [docs/configuration.md](docs/configuration.md).

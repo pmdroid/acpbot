@@ -7,6 +7,7 @@ import {
   configNeedsTelegramSetup,
   ensureAcpbotLayout,
   isPlaceholderBotToken,
+  isSetupCliCommand,
   loadConfigWithSetup,
   renderConfigToml,
   runFirstRunSetup,
@@ -130,5 +131,14 @@ describe("first-run layout + setup", () => {
     });
     // file path uses normalizeToml via options.file as Record - bot_token snake
     expect(cfg.operatorUserId).toBe(1);
+  });
+
+  test("isSetupCliCommand recognizes setup / init / flags", () => {
+    expect(isSetupCliCommand(["bun", "acpbot", "setup"])).toBe(true);
+    expect(isSetupCliCommand(["bun", "acpbot", "init"])).toBe(true);
+    expect(isSetupCliCommand(["bun", "acpbot", "--setup"])).toBe(true);
+    expect(isSetupCliCommand(["bun", "acpbot", "--init"])).toBe(true);
+    expect(isSetupCliCommand(["bun", "acpbot"])).toBe(false);
+    expect(isSetupCliCommand(["bun", "acpbot", "--config", "x"])).toBe(false);
   });
 });

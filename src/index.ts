@@ -29,6 +29,8 @@ export {
   ensureAcpbotLayout,
   loadConfigWithSetup,
   runFirstRunSetup,
+  runSetupCommand,
+  isSetupCliCommand,
   configNeedsTelegramSetup,
 } from "./config-setup";
 export { chunkForTelegram } from "./core/messages";

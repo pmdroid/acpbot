@@ -258,17 +258,31 @@ export type FirstRunOptions = {
   stdout?: NodeJS.WritableStream;
   /** Skip interactive prompts — for tests that only write answers */
   answers?: SetupAnswers;
+  /**
+   * When re-running setup, seed prompts from this existing config
+   * (bot token shown masked; Enter keeps current values).
+   */
+  existing?: ProcessConfig;
 };
 
+function maskToken(token: string): string {
+  if (token.length < 12) return "••••";
+  return `${token.slice(0, 6)}…${token.slice(-4)}`;
+}
+
 /**
- * Interactive first-run wizard (or non-interactive with `answers`).
+ * Interactive onboarding wizard (or non-interactive with `answers`).
  * Writes config.toml and returns reloaded ProcessConfig.
+ *
+ * Run via first boot when bot_token is missing, or explicitly:
+ *   acpbot setup
  */
 export async function runFirstRunSetup(
   options: FirstRunOptions,
 ): Promise<ProcessConfig> {
   const env = options.env ?? process.env;
   let answers = options.answers;
+  const existing = options.existing;
 
   if (!answers) {
     const stdin = options.stdin ?? process.stdin;
@@ -277,39 +291,68 @@ export async function runFirstRunSetup(
       throw new Error(
         `Config needs setup (bot_token).\n` +
           `  Edit: ${options.configPath}\n` +
-          `  Or run \`acpbot\` in a terminal once for the onboarding wizard.`,
+          `  Or run \`acpbot setup\` in a terminal for the onboarding wizard.`,
       );
     }
 
     const rl = createInterface({ input: stdin, output: stdout });
     try {
+      const reconfigure = Boolean(
+        existing && !isPlaceholderBotToken(existing.botToken),
+      );
       stdout.write(
         `\n` +
-          `┌─────────────────────────────────────────┐\n` +
-          `│  acpbot  ·  first-run setup             │\n` +
-          `└─────────────────────────────────────────┘\n` +
-          `Config → ${options.configPath}\n\n` +
-          `1) @BotFather → create bot, enable topics in private chats\n` +
-          `2) Paste the bot token below\n` +
-          `3) Operator id is optional (who may control the bot)\n\n`,
+          `┌──────────────────────────────────────────┐\n` +
+          `│  acpbot  ·  onboarding                   │\n` +
+          `└──────────────────────────────────────────┘\n` +
+          `Config → ${options.configPath}\n` +
+          (reconfigure
+            ? `(Re-run: press Enter to keep a current value.)\n\n`
+            : `\n`) +
+          `Prereqs:\n` +
+          `  • @BotFather → bot token + topics in private chats\n` +
+          `  • Optional: your Telegram user id (@userinfobot)\n` +
+          `  • Agent CLI on PATH (grok / claude / codex / opencode)\n\n`,
       );
 
       let botToken = "";
+      const keepToken =
+        existing && !isPlaceholderBotToken(existing.botToken)
+          ? existing.botToken
+          : undefined;
       while (isPlaceholderBotToken(botToken)) {
-        botToken = await ask(rl, "Bot token");
+        const entered = await ask(
+          rl,
+          keepToken
+            ? `Bot token (Enter keeps ${maskToken(keepToken)})`
+            : "Bot token",
+        );
+        botToken = entered || keepToken || "";
         if (isPlaceholderBotToken(botToken)) {
-          stdout.write("  Need a real token from @BotFather (looks like 123456:AA…).\n");
+          stdout.write(
+            "  Need a real token from @BotFather (looks like 123456:AA…).\n",
+          );
         }
       }
 
       stdout.write(
-        `\nOperator user id — only this Telegram account can use the bot.\n` +
-          `  Leave blank to claim on first private message (recommended).\n` +
-          `  Or paste your numeric id (@userinfobot).\n`,
+        `\nOperator — only this Telegram user may control the bot\n` +
+          `  (agents can run tools on this machine).\n` +
+          `  Blank / 0 = claim on first private message (recommended).\n`,
       );
-      const opRaw = await ask(rl, "Operator user id (blank = claim on first DM)");
+      const opDefault =
+        existing && existing.operatorUserId > 0
+          ? String(existing.operatorUserId)
+          : undefined;
+      const opRaw = await ask(
+        rl,
+        opDefault
+          ? `Operator user id (Enter keeps ${opDefault}, blank then type 0 to clear)`
+          : "Operator user id (blank = claim on first DM)",
+        opDefault,
+      );
       let operatorUserId = 0;
-      if (opRaw.trim()) {
+      if (opRaw.trim() && opRaw.trim() !== "0") {
         operatorUserId = Number(opRaw.trim());
         if (!Number.isFinite(operatorUserId) || operatorUserId <= 0) {
           stdout.write("  Invalid id — using claim-on-first-DM instead.\n");
@@ -317,26 +360,39 @@ export async function runFirstRunSetup(
         }
       }
 
+      const agentDefault = existing?.defaultAgent || "grok-build";
       const agentRaw = await ask(
         rl,
         "Default agent (grok-build | claude | codex | opencode)",
-        "grok-build",
+        agentDefault,
       );
       const defaultAgent = normalizeAgentName(agentRaw || "grok-build");
 
+      const existingRepos = existing?.repos
+        ? Object.entries(existing.repos)
+        : [];
+      const hasRepo = existingRepos.length > 0;
       const addRepo = (
-        await ask(rl, "Add a workspace repo now? (y/N)", "n")
+        await ask(
+          rl,
+          hasRepo
+            ? `Add/replace a workspace repo? (y/N)  [have: ${existingRepos.map(([k]) => k).join(", ")}]`
+            : "Add a workspace repo now? (y/N)",
+          "n",
+        )
       ).toLowerCase();
       let repoKey: string | undefined;
       let repoPath: string | undefined;
       if (addRepo === "y" || addRepo === "yes") {
-        repoKey = (await ask(rl, "Repo key (short name)", "demo")) || "demo";
-        const pathRaw = await ask(
-          rl,
-          "Repo absolute path",
-          join(homeDir(env), "code"),
-        );
+        const defKey = existingRepos[0]?.[0] ?? "demo";
+        const defPath =
+          existingRepos[0]?.[1] ?? join(homeDir(env), "code");
+        repoKey = (await ask(rl, "Repo key (short name)", defKey)) || "demo";
+        const pathRaw = await ask(rl, "Repo absolute path", defPath);
         repoPath = resolvePath(pathRaw, env);
+      } else if (hasRepo && existingRepos[0]) {
+        repoKey = existingRepos[0][0];
+        repoPath = existingRepos[0][1];
       }
 
       answers = {
@@ -345,15 +401,18 @@ export async function runFirstRunSetup(
         defaultAgent,
         ...(repoKey && repoPath ? { repoKey, repoPath } : {}),
       };
-      stdout.write(`\nSaved ${options.configPath}\n`);
+      stdout.write(`\n✓ Saved ${options.configPath}\n`);
       if (operatorUserId <= 0) {
         stdout.write(
-          `Operator not set — open a private chat with the bot and send /ping;\n` +
-            `the first user who messages becomes the only allowed operator.\n`,
+          `  Operator not set — DM the bot /ping; first user claims control.\n`,
         );
       }
       stdout.write(
-        `Next: keep acpbot-host running, then this worker will poll Telegram.\n\n`,
+        `\nNext:\n` +
+          `  terminal 1:  acpbot-host\n` +
+          `  terminal 2:  acpbot\n` +
+          `  telegram:    /ping  then  /new\n` +
+          `  re-run:      acpbot setup\n\n`,
       );
     } finally {
       rl.close();
@@ -366,6 +425,32 @@ export async function runFirstRunSetup(
     configPath: options.configPath,
     env,
     requireTelegram: true,
+  });
+}
+
+/** CLI: `acpbot setup` — always open the wizard (reconfigure). */
+export async function runSetupCommand(
+  options: LoadConfigOptions = {},
+): Promise<ProcessConfig> {
+  const layout = ensureAcpbotLayout(options);
+  const env = options.env ?? process.env;
+  let existing: ProcessConfig | undefined;
+  try {
+    existing = loadConfig({
+      configPath: layout.configPath,
+      env,
+      requireTelegram: false,
+    });
+  } catch {
+    existing = undefined;
+  }
+  return runFirstRunSetup({
+    configPath: layout.configPath,
+    env,
+    existing:
+      existing && !isPlaceholderBotToken(existing.botToken)
+        ? existing
+        : undefined,
   });
 }
 
@@ -414,12 +499,13 @@ export async function loadConfigWithSetup(
       cfg = await runFirstRunSetup({
         configPath: layout.configPath,
         env,
+        existing: undefined,
       });
     } else {
       // Ensure friendly error after creating default config
       throw new Error(
         `Config needs setup at ${layout.configPath}\n` +
-          `  Set bot_token, or run \`acpbot\` in a terminal for the onboarding wizard.`,
+          `  Set bot_token, or run \`acpbot setup\` in a terminal for the onboarding wizard.`,
       );
     }
   } else if (requireTelegram) {
@@ -427,4 +513,12 @@ export async function loadConfigWithSetup(
   }
 
   return { cfg, layout };
+}
+
+/** True for `acpbot setup` | `acpbot init` | `acpbot --setup`. */
+export function isSetupCliCommand(argv: string[] = process.argv): boolean {
+  const args = argv.slice(2).filter((a) => a !== "--");
+  if (args.includes("--setup") || args.includes("--init")) return true;
+  const cmd = args.find((a) => !a.startsWith("-"));
+  return cmd === "setup" || cmd === "init";
 }

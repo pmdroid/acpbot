@@ -17,8 +17,25 @@ launchd / systemd installs. You do **not** need a wall of environment variables.
 - `~/.config/acpbot/config.toml` (mode `600`) if missing  
 - `~/.local/share/acpbot/` (store + state)
 
-If `bot_token` is still a placeholder, run **`acpbot` in a terminal** — a short onboarding wizard.  
-**`operator_user_id`** is the allowlist (only that Telegram account can control the bot). Leave it blank in the wizard to **claim on first private message**. Non-interactive boots need a real `bot_token` already in the file.
+### Onboarding wizard
+
+```bash
+acpbot setup          # or: acpbot init · acpbot --setup
+```
+
+Prompts for:
+
+| Prompt | Required | Notes |
+|---|---|---|
+| Bot token | **yes** | From @BotFather |
+| Operator user id | no | Blank = claim on first DM |
+| Default agent | no | default `grok-build` |
+| Workspace repo | no | key + absolute path for `/new` |
+
+Re-running `setup` keeps current values on Enter (token shown masked).  
+First `acpbot` start also opens the wizard if `bot_token` is still a placeholder.
+
+**`operator_user_id`** is the allowlist (only that Telegram account can control the bot). Non-interactive boots need a real `bot_token` already in the file.
 
 Worker and **acp-host must use the same file** (or the same `state_dir`).
 
