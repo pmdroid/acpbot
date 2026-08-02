@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   detectDaemonPlatform,
   launchAgentPlist,
+  servicePaths,
   systemdUserUnit,
 } from "../src/setup/daemon-install";
 import { renderFullConfigToml } from "../src/setup/guided-tui";
+import {
+  isServiceCliCommand,
+  parseServiceCli,
+} from "../src/setup/service-cli";
 
 describe("daemon install units", () => {
   test("detectDaemonPlatform knows darwin and linux", () => {
@@ -63,5 +68,35 @@ describe("renderFullConfigToml", () => {
     expect(toml).toContain('api_key = "sk-test"');
     expect(toml).toContain("[oauth]");
     expect(toml).toContain("https://x.ts.net");
+  });
+});
+
+describe("service CLI", () => {
+  test("parseServiceCli recognizes install/start/stop/restart/status", () => {
+    expect(parseServiceCli(["x", "acpbot-host", "install"])).toEqual({
+      action: "install",
+      target: "all",
+    });
+    expect(parseServiceCli(["x", "acpbot", "start", "--host"])).toEqual({
+      action: "start",
+      target: "host",
+    });
+    expect(parseServiceCli(["x", "acpbot", "stop", "--worker"])).toEqual({
+      action: "stop",
+      target: "worker",
+    });
+    expect(parseServiceCli(["x", "acpbot", "restart"])?.action).toBe("restart");
+    expect(parseServiceCli(["x", "acpbot", "status"])?.action).toBe("status");
+    expect(isServiceCliCommand(["x", "acpbot", "uninstall"])).toBe(true);
+    expect(isServiceCliCommand(["x", "acpbot", "setup"])).toBe(false);
+  });
+
+  test("servicePaths points at standard unit locations", () => {
+    const p = servicePaths({ env: { HOME: "/home/u" } });
+    expect(p.hostPlist).toContain("LaunchAgents");
+    expect(p.hostPlist).toContain("app.acpbot.host");
+    expect(p.workerPlist).toContain("app.acpbot.worker");
+    expect(p.hostUnit).toContain("acpbot-host.service");
+    expect(p.workerUnit).toContain("acpbot.service");
   });
 });

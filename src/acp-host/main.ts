@@ -2,8 +2,9 @@
 /**
  * Long-lived ACP host — owns agent stdio processes (any agent command).
  *
- *   acpbot-host                 # reads ~/.config/acpbot/config.toml
+ *   acpbot-host                 # foreground host
  *   acpbot-host --config PATH
+ *   acpbot-host install|start|stop|restart|status
  *
  * Worker restart detaches; agent processes stay. Next ensure reattaches.
  * Scans [repos] for schedules under each repo’s `.acpbot/schedules/` (legacy `.tacp/`).
@@ -14,12 +15,36 @@
 import { applyConfigToEnv } from "../config";
 import { ensureAcpbotLayout, loadConfigWithSetup } from "../config-setup";
 import { createLogger } from "../env/logger";
+import {
+  isServiceCliCommand,
+  runServiceCli,
+  serviceCliHelp,
+} from "../setup/service-cli";
 import { startAcpHostServer } from "./server";
 import { defaultAcpHostSock } from "./protocol";
 import { maybeStartOauthHttpServer } from "./oauth-http";
 import { parseReposFromEnv, scheduleTickMs } from "./scheduler";
 
 async function main(): Promise<void> {
+  // Service control (same as acpbot): install both host + worker by default
+  if (isServiceCliCommand(process.argv)) {
+    const code = await runServiceCli(process.argv);
+    process.exitCode = code;
+    return;
+  }
+
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h") || args[0] === "help") {
+    console.error(`acpbot-host — long-lived agent owner
+
+  acpbot-host              Run host (foreground)
+  acpbot-host install      Install host + worker background services
+  acpbot-host start|stop|restart|status|uninstall
+
+${serviceCliHelp()}`);
+    return;
+  }
+
   // Create config/data/state dirs (and default config.toml if missing).
   // Host does not require bot token — worker first-run wizard fills that in.
   const layout = ensureAcpbotLayout();
