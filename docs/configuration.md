@@ -21,9 +21,10 @@ launchd / systemd installs. You do **not** need a wall of environment variables.
 
 ```bash
 acpbot setup          # or: acpbot init · acpbot --setup
+# Safe to re-run: loads current config.toml as defaults, keeps unedited keys
 ```
 
-Interactive (@clack) walkthrough:
+Interactive (@clack) walkthrough (re-run anytime):
 
 | Step | What |
 |---|---|

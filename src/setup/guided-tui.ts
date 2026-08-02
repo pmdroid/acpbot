@@ -1,7 +1,7 @@
 /**
  * Guided TUI onboarding with @clack/prompts.
- * Collects bot token, operator, agent, repos, speech API keys, optional OAuth,
- * and can install macOS LaunchAgents or Linux systemd user units.
+ * Safe to re-run: loads existing config.toml as defaults, only changes
+ * what you pick, and preserves keys the wizard does not edit.
  */
 import * as p from "@clack/prompts";
 import { existsSync } from "node:fs";
@@ -51,8 +51,14 @@ function tomlString(value: string): string {
     .replace(/\n/g, "\\n")}"`;
 }
 
-/** Full config TOML from guided answers (includes speech / oauth). */
-export function renderFullConfigToml(a: {
+function maskSecret(s: string | undefined): string {
+  if (!s?.trim()) return "(not set)";
+  if (s.length <= 8) return "••••";
+  return `…${s.slice(-6)}`;
+}
+
+/** Fields the wizard manages + optional preserved extras from an existing config. */
+export type FullConfigTomlInput = {
   botToken: string;
   defaultAgent: string;
   logLevel: string;
@@ -66,11 +72,28 @@ export function renderFullConfigToml(a: {
   elevenlabsApiKey?: string;
   elevenlabsVoiceId?: string;
   oauthCallbackBase?: string;
-}): string {
+  /** Preserve non-wizard fields from a prior ProcessConfig. */
+  preserve?: {
+    mcpEnabled?: boolean;
+    oauthListenHost?: string;
+    oauthListenPort?: number;
+    scheduleTickMs?: number;
+    skillRoots?: string[];
+    agentCommandJson?: string;
+    claudeAcpPkg?: string;
+    codexAcpPkg?: string;
+    storePath?: string;
+    stateDir?: string;
+    verbose?: boolean;
+  };
+};
+
+/** Full config TOML from guided answers (includes speech / oauth). */
+export function renderFullConfigToml(a: FullConfigTomlInput): string {
   const lines: string[] = [
     `# acpbot configuration`,
     `# Written by guided setup (${new Date().toISOString().slice(0, 10)}).`,
-    `# Re-run: acpbot setup`,
+    `# Re-run anytime: acpbot setup  (keeps current values as defaults)`,
     ``,
     `bot_token = ${tomlString(a.botToken)}`,
     ``,
@@ -78,6 +101,14 @@ export function renderFullConfigToml(a: {
     `log_level = ${tomlString(a.logLevel)}`,
     ``,
   ];
+
+  if (a.preserve?.storePath) {
+    lines.push(`store_path = ${tomlString(a.preserve.storePath)}`);
+  }
+  if (a.preserve?.stateDir) {
+    lines.push(`state_dir = ${tomlString(a.preserve.stateDir)}`);
+  }
+  if (a.preserve?.storePath || a.preserve?.stateDir) lines.push(``);
 
   const repoEntries = Object.entries(a.repos);
   if (repoEntries.length > 0) {
@@ -92,12 +123,14 @@ export function renderFullConfigToml(a: {
     lines.push(``);
   }
 
+  const mcp = a.preserve?.mcpEnabled !== false;
   lines.push(`[features]`);
-  lines.push(`mcp = true`);
+  lines.push(`mcp = ${mcp}`);
   lines.push(`tts_mode = ${tomlString(a.ttsMode)}`);
   lines.push(
     `permission_mode = ${tomlString(a.permissionMode)}  # ask | bypass`,
   );
+  if (a.preserve?.verbose) lines.push(`verbose = true`);
   lines.push(``);
 
   lines.push(`[speech]`);
@@ -127,18 +160,87 @@ export function renderFullConfigToml(a: {
     lines.push(``);
   }
 
-  if (a.oauthCallbackBase) {
+  if (
+    a.oauthCallbackBase ||
+    a.preserve?.oauthListenHost ||
+    a.preserve?.oauthListenPort
+  ) {
     lines.push(`[oauth]`);
-    lines.push(`callback_base = ${tomlString(a.oauthCallbackBase)}`);
-    lines.push(`# listen_port = 8788`);
+    if (a.oauthCallbackBase) {
+      lines.push(`callback_base = ${tomlString(a.oauthCallbackBase)}`);
+    }
+    if (a.preserve?.oauthListenHost) {
+      lines.push(`listen_host = ${tomlString(a.preserve.oauthListenHost)}`);
+    }
+    if (a.preserve?.oauthListenPort != null) {
+      lines.push(`listen_port = ${a.preserve.oauthListenPort}`);
+    } else if (a.oauthCallbackBase) {
+      lines.push(`# listen_port = 8788`);
+    }
+    lines.push(``);
+  }
+
+  if (a.preserve?.scheduleTickMs != null) {
+    lines.push(`[schedule]`);
+    lines.push(`tick_ms = ${a.preserve.scheduleTickMs}`);
+    lines.push(``);
+  }
+
+  // skillRoots from config often include package/home defaults — only write
+  // if the user had explicit extras beyond defaults (hard to know). Skip.
+
+  if (
+    a.preserve?.agentCommandJson ||
+    a.preserve?.claudeAcpPkg ||
+    a.preserve?.codexAcpPkg
+  ) {
+    lines.push(`[agents]`);
+    if (a.preserve.claudeAcpPkg) {
+      lines.push(`claude_acp_pkg = ${tomlString(a.preserve.claudeAcpPkg)}`);
+    }
+    if (a.preserve.codexAcpPkg) {
+      lines.push(`codex_acp_pkg = ${tomlString(a.preserve.codexAcpPkg)}`);
+    }
+    if (a.preserve.agentCommandJson) {
+      lines.push(`command_json = ${tomlString(a.preserve.agentCommandJson)}`);
+    }
     lines.push(``);
   }
 
   return lines.join("\n");
 }
 
+function preserveFromExisting(
+  existing: ProcessConfig | undefined,
+): FullConfigTomlInput["preserve"] {
+  if (!existing) return undefined;
+  return {
+    ...(existing.mcpEnabled !== undefined
+      ? { mcpEnabled: existing.mcpEnabled }
+      : {}),
+    ...(existing.oauthListenHost
+      ? { oauthListenHost: existing.oauthListenHost }
+      : {}),
+    ...(existing.oauthListenPort !== undefined
+      ? { oauthListenPort: existing.oauthListenPort }
+      : {}),
+    ...(existing.scheduleTickMs !== undefined
+      ? { scheduleTickMs: existing.scheduleTickMs }
+      : {}),
+    ...(existing.agentCommandJson
+      ? { agentCommandJson: existing.agentCommandJson }
+      : {}),
+    ...(existing.claudeAcpPkg ? { claudeAcpPkg: existing.claudeAcpPkg } : {}),
+    ...(existing.codexAcpPkg ? { codexAcpPkg: existing.codexAcpPkg } : {}),
+    ...(existing.verbose ? { verbose: true } : {}),
+    // store_path / state_dir: leave to XDG defaults unless user hand-edited;
+    // ProcessConfig always resolves them, so we do not re-emit them here.
+  };
+}
+
 /**
  * Full guided TUI setup. Prefer this over the simple readline wizard.
+ * Re-run anytime: existing values are pre-selected; Enter / defaults keep them.
  */
 export async function runGuidedSetupTui(
   options: LoadConfigOptions = {},
@@ -153,25 +255,48 @@ export async function runGuidedSetupTui(
       env,
       requireTelegram: false,
     });
+    if (isPlaceholderBotToken(existing.botToken) && !existing.repos) {
+      // empty scaffold — treat as first run
+      if (!existsSync(layout.configPath)) existing = undefined;
+    }
   } catch {
     existing = undefined;
   }
 
-  console.clear?.();
-  p.intro("acpbot setup");
-
-  p.note(
-    [
-      "This wizard writes ~/.config/acpbot/config.toml",
-      "and can install background services on macOS or Linux.",
-      "",
-      "Prereqs:",
-      "  • Telegram bot from @BotFather (topics in private chats)",
-      "  • Agent CLI on PATH: grok · claude · codex · opencode",
-      "  • Optional: OpenAI / ElevenLabs keys for voice",
-    ].join("\n"),
-    "Welcome",
+  const reconfigure = Boolean(
+    existing && !isPlaceholderBotToken(existing.botToken),
   );
+
+  console.clear?.();
+  p.intro(reconfigure ? "acpbot setup (reconfigure)" : "acpbot setup");
+
+  if (reconfigure) {
+    p.note(
+      [
+        `Existing config: ${layout.configPath}`,
+        "",
+        "Current values are used as defaults.",
+        "Walk each step — keep what you want, change what you don't.",
+        "Keys the wizard does not ask about (schedule, agents, …) are kept.",
+      ].join("\n"),
+      "Reconfigure",
+    );
+  } else {
+    p.note(
+      [
+        "This wizard writes ~/.config/acpbot/config.toml",
+        "and can install background services on macOS or Linux.",
+        "",
+        "Prereqs:",
+        "  • Telegram bot from @BotFather (topics in private chats)",
+        "  • Agent CLI on PATH: grok · claude · codex · opencode",
+        "  • Optional: OpenAI / ElevenLabs keys for voice",
+        "",
+        "Re-run anytime: acpbot setup",
+      ].join("\n"),
+      "Welcome",
+    );
+  }
 
   // ── Telegram ──────────────────────────────────────────────────────────
   p.log.step("Telegram");
@@ -184,7 +309,7 @@ export async function runGuidedSetupTui(
   let botToken = keepToken ?? "";
   if (keepToken) {
     const keep = await p.confirm({
-      message: `Keep existing bot token (…${keepToken.slice(-6)})?`,
+      message: `Keep bot token (…${keepToken.slice(-6)})?`,
       initialValue: true,
     });
     if (cancelled(keep)) abort();
@@ -207,7 +332,9 @@ export async function runGuidedSetupTui(
   p.log.step("Agent");
 
   const agent = await p.select({
-    message: "Default coding agent",
+    message: reconfigure
+      ? `Default coding agent (current: ${existing?.defaultAgent ?? "grok-build"})`
+      : "Default coding agent",
     options: [
       { value: "grok-build", label: "Grok Build", hint: "grok agent stdio" },
       { value: "claude", label: "Claude", hint: "claude-agent-acp" },
@@ -222,7 +349,9 @@ export async function runGuidedSetupTui(
   // ── Tool permissions ──────────────────────────────────────────────────
   p.log.step("Tool permissions");
   const permSel = await p.select({
-    message: "Default tool permission policy for new sessions",
+    message: reconfigure
+      ? `Tool permission policy (current: ${existing?.permissionMode ?? "ask"})`
+      : "Default tool permission policy for new sessions",
     options: [
       {
         value: "ask",
@@ -238,53 +367,80 @@ export async function runGuidedSetupTui(
     initialValue: existing?.permissionMode ?? "ask",
   });
   if (cancelled(permSel)) abort();
-  const permissionMode = String(permSel) === "bypass"
-    ? "bypass"
-    : "ask";
+  const permissionMode = String(permSel) === "bypass" ? "bypass" : "ask";
 
   // ── Repos ─────────────────────────────────────────────────────────────
   p.log.step("Workspace");
 
   const repos: Record<string, string> = { ...(existing?.repos ?? {}) };
-  const addRepo = await p.confirm({
-    message:
-      Object.keys(repos).length > 0
-        ? `Add another repo? (have: ${Object.keys(repos).join(", ")})`
-        : "Add a workspace repo for /new?",
-    initialValue: Object.keys(repos).length === 0,
-  });
-  if (cancelled(addRepo)) abort();
+  const repoKeys = Object.keys(repos);
 
-  if (addRepo) {
-    const key = await p.text({
-      message: "Repo key (short label in /new)",
-      placeholder: "demo",
-      initialValue: "demo",
-      validate: (v) => (!v?.trim() ? "Required" : undefined),
+  if (repoKeys.length > 0) {
+    p.log.info(
+      `Repos: ${repoKeys.map((k) => `${k} → ${repos[k]}`).join("; ")}`,
+    );
+    const repoAction = await p.select({
+      message: "Workspace repos",
+      options: [
+        { value: "keep", label: "Keep as-is" },
+        { value: "add", label: "Add another repo" },
+        { value: "edit", label: "Add or replace a repo key" },
+        { value: "clear", label: "Clear all repos" },
+      ],
+      initialValue: "keep",
     });
-    if (cancelled(key)) abort();
-    const pathRaw = await p.text({
-      message: "Absolute path to the repo",
-      placeholder: join(homeDir(env), "code", "demo"),
-      initialValue: join(homeDir(env), "code"),
-      validate: (v) => {
-        if (!v?.trim()) return "Required";
-      },
+    if (cancelled(repoAction)) abort();
+    if (repoAction === "clear") {
+      for (const k of Object.keys(repos)) delete repos[k];
+    }
+    if (repoAction === "add" || repoAction === "edit") {
+      const key = await p.text({
+        message: "Repo key (short label in /new)",
+        placeholder: "demo",
+        initialValue: repoKeys[0] ?? "demo",
+        validate: (v) => (!v?.trim() ? "Required" : undefined),
+      });
+      if (cancelled(key)) abort();
+      const pathRaw = await p.text({
+        message: "Absolute path to the repo",
+        placeholder: join(homeDir(env), "code", "demo"),
+        initialValue: repos[String(key).trim()] ?? join(homeDir(env), "code"),
+        validate: (v) => {
+          if (!v?.trim()) return "Required";
+        },
+      });
+      if (cancelled(pathRaw)) abort();
+      repos[String(key).trim()] = resolvePath(String(pathRaw), env);
+    }
+  } else {
+    const addRepo = await p.confirm({
+      message: "Add a workspace repo for /new?",
+      initialValue: true,
     });
-    if (cancelled(pathRaw)) abort();
-    repos[String(key).trim()] = resolvePath(String(pathRaw), env);
+    if (cancelled(addRepo)) abort();
+    if (addRepo) {
+      const key = await p.text({
+        message: "Repo key (short label in /new)",
+        placeholder: "demo",
+        initialValue: "demo",
+        validate: (v) => (!v?.trim() ? "Required" : undefined),
+      });
+      if (cancelled(key)) abort();
+      const pathRaw = await p.text({
+        message: "Absolute path to the repo",
+        placeholder: join(homeDir(env), "code", "demo"),
+        initialValue: join(homeDir(env), "code"),
+        validate: (v) => {
+          if (!v?.trim()) return "Required";
+        },
+      });
+      if (cancelled(pathRaw)) abort();
+      repos[String(key).trim()] = resolvePath(String(pathRaw), env);
+    }
   }
 
   // ── Speech / API keys ─────────────────────────────────────────────────
   p.log.step("Speech & API keys (optional)");
-
-  const wantSpeech = await p.confirm({
-    message: "Configure TTS / STT (voice notes)?",
-    initialValue: Boolean(
-      existing?.speech?.openaiApiKey || existing?.speech?.elevenlabsApiKey,
-    ),
-  });
-  if (cancelled(wantSpeech)) abort();
 
   let ttsProvider = existing?.speech?.ttsProvider ?? "auto";
   let sttProvider = existing?.speech?.sttProvider ?? "auto";
@@ -293,6 +449,18 @@ export async function runGuidedSetupTui(
   let openaiTtsVoice = existing?.speech?.openaiTtsVoice ?? "alloy";
   let elevenlabsApiKey = existing?.speech?.elevenlabsApiKey;
   let elevenlabsVoiceId = existing?.speech?.elevenlabsVoiceId;
+
+  const hasSpeech =
+    Boolean(openaiApiKey || elevenlabsApiKey) ||
+    (ttsMode !== "agent" && ttsMode !== undefined);
+
+  const wantSpeech = await p.confirm({
+    message: hasSpeech
+      ? `Change speech / TTS settings? (current keys: OpenAI ${maskSecret(openaiApiKey)}, ElevenLabs ${maskSecret(elevenlabsApiKey)})`
+      : "Configure TTS / STT (voice notes)?",
+    initialValue: !hasSpeech,
+  });
+  if (cancelled(wantSpeech)) abort();
 
   if (wantSpeech) {
     const ttsModeSel = await p.select({
@@ -329,11 +497,21 @@ export async function runGuidedSetupTui(
     sttProvider = String(provider);
 
     if (provider === "openai" || provider === "auto") {
-      const oai = await p.password({
-        message: "OpenAI API key (optional, Enter to skip)",
-      });
-      if (cancelled(oai)) abort();
-      if (String(oai).trim()) openaiApiKey = String(oai).trim();
+      if (openaiApiKey) {
+        const keep = await p.confirm({
+          message: `Keep OpenAI API key (${maskSecret(openaiApiKey)})?`,
+          initialValue: true,
+        });
+        if (cancelled(keep)) abort();
+        if (!keep) openaiApiKey = undefined;
+      }
+      if (!openaiApiKey) {
+        const oai = await p.password({
+          message: "OpenAI API key (optional, Enter to skip)",
+        });
+        if (cancelled(oai)) abort();
+        if (String(oai).trim()) openaiApiKey = String(oai).trim();
+      }
 
       if (openaiApiKey) {
         const voice = await p.select({
@@ -359,11 +537,21 @@ export async function runGuidedSetupTui(
     }
 
     if (provider === "elevenlabs" || provider === "auto") {
-      const el = await p.password({
-        message: "ElevenLabs API key (optional, Enter to skip)",
-      });
-      if (cancelled(el)) abort();
-      if (String(el).trim()) elevenlabsApiKey = String(el).trim();
+      if (elevenlabsApiKey) {
+        const keep = await p.confirm({
+          message: `Keep ElevenLabs API key (${maskSecret(elevenlabsApiKey)})?`,
+          initialValue: true,
+        });
+        if (cancelled(keep)) abort();
+        if (!keep) elevenlabsApiKey = undefined;
+      }
+      if (!elevenlabsApiKey) {
+        const el = await p.password({
+          message: "ElevenLabs API key (optional, Enter to skip)",
+        });
+        if (cancelled(el)) abort();
+        if (String(el).trim()) elevenlabsApiKey = String(el).trim();
+      }
 
       if (elevenlabsApiKey) {
         const vid = await p.text({
@@ -382,8 +570,10 @@ export async function runGuidedSetupTui(
 
   let oauthCallbackBase = existing?.oauthCallbackBase;
   const wantOauth = await p.confirm({
-    message: "Configure OAuth callback for remote MCP?",
-    initialValue: Boolean(oauthCallbackBase),
+    message: oauthCallbackBase
+      ? `Change OAuth callback? (current: ${oauthCallbackBase})`
+      : "Configure OAuth callback for remote MCP?",
+    initialValue: false,
   });
   if (cancelled(wantOauth)) abort();
   if (wantOauth) {
@@ -398,7 +588,9 @@ export async function runGuidedSetupTui(
 
   // ── Log level ─────────────────────────────────────────────────────────
   const logLevel = await p.select({
-    message: "Log level",
+    message: reconfigure
+      ? `Log level (current: ${existing?.logLevel ?? "info"})`
+      : "Log level",
     options: [
       { value: "info", label: "info" },
       { value: "debug", label: "debug" },
@@ -410,7 +602,7 @@ export async function runGuidedSetupTui(
 
   // ── Write config ──────────────────────────────────────────────────────
   const s = p.spinner();
-  s.start("Writing config.toml");
+  s.start(reconfigure ? "Updating config.toml" : "Writing config.toml");
   const body = renderFullConfigToml({
     botToken,
     defaultAgent,
@@ -425,6 +617,7 @@ export async function runGuidedSetupTui(
     elevenlabsApiKey,
     elevenlabsVoiceId,
     oauthCallbackBase,
+    preserve: preserveFromExisting(existing),
   });
   writeConfigToml(layout.configPath, body);
   s.stop(`Saved ${layout.configPath}`);
@@ -455,14 +648,18 @@ export async function runGuidedSetupTui(
     );
   } else {
     const install = await p.confirm({
-      message: `Install host + worker as a background service (${platform === "darwin" ? "macOS LaunchAgent" : "systemd user"})?`,
-      initialValue: true,
+      message: reconfigure
+        ? `Reinstall / refresh host + worker services (${platform === "darwin" ? "LaunchAgents" : "systemd"})?`
+        : `Install host + worker as a background service (${platform === "darwin" ? "macOS LaunchAgent" : "systemd user"})?`,
+      initialValue: !reconfigure,
     });
     if (cancelled(install)) abort();
 
     if (install) {
       const startNow = await p.confirm({
-        message: "Start the service now?",
+        message: reconfigure
+          ? "Restart services now?"
+          : "Start the service now?",
         initialValue: true,
       });
       if (cancelled(startNow)) abort();
@@ -480,7 +677,11 @@ export async function runGuidedSetupTui(
       };
       for (const m of d.messages) p.log.info(m);
       if (d.started) {
-        p.log.success("Services running in the background.");
+        p.log.success(
+          reconfigure
+            ? "Services refreshed."
+            : "Services running in the background.",
+        );
       }
     }
   }
@@ -488,10 +689,13 @@ export async function runGuidedSetupTui(
   // ── Done ──────────────────────────────────────────────────────────────
   const nextLines = [
     `Config: ${layout.configPath}`,
-    "Pair: DM the bot → acpbot pair approve <code>",
+    reconfigure
+      ? "Pairing unchanged (operator lives in state_dir, not config)."
+      : "Pair: DM the bot → acpbot pair approve <code>",
     `Agent: ${defaultAgent}`,
+    `Permissions: ${permissionMode}`,
   ];
-  if (!daemonResult?.installed) {
+  if (!daemonResult?.installed && !reconfigure) {
     nextLines.push(
       "",
       "Run manually:",
@@ -499,10 +703,19 @@ export async function runGuidedSetupTui(
       "  terminal 2:  acpbot",
     );
   }
-  nextLines.push("", "Telegram: /ping  then  /new", "Re-run setup: acpbot setup");
+  nextLines.push(
+    "",
+    "Telegram: /ping  then  /new",
+    "Re-run setup anytime: acpbot setup",
+  );
 
-  p.note(nextLines.join("\n"), "You're set");
-  p.outro("acpbot setup complete");
+  p.note(
+    nextLines.join("\n"),
+    reconfigure ? "Config updated" : "You're set",
+  );
+  p.outro(
+    reconfigure ? "acpbot reconfigure complete" : "acpbot setup complete",
+  );
 
   return {
     configPath: layout.configPath,
