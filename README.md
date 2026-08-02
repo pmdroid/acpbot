@@ -56,16 +56,37 @@ Full docs: [`docs/`](docs/).
 
 ---
 
-## Quick start (local)
+## Quick start (binaries)
+
+**Preferred path:** download release binaries — no Bun or source checkout required.  
+Web walkthrough: [acpbot.app/docs.html](https://acpbot.app/docs.html).
 
 ### 1. Bot (once)
 
-In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id.
+In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Put at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, or `opencode`).
 
-### 2. Configure (TOML)
+### 2. Download host + worker
+
+From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) grab both assets for your platform (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`):
+
+```bash
+# example: v0.1.0 on Apple Silicon
+curl -sL -o acpbot.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
+curl -sL -o acpbot-host.tar.gz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
+tar -xzf acpbot.tar.gz && tar -xzf acpbot-host.tar.gz
+chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64
+# optional
+sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
+sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
+```
+
+### 3. Configure (TOML)
 
 ```bash
 mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+# use config.example.toml from this repo or a release note
 cp config.example.toml ~/.config/acpbot/config.toml
 chmod 600 ~/.config/acpbot/config.toml
 # edit: bot_token, operator_user_id, [repos]
@@ -81,19 +102,19 @@ chmod 600 ~/.config/acpbot/config.toml
 **Defaults:** store + state under `~/.local/share/acpbot/`. Override with `store_path` / `state_dir` or `--config PATH`.  
 Full reference: [`docs/configuration.md`](docs/configuration.md).
 
-### 3. Run
+### 4. Run (two processes)
+
+**acp-host is required.** The worker exits at boot if the host socket is missing. Use the **same** config file on both.
 
 ```bash
-bun install
-bun run skills:install   # once
-bun test ./test          # optional
+# terminal 1 — owns agent processes + schedules
+acpbot-host --config ~/.config/acpbot/config.toml
 
-bun run acp-host         # terminal 1 — required
-bun run start            # terminal 2 — worker
-# binaries: acpbot-host --config …   &   acpbot --config …
+# terminal 2 — Telegram worker
+acpbot --config ~/.config/acpbot/config.toml
 ```
 
-### 4. Telegram
+### 5. Telegram
 
 ```text
 /ping
@@ -105,7 +126,7 @@ bun run start            # terminal 2 — worker
 
 ---
 
-## Docker (host + worker isolation)
+## Docker (optional)
 
 Two containers share a state volume; only the host publishes OAuth (optional). Agents are **not** fully baked into the image — mount CLIs and repos yourself.
 
@@ -116,6 +137,7 @@ cp config.example.toml config.toml
 # ACPBOT_CONFIG_HOST=./config.toml
 
 docker compose up --build
+# or: docker pull ghcr.io/<owner>/acpbot:v0.1.0
 ```
 
 | Service | Role |
@@ -123,18 +145,27 @@ docker compose up --build
 | `acp-host` | Agent stdio owner, schedules, OAuth `:8788` |
 | `worker` | Telegram poller; depends on healthy host socket |
 
-```bash
-bun run docker:build   # image acpbot:local
-bun run docker:up
-bun run docker:down
-```
-
 Mount agent binaries read-only when needed (see comments in `docker-compose.yml`).  
 **Mounted repos are writable by agents — treat that as full trust of the operator + agent.**
 
 ---
 
-## Standalone binaries (Bun compile)
+## From source (development)
+
+Requires [Bun](https://bun.sh) ≥ 1.1.
+
+```bash
+git clone https://github.com/pmdroid/acpbot.git
+cd acpbot
+bun install
+bun run skills:install   # once — install bundled skills for agent CLIs
+# config: same ~/.config/acpbot/config.toml as binaries
+
+bun run acp-host         # terminal 1
+bun run start            # terminal 2 (worker)
+```
+
+Local compile:
 
 ```bash
 bun run build:compile
@@ -142,33 +173,8 @@ bun run build:compile
 # → dist/acpbot-host     (host)
 ```
 
-### GitHub Release (binaries + Docker)
-
-Create a **Release** in GitHub (or push a `v*` tag). The [Release workflow](.github/workflows/release.yml) will:
-
-1. Run unit tests  
-2. Cross-compile versioned binaries and **attach them to the release**  
-   - `acpbot-v0.1.0-linux-x64.tar.gz`, `acpbot-host-v0.1.0-darwin-arm64.tar.gz`, …  
-3. Build multi-arch Docker and push to GHCR tagged with the release  
-   - `ghcr.io/<owner>/<repo>:v0.1.0`  
-   - `ghcr.io/<owner>/<repo>:0.1.0`  
-   - `ghcr.io/<owner>/<repo>:latest`
-
-```bash
-# Option A — GitHub UI: Releases → Draft a new release → tag v0.1.0 → Publish
-# Option B — CLI:
-git tag v0.1.0 && git push origin v0.1.0
-# then create a release for that tag (or let the workflow update it)
-```
-
-```bash
-docker pull ghcr.io/<owner>/acpbot:v0.1.0
-```
-
-GHCR packages are private to the repo by default; make the package public under **Packages** if you want anonymous pulls.
-
-Workflows: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/release.yml`](.github/workflows/release.yml).
-
+CI / release workflows: [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`.github/workflows/release.yml`](.github/workflows/release.yml).  
+Push a `v*` tag (or publish a GitHub Release) to attach multi-platform binaries and GHCR images.
 ---
 
 ## Documentation
