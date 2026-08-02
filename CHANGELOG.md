@@ -17,5 +17,6 @@ First public release as **acpbot** (formerly tacp).
 - Stronger MCP **`update`** tool description + telegram skill habit so agents keep the ⏳ Working… bubble useful mid-turn
 
 ### Notes
-- Env vars prefer `ACPBOT_*`; `TACP_*` remains a legacy alias
+- **Config is TOML-first:** `~/.config/acpbot/config.toml` (see `config.example.toml`); store/state default under `~/.local/share/acpbot/`. Env vars remain optional overrides; prefer `ACPBOT_*` / `TACP_*` legacy aliases only for CI/migration
+- **Speech providers:** independent TTS/STT selection (`auto` \| `elevenlabs` \| `openai` \| `off`) via `[speech]` / `[speech.openai]` / `[speech.elevenlabs]`; OpenAI is first-class (Whisper + TTS), not only a fallback
 - Repo config prefers `.acpbot/`; legacy `.tacp/` still loads when present

@@ -1,0 +1,97 @@
+# acpbot configuration
+#
+# Install:
+#   mkdir -p ~/.config/acpbot ~/.local/share/acpbot
+#   cp config.example.toml ~/.config/acpbot/config.toml
+#   chmod 600 ~/.config/acpbot/config.toml
+#   $EDITOR ~/.config/acpbot/config.toml
+#
+# Defaults (when omitted below):
+#   store_path = ~/.local/share/acpbot/store.json
+#   state_dir  = ~/.local/share/acpbot/state
+#
+# Override path:  acpbot --config /path/to/config.toml
+#                 ACPBOT_CONFIG=/path/to/config.toml
+#
+# launchd / systemd: point both acpbot and acpbot-host at the same file.
+
+# ── Required ───────────────────────────────────────────────────────────────
+bot_token = "123456:REPLACE_ME"          # from @BotFather
+operator_user_id = 0                     # your Telegram user id
+
+# Optional: pin the private chat id (auto-learned from first operator message)
+# operator_chat_id = 0
+
+# ── Paths (optional — XDG defaults apply) ──────────────────────────────────
+# store_path = "~/.local/share/acpbot/store.json"
+# state_dir  = "~/.local/share/acpbot/state"
+
+default_agent = "grok-build"             # grok-build | claude | codex | opencode
+log_level = "info"                       # debug | info | warn | error | silent
+
+# ── Repos for /new picker + schedule scan ──────────────────────────────────
+# Keys are short labels; values are absolute working directories.
+[repos]
+# demo = "/Users/you/code/demo"
+# acpbot = "/Users/you/code/acpbot"
+
+# ── Features ───────────────────────────────────────────────────────────────
+[features]
+mcp = true                               # inject host MCP tools (update, speak, …)
+tts_mode = "agent"                       # agent | always | off
+# acp_media_attachments = false          # ACP image/audio blocks (agent-dependent)
+# stt = true                             # speech-to-text when a key is set
+# verbose = false
+
+# ── Remote MCP OAuth (optional) ────────────────────────────────────────────
+[oauth]
+# callback_base = "https://your-host.ts.net"   # phone browser must reach this
+# listen_host = "0.0.0.0"
+# listen_port = 8788
+
+# ── Schedules (acp-host ticker) ────────────────────────────────────────────
+[schedule]
+# tick_ms = 20000
+
+# ── Extra skill roots (optional) ───────────────────────────────────────────
+[skills]
+# roots = ["/path/to/extra-skills"]
+
+# ── Speech (TTS / STT — independent providers) ─────────────────────────────
+# Providers: auto | elevenlabs | openai | off
+#   auto = ElevenLabs if its key is set, else OpenAI
+[speech]
+# tts_provider = "auto"
+# stt_provider = "auto"
+
+# Or nest for clarity:
+# [speech.tts]
+# provider = "openai"
+# model = "tts-1"          # tts-1 | tts-1-hd | gpt-4o-mini-tts
+# voice = "alloy"          # alloy | nova | onyx | …
+# format = "opus"          # opus | mp3 (Telegram voice notes prefer opus)
+#
+# [speech.stt]
+# provider = "openai"
+# model = "whisper-1"      # whisper-1 | gpt-4o-mini-transcribe | …
+
+[speech.openai]
+# api_key = "sk-…"
+# base_url = "https://api.openai.com/v1"   # or Azure/OpenAI-compatible proxy
+# tts_model = "tts-1"
+# tts_voice = "alloy"
+# tts_format = "opus"
+# stt_model = "whisper-1"
+
+[speech.elevenlabs]
+# api_key = ""
+# voice_id = ""
+# tts_model = "eleven_multilingual_v2"
+# stt_model = "scribe_v1"
+# base_url = "https://api.elevenlabs.io"
+
+# ── Agent launch overrides (optional) ──────────────────────────────────────
+[agents]
+# claude_acp_pkg = "@agentclientprotocol/claude-agent-acp@0.64.0"
+# codex_acp_pkg = "@agentclientprotocol/codex-acp@1.1.7"
+# command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'

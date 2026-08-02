@@ -36,8 +36,8 @@ Optional scripts (relative to repo root):
 
 Requirements:
 
-- `TACP_REPOS_JSON` maps catalog keys → absolute repo paths
-- Optional `TACP_SCHEDULE_TICK_MS` (default `20000`)
+- `[repos]` in `config.toml` maps catalog keys → absolute repo paths
+- Optional `[schedule].tick_ms` (default `20000`)
 
 Each tick:
 

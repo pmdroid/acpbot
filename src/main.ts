@@ -3,19 +3,20 @@ import {
   AcpHostRequiredError,
   assertAcpHostReady,
 } from "./acp-host/client";
-import { loadConfig } from "./config";
+import { applyConfigToEnv, loadConfig } from "./config";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
 import { cleanupLegacyOutboundQueues } from "./core/legacy-cleanup";
 import { systemClock } from "./env/clock";
 import { createLogger } from "./env/logger";
 import { realAgents } from "./env/real-agents";
 import { realTelegram } from "./env/real-telegram";
-import { speechFromEnv } from "./env/speech";
+import { speechFromConfig } from "./env/speech";
 import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
-  const cfg = loadConfig();
+  const cfg = loadConfig({ requireTelegram: true });
+  applyConfigToEnv(cfg);
   // loadConfig already resolves stateDir to absolute.
   const stateDirAbs = cfg.stateDir;
   const log = createLogger({ level: cfg.logLevel, name: "acpbot" });
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
     ...(cfg.mcpEnabled !== undefined ? { mcpEnabled: cfg.mcpEnabled } : {}),
   };
 
-  const speech = speechFromEnv(process.env, log);
+  const speech = speechFromConfig(cfg.speech, process.env, log);
 
   log.info("boot", {
     defaultAgent: cfg.defaultAgent,
@@ -70,6 +71,8 @@ async function main(): Promise<void> {
     ttsMode: cfg.ttsMode,
     mcpEnabled: cfg.mcpEnabled !== false,
     speech: {
+      ttsProvider: cfg.speech?.ttsProvider ?? "auto",
+      sttProvider: cfg.speech?.sttProvider ?? "auto",
       stt: Boolean(speech?.stt),
       tts: Boolean(speech?.tts),
     },
@@ -108,11 +111,13 @@ async function main(): Promise<void> {
     console.error(
       `acpbot starting (agent: ${cfg.defaultAgent}, log: ${cfg.logLevel}, acp-host)…`,
     );
+    if (cfg.configPath) console.error(`acpbot config: ${cfg.configPath}`);
     console.error(`acpbot state dir: ${stateDirAbs}`);
-    if (process.env.TACP_OAUTH_CALLBACK_BASE?.trim()) {
+    console.error(`acpbot store: ${cfg.storePath}`);
+    if (cfg.oauthCallbackBase?.trim()) {
       console.error(
         `acpbot oauth: worker shares state with acp-host at ${stateDirAbs}/mcp-oauth ` +
-          `(set the same absolute TACP_STATE_DIR on both processes)`,
+          `(same config.toml / state_dir for host + worker)`,
       );
     }
     await daemon.run(ac.signal);

@@ -6,8 +6,8 @@ MCP tools run inside (or beside) the agent process and **must not** hold the Tel
 
 | | |
 |---|---|
-| Default path | `$TACP_STATE_DIR/worker-api.sock` |
-| Override | `TACP_WORKER_API_SOCK` (absolute path preferred) |
+| Default path | `$state_dir/worker-api.sock` (from `config.toml` / `state_dir`) |
+| Override | `ACPBOT_WORKER_API_SOCK` or `TACP_WORKER_API_SOCK` (absolute preferred) |
 | Server | Worker daemon (`src/core/worker-api-server.ts`) |
 | Client | Host MCP (`src/mcp/worker-api.ts`) |
 
@@ -61,15 +61,22 @@ Tests: `test/worker-api.test.ts`.
 
 ## Speech modes
 
-Controlled by env (see [configuration.md](configuration.md)):
+Controlled in `config.toml` (see [configuration.md](configuration.md#speech-tts--stt-providers)):
 
-| `TACP_TTS_MODE` | Behavior |
+| `features.tts_mode` | Behavior |
 |---|---|
 | `agent` (default) | Only when the model calls MCP `speak` |
 | `always` | TTS more aggressively on agent text |
 | `off` | No TTS |
 
-Providers: ElevenLabs preferred; OpenAI TTS only if ElevenLabs is not configured.
+| `speech.tts_provider` / `stt_provider` | API used |
+|---|---|
+| `auto` (default) | ElevenLabs if keyed, else OpenAI |
+| `openai` | OpenAI Whisper / TTS (first-class) |
+| `elevenlabs` | ElevenLabs Scribe / TTS |
+| `off` | That side disabled |
+
+TTS and STT providers are independent (e.g. OpenAI TTS + ElevenLabs STT).
 
 ## Why not put the token in MCP env?
 

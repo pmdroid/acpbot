@@ -11,12 +11,12 @@ Defined in `src/acp/agent-launch.ts`. The `/agent` picker **only lists agents wh
 | `codex` | codex | `npx -y @agentclientprotocol/codex-acp@1.1.7` | `npx`, `codex` |
 | `opencode` | opencode | `opencode acp` | `opencode` |
 
-Adapter pins (npm):
+Adapter pins (npm) — TOML `[agents]` or legacy env:
 
-| Env | Default |
+| TOML / env | Default |
 |---|---|
-| `TACP_CLAUDE_ACP_PKG` | `@agentclientprotocol/claude-agent-acp@0.64.0` |
-| `TACP_CODEX_ACP_PKG` | `@agentclientprotocol/codex-acp@1.1.7` |
+| `agents.claude_acp_pkg` / `ACPBOT_CLAUDE_ACP_PKG` | `@agentclientprotocol/claude-agent-acp@0.64.0` |
+| `agents.codex_acp_pkg` / `ACPBOT_CODEX_ACP_PKG` | `@agentclientprotocol/codex-acp@1.1.7` |
 
 Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp).
 
@@ -30,12 +30,15 @@ Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent
 
 ### Overrides
 
-```bash
-TACP_DEFAULT_AGENT=grok-build
-TACP_AGENT_COMMAND_JSON='{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
+```toml
+default_agent = "grok-build"
+
+[agents]
+# command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
+# claude_acp_pkg = "@agentclientprotocol/claude-agent-acp@0.64.0"
 ```
 
-JSON overrides merge on top of the built-in registry (same shape: `command` + `args`).
+JSON command overrides merge on top of the built-in registry (same shape: `command` + `args`).
 
 ### Backend
 
@@ -44,7 +47,7 @@ Unit tests may still import `echoAgents` as an in-memory fake.
 
 ## `/agent` — switch process mid-session
 
-- Shows a picker of available agents (+ any ids from `TACP_AGENT_COMMAND_JSON`)
+- Shows a picker of available agents (+ any ids from `agents.command_json`)
 - Or `/agent <id>`
 - Respawn the agent for **this topic**; persists `identity.agent`
 - Mid-turn: cancel then switch
@@ -88,7 +91,7 @@ bun run skills:install   # once — not on every worker start
 
 - Package `skills/` (always on `skillRoots`)
 - Session cwd (`.agents/skills`, `.grok/skills`, …)
-- `TACP_SKILL_ROOTS` (extra dirs)
+- `[skills].roots` / `ACPBOT_SKILL_ROOTS` (extra dirs)
 - Defaults under `$HOME`: `.grok/skills`, `.grok/bundled/skills`, `.agents/skills`, `.claude/skills`
 
 Pick a skill, then send a prompt that includes it for the agent. Full write-up: [skills.md](skills.md).

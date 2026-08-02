@@ -1,42 +1,41 @@
 # Remote MCP OAuth
 
-Set `TACP_OAUTH_CALLBACK_BASE` so acp-host can complete browser OAuth.  
+Set `[oauth].callback_base` in `config.toml` so acp-host can complete browser OAuth.  
 Public remotes work without it; authenticated gateways need the callback (or `/mcp code` paste).
 
 Tokens are **never** written to the repo. They live under:
 
 ```text
-$TACP_STATE_DIR/mcp-oauth/by-repo/<repoKey>/<id>.json   # mode 0600
-$TACP_STATE_DIR/mcp-oauth/pending/                      # PKCE in flight
+$state_dir/mcp-oauth/by-repo/<repoKey>/<id>.json   # mode 0600
+$state_dir/mcp-oauth/pending/                      # PKCE in flight
 ```
 
-## Shared absolute state dir
+Default `state_dir` is `~/.local/share/acpbot/state` (see [configuration.md](configuration.md)).
+
+## Shared state dir
 
 `/mcp auth` runs in the **Telegram worker** and writes pending PKCE.  
 `GET /oauth/callback` and session ensure run on **acp-host**.
 
-Both processes **must** use the **same absolute** `TACP_STATE_DIR`. Prefer an absolute path in `.env` so different CWDs cannot diverge. Boot logs print the resolved path on both processes.
+Both processes **must** use the **same config file** (or the same absolute `state_dir`). Boot logs print the resolved path on both processes.
 
 ## Setup
 
-```bash
-# Reachable from the phone browser (prefer Tailscale Serve)
-TACP_OAUTH_CALLBACK_BASE=https://your-host.ts.net
-# or http://100.x.y.z:8788
-
-# Optional listen bind (defaults shown)
-# TACP_OAUTH_LISTEN_HOST=0.0.0.0
-# TACP_OAUTH_LISTEN_PORT=8788
+```toml
+[oauth]
+callback_base = "https://your-host.ts.net"   # phone browser must reach this
+# listen_host = "0.0.0.0"
+# listen_port = 8788
 ```
 
 Run:
 
 ```bash
-bun run acp-host   # serves GET /oauth/callback when base is set
-# worker with same TACP_STATE_DIR
+bun run acp-host   # serves GET /oauth/callback when callback_base is set
+bun run start      # worker — same config.toml / state_dir
 ```
 
-If bind fails (port in use), **acp-host exits** with a clear error when the callback base is set. Free the port or use the paste fallback below.
+If bind fails (port in use), **acp-host exits** with a clear error when `callback_base` is set. Free the port or use the paste fallback below.
 
 ## Operator flow
 
@@ -46,7 +45,7 @@ If bind fails (port in use), **acp-host exits** with a clear error when the call
 4. On callback, PKCE completes; Bearer tokens merge into remote MCP at ensure
 5. Pending PKCE expires after **15 minutes**
 
-When `TACP_OAUTH_CALLBACK_BASE` is set, ensure **fail-closes** if a remote MCP has no token:
+When `callback_base` is set, ensure **fail-closes** if a remote MCP has no token:
 
 ```text
 MCP "<id>" has no OAuth token; run /mcp auth <id>
@@ -68,7 +67,7 @@ On `/mcp auth`, acpbot:
 3. Dynamically registers a public PKCE client (`registration_endpoint`, RFC 7591)
 4. Opens authorize with the registered `client_id` + `resource` indicator
 
-The gateway must publish AS metadata with a registration endpoint. There are **no** `TACP_MCP_OAUTH_*_AUTH_URL` / `_CLIENT_ID` overrides.
+The gateway must publish AS metadata with a registration endpoint. There are **no** per-gateway `CLIENT_ID` / `AUTH_URL` config keys.
 
 ## Security model
 
@@ -88,3 +87,5 @@ The gateway must publish AS metadata with a registration endpoint. There are **n
 | Token store | `src/mcp/oauth-store.ts` |
 | HTTP callback | `src/acp-host/oauth-http.ts` |
 | Tests | `test/mcp-oauth.test.ts` |
+
+Legacy env aliases (`ACPBOT_OAUTH_CALLBACK_BASE`, `TACP_OAUTH_*`) still work as overrides; prefer TOML.

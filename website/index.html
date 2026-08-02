@@ -138,8 +138,8 @@
             <div class="card-icon" aria-hidden="true">◈</div>
             <h3>Media &amp; speech</h3>
             <p>
-              Photos, files, voice STT in; agent TTS, photos, and files out via
-              host MCP tools.
+              Photos, files, voice STT in; agent TTS out. OpenAI and ElevenLabs
+              are selectable per TTS/STT via <code>config.toml</code>.
             </p>
           </article>
           <article class="card">
@@ -256,12 +256,11 @@ chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
                 <h3>Create the bot &amp; configure</h3>
                 <p>
                   In BotFather: new bot, enable <strong>topics in private
-                  chats</strong>, note your user id. Set env:
-                  <code>ACPBOT_BOT_TOKEN</code>,
-                  <code>ACPBOT_OPERATOR_USER_ID</code>,
-                  <code>ACPBOT_STATE_DIR</code> (absolute),
-                  <code>ACPBOT_STORE_PATH</code>,
-                  <code>ACPBOT_REPOS_JSON</code>. Install agent CLIs on
+                  chats</strong>, note your user id. Write
+                  <code>~/.config/acpbot/config.toml</code>
+                  (<code>bot_token</code>, <code>operator_user_id</code>,
+                  optional <code>[repos]</code>). Store/state default under
+                  <code>~/.local/share/acpbot/</code>. Install agent CLIs on
                   <code>PATH</code>.
                 </p>
               </div>
@@ -271,10 +270,11 @@ chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
               <div>
                 <h3>Run host + worker</h3>
                 <pre class="code-block"><code>./acpbot-host-v0.1.0-darwin-arm64   # terminal 1 — required
-./acpbot-v0.1.0-darwin-arm64        # terminal 2 — worker</code></pre>
+./acpbot-v0.1.0-darwin-arm64        # terminal 2 — worker
+# or: … --config ~/.config/acpbot/config.toml</code></pre>
                 <p>
-                  Same <code>ACPBOT_STATE_DIR</code> on both. Worker fails boot
-                  if the host socket is missing.
+                  Same config file on both. Worker fails boot if the host
+                  socket is missing.
                 </p>
               </div>
             </li>
@@ -288,8 +288,9 @@ chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64</code></pre>
               (<code>bun run</code>) are optional.
             </p>
             <p>
-              Prefer <code>ACPBOT_*</code> env vars.
-              <code>TACP_*</code> remains a legacy alias.
+              Configure with <code>~/.config/acpbot/config.toml</code>
+              (see <code>config.example.toml</code>). Env vars remain optional
+              overrides.
             </p>
             <p>
               <a href="https://github.com/pmdroid/acpbot/releases"
