@@ -47,8 +47,9 @@ tts_mode = "agent"                       # agent | always | off
 # verbose = false
 
 # ── Remote MCP OAuth (optional) ────────────────────────────────────────────
+# `acpbot setup` can detect Tailscale DNS / 100.x IP / LAN IP and offer a picker.
 [oauth]
-# callback_base = "https://your-host.ts.net"   # phone browser must reach this
+# callback_base = "http://your-host.ts.net:8788"   # phone browser must reach this
 # listen_host = "0.0.0.0"
 # listen_port = 8788
 

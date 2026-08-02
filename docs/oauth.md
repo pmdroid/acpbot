@@ -23,10 +23,29 @@ Both processes **must** use the **same config file** (or the same absolute `stat
 
 ```toml
 [oauth]
-callback_base = "https://your-host.ts.net"   # phone browser must reach this
+callback_base = "http://mac-mini.taile07e4.ts.net:8788"   # phone browser must reach this
 # listen_host = "0.0.0.0"
 # listen_port = 8788
 ```
+
+### Guided setup detection
+
+`acpbot setup` offers a picker for `callback_base`. It **detects** hosts when possible
+(via `tailscale status --json` and local network interfaces) and always allows a custom URL:
+
+| Option | Source | Example |
+|--------|--------|---------|
+| **Tailscale DNS** | `Self.DNSName` (MagicDNS) | `http://mac-mini.taile07e4.ts.net:8788` |
+| **Tailscale IP** | Tailscale `100.x` IPv4 | `http://100.114.193.89:8788` |
+| **LAN IP** | Private interface addrs (`10.x`, `172.16–31.x`, `192.168.x`) | `http://192.168.1.10:8788` |
+| **Custom URL…** | Manual entry | tunnel / Serve / Funnel HTTPS |
+| **Skip / clear** | Unset | use `/mcp code` paste fallback |
+
+- All three detection rows appear when available (DNS is **not** hidden if it matches the current config — it is marked `← current`).
+- Suggested URLs use `http://…:8788` so they match the default OAuth listener port.
+- Prefer **Tailscale DNS** when the phone is on the same tailnet. LAN IPs only work on the same Wi‑Fi/Ethernet.
+- HTTPS via Tailscale Serve/Funnel is fine as a **custom** URL.
+- Detection code: `src/setup/oauth-callback-detect.ts` (tests in `test/oauth-callback-detect.test.ts`).
 
 Run:
 

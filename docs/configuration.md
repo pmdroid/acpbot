@@ -33,7 +33,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
-| OAuth | Optional `callback_base` for remote MCP |
+| OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |
 | Log level | Optional `log_level` (`info` default) |
 | Daemon | Installs **both** host and worker as background services (see below) |
 
@@ -174,7 +174,7 @@ mcp = true
 tts_mode = "agent"           # when the agent may speak: agent | always | off
 
 [oauth]
-# callback_base = "https://your-host.ts.net"
+# callback_base = "http://your-host.ts.net:8788"  # setup detects Tailscale DNS / IP / LAN
 # listen_port = 8788
 
 [schedule]
