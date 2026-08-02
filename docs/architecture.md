@@ -67,7 +67,6 @@ Long-lived process that **owns agent stdio** so the Telegram worker can restart 
 - Serves OAuth callback HTTP when `[oauth].callback_base` is set
 
 Socket: `$state_dir/acp-host.sock`  
-Design note: [ideas/agent-host-keepalive.md](ideas/agent-host-keepalive.md).
 
 ### Background install (`acpbot setup`)
 
