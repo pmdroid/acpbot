@@ -96,7 +96,7 @@ export function renderFullConfigToml(a: {
   lines.push(`mcp = true`);
   lines.push(`tts_mode = ${tomlString(a.ttsMode)}`);
   lines.push(
-    `permission_mode = ${tomlString(a.permissionMode)}  # ask | always-approve`,
+    `permission_mode = ${tomlString(a.permissionMode)}  # ask | bypass`,
   );
   lines.push(``);
 
@@ -230,16 +230,16 @@ export async function runGuidedSetupTui(
         hint: "Telegram approve/reject buttons for tools",
       },
       {
-        value: "always-approve",
-        label: "Always-approve (yolo)",
+        value: "bypass",
+        label: "Bypass",
         hint: "Auto-allow tools — use only on trusted machines",
       },
     ],
     initialValue: existing?.permissionMode ?? "ask",
   });
   if (cancelled(permSel)) abort();
-  const permissionMode = String(permSel) === "always-approve"
-    ? "always-approve"
+  const permissionMode = String(permSel) === "bypass"
+    ? "bypass"
     : "ask";
 
   // ── Repos ─────────────────────────────────────────────────────────────

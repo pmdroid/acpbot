@@ -37,11 +37,11 @@ log_level = "info"                       # debug | info | warn | error | silent
 [features]
 mcp = true                               # inject host MCP tools (update, speak, …)
 tts_mode = "agent"                       # agent | always | off
-# permission_mode = "ask"                # ask | always-approve (tool auto-allow)
+# permission_mode = "ask"                # ask | bypass (tool auto-allow)
 #   ask            → Telegram approve/reject buttons (safe default)
-#   always-approve → auto-allow tools (yolo); Grok gets --always-approve / yoloMode
-# Override per topic: /permissions ask|always
-# Default for new topics: /permissions default ask|always
+#   bypass → auto-allow tools; Grok gets --always-approve / yoloMode
+# Override per topic: /permissions ask|bypass
+# Default for new topics: /permissions default ask|bypass
 # acp_media_attachments = false          # ACP image/audio blocks (agent-dependent)
 # stt = true                             # speech-to-text when a key is set
 # verbose = false

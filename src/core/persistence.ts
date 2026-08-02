@@ -17,7 +17,7 @@ export type PersistedSession = {
    * Per-topic tool-permission policy override.
    * When unset, worker uses config / runtime default.
    */
-  permissionMode?: "ask" | "always-approve";
+  permissionMode?: "ask" | "bypass";
   createdAt: number;
   updatedAt: number;
 };

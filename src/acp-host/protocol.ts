@@ -22,8 +22,8 @@ export type HostAgentConfig = {
   /** Prefer reusing this ACP session id when reattaching */
   resumeSessionId?: string | null;
   mcpEnabled?: boolean;
-  /** Tool-permission policy (ask | always-approve) */
-  permissionMode?: "ask" | "always-approve";
+  /** Tool-permission policy (ask | bypass) */
+  permissionMode?: "ask" | "bypass";
 };
 
 export type WorkerToHost =

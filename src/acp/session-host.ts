@@ -99,7 +99,7 @@ type LiveSession = {
   /** ACP configOptions (model select, etc.) */
   configOptions: SessionConfigOptionView[];
   /** Tool-permission policy for this live slot */
-  permissionMode: "ask" | "always-approve";
+  permissionMode: "ask" | "bypass";
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
 };
@@ -135,9 +135,9 @@ export type SessionHost = {
     cwd: string;
     /**
      * Tool-permission policy for this slot.
-     * always-approve → Grok yoloMode / spawn --always-approve + host auto-allow.
+     * bypass → Grok yoloMode / spawn --always-approve + host auto-allow.
      */
-    permissionMode?: "ask" | "always-approve";
+    permissionMode?: "ask" | "bypass";
   }): Promise<HostSession>;
   startTurn(input: {
     sessionKey: string;
@@ -544,9 +544,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     sessionKey: string;
     agent: string;
     cwd: string;
-    permissionMode?: "ask" | "always-approve";
+    permissionMode?: "ask" | "bypass";
   }): Promise<LiveSession> {
-    const alwaysApprove = input.permissionMode === "always-approve";
+    const alwaysApprove = input.permissionMode === "bypass";
     const launch = resolveAgentLaunchForSpawn(
       input.agent,
       process.env,
@@ -778,9 +778,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     }
 
     if (!resumed) {
-      // Grok: yoloMode in session/new _meta enables always-approve for this session.
+      // Grok: yoloMode in session/new _meta enables bypass for this session.
       const newMeta: Record<string, unknown> | undefined =
-        input.permissionMode === "always-approve"
+        input.permissionMode === "bypass"
           ? { yoloMode: true }
           : undefined;
       session = await connection.agent
@@ -967,8 +967,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       currentModeId: modeId,
       availableModeIds: available,
       configOptions,
-      permissionMode: input.permissionMode === "always-approve"
-        ? "always-approve"
+      permissionMode: input.permissionMode === "bypass"
+        ? "bypass"
         : "ask",
       turnAbort: undefined,
     };

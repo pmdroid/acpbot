@@ -3,9 +3,11 @@
  *
  * Distinct from session *mode* (plan / default / ask, Codex read-only, …):
  * this controls whether permission prompts are shown in Telegram or auto-approved.
+ *
+ * Product names: **ask** | **bypass**
  */
 
-export type PermissionMode = "ask" | "always-approve";
+export type PermissionMode = "ask" | "bypass";
 
 /** Normalize user/config tokens → PermissionMode (or undefined if invalid). */
 export function parsePermissionMode(
@@ -24,24 +26,24 @@ export function parsePermissionMode(
     return "ask";
   }
   if (
+    n === "bypass" ||
+    n === "bypasspermissions" ||
     n === "always-approve" ||
     n === "always" ||
     n === "alwaysapprove" ||
-    n === "bypass" ||
-    n === "bypasspermissions" ||
     n === "yolo" ||
     n === "auto" ||
     n === "on" ||
     n === "true" ||
     n === "1"
   ) {
-    return "always-approve";
+    return "bypass";
   }
   return undefined;
 }
 
 export function permissionModeLabel(mode: PermissionMode): string {
-  return mode === "always-approve" ? "always-approve" : "ask";
+  return mode === "bypass" ? "bypass" : "ask";
 }
 
 export function formatPermissionStatus(input: {
@@ -62,12 +64,12 @@ export function formatPermissionStatus(input: {
   lines.push(
     ``,
     `• \`ask\` — Telegram approve / reject on each tool (safe default)`,
-    `• \`always-approve\` — auto-allow tools (yolo; deny rules still apply in some agents)`,
+    `• \`bypass\` — auto-allow tools (deny rules / hooks may still apply)`,
     ``,
     `Commands:`,
     `• \`/permissions\` — show`,
-    `• \`/permissions ask|always\` — this topic`,
-    `• \`/permissions default ask|always\` — new topics only`,
+    `• \`/permissions ask|bypass\` — this topic`,
+    `• \`/permissions default ask|bypass\` — new topics only`,
   );
   return lines.join("\n");
 }

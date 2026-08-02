@@ -338,7 +338,7 @@ export function formatSessionStatus(input: {
   model?: string | undefined;
   /** Reasoning effort (Grok high/medium/low) */
   effort?: string | undefined;
-  /** Tool-permission policy (ask | always-approve) */
+  /** Tool-permission policy (ask | bypass) */
   permissionMode?: string | undefined;
   availableModes?: string[] | undefined;
   cwd: string;
