@@ -4,7 +4,11 @@ import {
   assertAcpHostReady,
 } from "./acp-host/client";
 import { applyConfigToEnv } from "./config";
-import { loadConfigWithSetup } from "./config-setup";
+import {
+  isSetupCliCommand,
+  loadConfigWithSetup,
+  runSetupCommand,
+} from "./config-setup";
 import { createDaemon, TopicsDisabledError } from "./core/daemon";
 import { cleanupLegacyOutboundQueues } from "./core/legacy-cleanup";
 import { systemClock } from "./env/clock";
@@ -16,6 +20,19 @@ import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
 
 async function main(): Promise<void> {
+  // Explicit onboarding: `acpbot setup` | `acpbot init` | `acpbot --setup`
+  if (isSetupCliCommand(process.argv)) {
+    const cfg = await runSetupCommand();
+    console.error(
+      `acpbot setup complete.\n` +
+        `  config: ${cfg.configPath}\n` +
+        `  agent:  ${cfg.defaultAgent}\n` +
+        `  operator_user_id: ${cfg.operatorUserId || "0 (claim on first DM)"}\n` +
+        `Start: acpbot-host  then  acpbot\n`,
+    );
+    return;
+  }
+
   const { cfg, layout } = await loadConfigWithSetup({ requireTelegram: true });
   applyConfigToEnv(cfg);
   // loadConfig already resolves stateDir to absolute.
