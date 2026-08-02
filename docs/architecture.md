@@ -69,6 +69,18 @@ Long-lived process that **owns agent stdio** so the Telegram worker can restart 
 Socket: `$state_dir/acp-host.sock`  
 Design note: [ideas/agent-host-keepalive.md](ideas/agent-host-keepalive.md).
 
+### Background install (`acpbot setup`)
+
+The guided setup can install **both** host and worker as user services (same
+`config.toml`):
+
+| | macOS LaunchAgent | Linux systemd user |
+|---|---|---|
+| Host | `app.acpbot.host` | `acpbot-host.service` |
+| Worker | `app.acpbot.worker` | `acpbot.service` |
+
+See [configuration.md](configuration.md#background-services-host--worker).
+
 ## Environment port
 
 ```text

@@ -113,22 +113,34 @@ sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host</code></pre>
             <code>~/.config/acpbot/</code> and
             <code>~/.local/share/acpbot/</code> for you.
           </p>
-          <pre class="code-block"><code># guided TUI — config, API keys, optional background service
+          <pre class="code-block"><code># guided TUI — config, API keys, optional background services
 acpbot setup
 
-# if you skip the daemon step in setup:
-acpbot-host    # terminal 1
-acpbot         # terminal 2</code></pre>
+# if you skip the daemon step:
+acpbot-host    # terminal 1 — agents / schedules
+acpbot         # terminal 2 — Telegram</code></pre>
           <p>
-            Setup can install a <strong>macOS LaunchAgent</strong> or
-            <strong>Linux systemd user</strong> service so host + worker start
-            at login.
+            The daemon step installs <strong>both</strong> processes (not only
+            one):
           </p>
+          <ul class="docs-list">
+            <li>
+              <strong>macOS</strong> —
+              <code>app.acpbot.host</code> +
+              <code>app.acpbot.worker</code> LaunchAgents
+              (<code>KeepAlive</code>)
+            </li>
+            <li>
+              <strong>Linux</strong> —
+              <code>acpbot-host.service</code> +
+              <code>acpbot.service</code> (systemd user)
+            </li>
+          </ul>
           <p class="docs-note">
-            Config path defaults to
-            <code>~/.config/acpbot/config.toml</code> (mode <code>600</code>).
-            Optional: <code>--config /path/to/config.toml</code>. Host and
-            worker must share the same file.
+            Same <code>~/.config/acpbot/config.toml</code> for host and worker
+            (mode <code>600</code>). Logs:
+            <code>~/.local/share/acpbot/logs/</code> on macOS, or
+            <code>journalctl --user -u acpbot-host -u acpbot</code> on Linux.
           </p>
         </section>
 
