@@ -338,6 +338,8 @@ export function formatSessionStatus(input: {
   model?: string | undefined;
   /** Reasoning effort (Grok high/medium/low) */
   effort?: string | undefined;
+  /** Tool-permission policy (ask | always-approve) */
+  permissionMode?: string | undefined;
   availableModes?: string[] | undefined;
   cwd: string;
   threadId: number;
@@ -380,6 +382,9 @@ export function formatSessionStatus(input: {
   } else {
     lines.push(`Effort: _(not advertised)_`);
   }
+  if (input.permissionMode) {
+    lines.push(`Permissions: \`${input.permissionMode}\``);
+  }
   if (input.availableModes && input.availableModes.length > 0) {
     lines.push(
       `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
@@ -408,7 +413,7 @@ export function formatSessionStatus(input: {
   }
   lines.push(
     "",
-    "Change: `/mode` · `/effort` · `/model` · `/agent` · `/plan` · `/build`",
+    "Change: `/mode` · `/permissions` · `/effort` · `/model` · `/agent` · `/plan` · `/build`",
   );
   return lines.join("\n");
 }

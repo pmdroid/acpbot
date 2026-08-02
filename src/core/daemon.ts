@@ -140,7 +140,14 @@ import {
   loadPairedOperator,
   takePairingCleared,
 } from "./pairing";
-import type { PromptAttachment } from "../env/types";
+import type { PermissionMode, PromptAttachment } from "../env/types";
+import {
+  formatPermissionStatus,
+  parsePermissionMode,
+  permissionModeLabel,
+} from "../acp/permission-mode";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 export type DaemonOptions = {
   pollTimeoutSec?: number;
@@ -200,11 +207,17 @@ export function createDaemon(
   // Same absolute path worker + acp-host must share for OAuth pending/tokens.
   const stateDir = resolveOAuthStateDir(options.stateDir);
   const configPath = options.configPath;
+  const permissionDefaultPath = join(stateDir, "permission-mode.json");
 
   let sessionIndex: SessionIndex = emptySessionIndex();
   let operatorChatId: number | undefined = env.config.operatorChatId;
   let started = false;
   let permissionWired = false;
+  /**
+   * Runtime default for **new** topics (overrides config until restart if
+   * written via /permissions default). Loaded from state_dir file.
+   */
+  let runtimePermissionDefault: PermissionMode | undefined;
 
   const drainTasks = new Map<string, Promise<void>>();
   const turnAbort = new Map<string, AbortController>();
@@ -439,6 +452,7 @@ export function createDaemon(
     if (env.config.operatorChatId !== undefined) {
       operatorChatId = env.config.operatorChatId;
     }
+    await loadRuntimePermissionDefault();
     // Naming mode is never durable — process start/restart always exits it.
     clearPendingNew("hydrate/restart");
     wirePermissionHandler();
@@ -469,6 +483,49 @@ export function createDaemon(
     await persistIndex();
   }
 
+  function getDefaultPermissionMode(): PermissionMode {
+    return (
+      runtimePermissionDefault ??
+      env.config.permissionMode ??
+      "ask"
+    );
+  }
+
+  function effectivePermissionMode(
+    session?: PersistedSession,
+  ): PermissionMode {
+    return session?.permissionMode ?? getDefaultPermissionMode();
+  }
+
+  async function ensureSessionWithPerms(session: PersistedSession) {
+    return env.agents.ensureSession(session.identity, {
+      permissionMode: effectivePermissionMode(session),
+    });
+  }
+
+  async function loadRuntimePermissionDefault(): Promise<void> {
+    try {
+      const raw = await readFile(permissionDefaultPath, "utf8");
+      const parsed = JSON.parse(raw) as { permissionMode?: string };
+      const m = parsePermissionMode(parsed.permissionMode);
+      if (m) runtimePermissionDefault = m;
+    } catch {
+      /* missing or corrupt — use config */
+    }
+  }
+
+  async function saveRuntimePermissionDefault(
+    mode: PermissionMode,
+  ): Promise<void> {
+    runtimePermissionDefault = mode;
+    await mkdir(dirname(permissionDefaultPath), { recursive: true });
+    await writeFile(
+      permissionDefaultPath,
+      `${JSON.stringify({ permissionMode: mode }, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
   async function createSession(
     identity: SessionIdentity,
   ): Promise<PersistedSession> {
@@ -488,7 +545,10 @@ export function createDaemon(
       return existing;
     }
 
-    const handle = await env.agents.ensureSession(identity);
+    const permissionMode = getDefaultPermissionMode();
+    const handle = await env.agents.ensureSession(identity, {
+      permissionMode,
+    });
     const topic = await env.telegram.createForumTopic({
       chatId: operatorChatId,
       name: initialTopicName(identity.repo, identity.name),
@@ -502,6 +562,7 @@ export function createDaemon(
       chatId: operatorChatId,
       status: "idle",
       cwd: handle.cwd,
+      permissionMode,
       createdAt: now,
       updatedAt: now,
     };
@@ -512,6 +573,7 @@ export function createDaemon(
     log.info("session topic created", {
       sessionKey,
       thread: topic.message_thread_id,
+      permissionMode,
     });
     return record;
   }
@@ -649,6 +711,14 @@ export function createDaemon(
     if (!session) {
       log.warn("permission for unknown session; reject", { sessionKey });
       return { outcome: "reject_once" };
+    }
+
+    if (effectivePermissionMode(session) === "always-approve") {
+      log.info("permission auto-approved (always-approve)", {
+        sessionKey,
+        toolCallId: req.toolCallId,
+      });
+      return { outcome: "allow_always" };
     }
 
     const ui = buildPermissionUi(req);
@@ -1157,6 +1227,13 @@ export function createDaemon(
     switch (slash.name) {
       case "/ping":
         await lobbyReply(PING_REPLY);
+        return;
+      case "/permissions":
+        await handlePermissionsCommand(slash.args, {
+          scope: "lobby",
+          reply: (text, replyMarkup, extra) =>
+            lobbyReply(text, replyMarkup, extra),
+        });
         return;
       case "/new": {
         const repo = slash.args[0];
@@ -1872,7 +1949,7 @@ export function createDaemon(
       return;
     }
     try {
-      await env.agents.ensureSession(session.identity);
+      await ensureSessionWithPerms(session);
     } catch (err) {
       await sendInTopic(
         session,
@@ -1931,7 +2008,7 @@ export function createDaemon(
     args: string[],
   ): Promise<void> {
     try {
-      await env.agents.ensureSession(session.identity);
+      await ensureSessionWithPerms(session);
     } catch (err) {
       await sendInTopic(
         session,
@@ -2037,7 +2114,7 @@ export function createDaemon(
     let model: string | undefined;
     let effort: string | undefined;
     try {
-      await env.agents.ensureSession(session.identity);
+      await ensureSessionWithPerms(session);
       if (env.agents.getSessionMode) {
         const st = await env.agents.getSessionMode(session.sessionKey);
         mode = st.currentModeId;
@@ -2096,6 +2173,7 @@ export function createDaemon(
         mode,
         model,
         effort,
+        permissionMode: permissionModeLabel(effectivePermissionMode(session)),
         availableModes,
         cwd: session.cwd,
         threadId: session.messageThreadId,
@@ -2115,7 +2193,7 @@ export function createDaemon(
     args: string[],
   ): Promise<void> {
     try {
-      await env.agents.ensureSession(session.identity);
+      await ensureSessionWithPerms(session);
     } catch (err) {
       await sendInTopic(
         session,
@@ -2246,7 +2324,7 @@ export function createDaemon(
     args: string[],
   ): Promise<void> {
     try {
-      await env.agents.ensureSession(session.identity);
+      await ensureSessionWithPerms(session);
     } catch (err) {
       await sendInTopic(
         session,
@@ -2398,7 +2476,7 @@ export function createDaemon(
             "operator /agent switch",
           );
         }
-        await env.agents.ensureSession(session.identity);
+        await ensureSessionWithPerms(session);
       } else {
         if (session.status === "running") {
           await env.agents.cancelTurn?.(
@@ -2736,7 +2814,7 @@ export function createDaemon(
         session.identity = handle.identity;
       } else {
         session.identity = { ...session.identity, agent: agentId };
-        await env.agents.ensureSession(session.identity);
+        await ensureSessionWithPerms(session);
       }
       sessionIndex.byKey[session.sessionKey] = session;
       await saveSessionIndex(env.store, sessionIndex);
@@ -2848,6 +2926,158 @@ export function createDaemon(
     await applySessionMode(session, modeId, "/mode picker");
   }
 
+  /**
+   * /permissions — tool auto-approve policy (not session plan/build mode).
+   * Topic: this session · `default <mode>`: new topics · bare: status.
+   * Lobby: status + `default` only.
+   */
+  async function handlePermissionsCommand(
+    args: string[],
+    opts: {
+      session?: PersistedSession;
+      reply: (
+        text: string,
+        replyMarkup?: unknown,
+        extra?: { html?: boolean },
+      ) => Promise<unknown>;
+      scope: "lobby" | "topic";
+    },
+  ): Promise<void> {
+    const { session, reply, scope } = opts;
+    const a0 = args[0]?.toLowerCase();
+    const a1 = args[1]?.toLowerCase();
+
+    // /permissions default ask|always
+    if (a0 === "default") {
+      if (!a1) {
+        await reply(
+          formatPermissionStatus({
+            defaultMode: getDefaultPermissionMode(),
+            session: session?.permissionMode,
+          }) +
+            "\n\nSet default: `/permissions default ask` or `/permissions default always`",
+          undefined,
+          { html: true },
+        );
+        return;
+      }
+      const mode = parsePermissionMode(a1);
+      if (!mode) {
+        await reply(
+          `Unknown mode \`${a1}\`. Use \`ask\` or \`always\` (always-approve).`,
+          undefined,
+          { html: true },
+        );
+        return;
+      }
+      await saveRuntimePermissionDefault(mode);
+      log.info("permission default updated", { mode, via: "slash" });
+      await reply(
+        `Default for **new topics** → \`${permissionModeLabel(mode)}\`\n\n` +
+          (mode === "always-approve"
+            ? "_Tools will auto-approve. Deny rules / hooks may still apply in some agents._\n\n"
+            : "") +
+          formatPermissionStatus({
+            defaultMode: mode,
+            session: session?.permissionMode,
+          }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    // Bare /permissions — status
+    if (!a0) {
+      await reply(
+        formatPermissionStatus({
+          defaultMode: getDefaultPermissionMode(),
+          session: session?.permissionMode,
+        }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    // Topic-only: /permissions ask|always
+    if (scope === "lobby") {
+      await reply(
+        "Change the default with `/permissions default ask|always`.\n" +
+          "Per-topic overrides only work inside a session topic.",
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    if (!session) {
+      await reply("No session.", undefined, { html: true });
+      return;
+    }
+
+    const mode = parsePermissionMode(a0);
+    if (!mode) {
+      await reply(
+        `Unknown mode \`${a0}\`.\n\n` +
+          formatPermissionStatus({
+            defaultMode: getDefaultPermissionMode(),
+            session: session.permissionMode,
+          }),
+        undefined,
+        { html: true },
+      );
+      return;
+    }
+
+    const prev = effectivePermissionMode(session);
+    session.permissionMode = mode;
+    session.updatedAt = env.clock.now();
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+
+    // Respawn agent slot so Grok --always-approve / yoloMode apply cleanly.
+    if (prev !== mode) {
+      try {
+        if (session.status === "running") {
+          await env.agents.cancelTurn?.(
+            session.sessionKey,
+            "operator /permissions change",
+          );
+        }
+        // dispose via switch-like path: ensure with new mode after kill
+        if (env.agents.switchSessionAgent) {
+          // Prefer dispose through ensure by killing host slot
+        }
+        // Re-ensure with new policy (host recreates if permissionMode differs)
+        await ensureSessionWithPerms(session);
+      } catch (err) {
+        log.warn("permissions: re-ensure after change failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    log.info("session permission mode set", {
+      sessionKey: session.sessionKey,
+      mode,
+      prev,
+    });
+    await reply(
+      `This topic → **\`${permissionModeLabel(mode)}\`**\n\n` +
+        (mode === "always-approve"
+          ? "_Tools auto-approve until you switch back to ask._\n\n"
+          : "_You will get approve/reject buttons for tools._\n\n") +
+        formatPermissionStatus({
+          defaultMode: getDefaultPermissionMode(),
+          session: mode,
+        }),
+      undefined,
+      { html: true },
+    );
+  }
+
   async function handleTopicMessage(msg: TelegramMessage): Promise<void> {
     const threadId = msg.message_thread_id;
     if (threadId === undefined) {
@@ -2927,6 +3157,15 @@ export function createDaemon(
       }
       if (slash.name === "/effort") {
         await handleEffortCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/permissions") {
+        await handlePermissionsCommand(slash.args, {
+          session,
+          scope: "topic",
+          reply: (text, replyMarkup, extra) =>
+            sendInTopic(session, text, replyMarkup, extra),
+        });
         return;
       }
       if (slash.name === "/agent") {
@@ -3068,7 +3307,7 @@ export function createDaemon(
     // One “⏳ Working…” bubble in this topic; MCP update edits it; final clears it.
     await working.ensure(session, "Working…");
     try {
-      const handle = await env.agents.ensureSession(session.identity);
+      const handle = await ensureSessionWithPerms(session);
       const ac = new AbortController();
       turnAbort.set(session.sessionKey, ac);
 

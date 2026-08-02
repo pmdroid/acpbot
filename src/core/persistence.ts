@@ -13,6 +13,11 @@ export type PersistedSession = {
   chatId: number;
   status: SessionStatus;
   cwd: string;
+  /**
+   * Per-topic tool-permission policy override.
+   * When unset, worker uses config / runtime default.
+   */
+  permissionMode?: "ask" | "always-approve";
   createdAt: number;
   updatedAt: number;
 };

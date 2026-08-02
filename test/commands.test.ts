@@ -61,6 +61,7 @@ describe("command registry", () => {
       "/mode",
       "/model",
       "/new",
+      "/permissions",
       "/ping",
       "/plan",
       "/queue",

@@ -98,6 +98,8 @@ type LiveSession = {
   availableModeIds: string[];
   /** ACP configOptions (model select, etc.) */
   configOptions: SessionConfigOptionView[];
+  /** Tool-permission policy for this live slot */
+  permissionMode: "ask" | "always-approve";
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
 };
@@ -131,6 +133,11 @@ export type SessionHost = {
     sessionKey: string;
     agent: string;
     cwd: string;
+    /**
+     * Tool-permission policy for this slot.
+     * always-approve → Grok yoloMode / spawn --always-approve + host auto-allow.
+     */
+    permissionMode?: "ask" | "always-approve";
   }): Promise<HostSession>;
   startTurn(input: {
     sessionKey: string;
@@ -537,13 +544,21 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     sessionKey: string;
     agent: string;
     cwd: string;
+    permissionMode?: "ask" | "always-approve";
   }): Promise<LiveSession> {
-    const launch = resolveAgentLaunchForSpawn(input.agent);
+    const alwaysApprove = input.permissionMode === "always-approve";
+    const launch = resolveAgentLaunchForSpawn(
+      input.agent,
+      process.env,
+      undefined,
+      { alwaysApprove },
+    );
     log.info("spawn agent", {
       sessionKey: input.sessionKey,
       command: launch.command,
       args: launch.args,
       cwd: input.cwd,
+      permissionMode: input.permissionMode ?? "ask",
     });
 
     // posix_spawn reports ENOENT on the *binary* when cwd is missing — detect first.
@@ -763,10 +778,16 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     }
 
     if (!resumed) {
+      // Grok: yoloMode in session/new _meta enables always-approve for this session.
+      const newMeta: Record<string, unknown> | undefined =
+        input.permissionMode === "always-approve"
+          ? { yoloMode: true }
+          : undefined;
       session = await connection.agent
         .buildSession({
           cwd: input.cwd,
           mcpServers: mcpList,
+          ...(newMeta ? { _meta: newMeta } : {}),
         })
         .start();
       log.info("session/new ok", {
@@ -774,6 +795,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         agentSessionId: session.sessionId,
         mcp: mcpList.map((s) => s.name),
         hadPrior: Boolean(prior),
+        permissionMode: input.permissionMode ?? "ask",
+        yoloMode: Boolean(newMeta?.yoloMode),
       });
     }
 
@@ -944,6 +967,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       currentModeId: modeId,
       availableModeIds: available,
       configOptions,
+      permissionMode: input.permissionMode === "always-approve"
+        ? "always-approve"
+        : "ask",
       turnAbort: undefined,
     };
     live.set(input.sessionKey, entry);

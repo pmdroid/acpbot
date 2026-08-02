@@ -29,6 +29,7 @@ Interactive (@clack) walkthrough:
 |---|---|
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
 | Agent | grok-build · claude · codex · opencode |
+| Tool permissions | `permission_mode = "ask"` (default) or `"always-approve"` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | OAuth | Optional `callback_base` for remote MCP |
