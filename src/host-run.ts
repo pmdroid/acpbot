@@ -90,7 +90,18 @@ export async function runHostMain(): Promise<void> {
         `(worker must use the same state_dir)`,
     );
     try {
-      const oauth = await maybeStartOauthHttpServer({ stateDir, log });
+      const oauth = await maybeStartOauthHttpServer({
+        stateDir,
+        log,
+        onAuthorized: async ({ id, repoKey }) => {
+          const n = await host.dropSlotsForRepo(repoKey);
+          log.info("oauth authorized — dropped live slots for MCP rebuild", {
+            id,
+            repoKey,
+            dropped: n,
+          });
+        },
+      });
       if (oauth) {
         oauthClose = oauth.close;
         console.error(

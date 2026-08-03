@@ -139,6 +139,11 @@ export type SessionHost = {
      * bypass → Grok yoloMode / spawn --always-approve + host auto-allow.
      */
     permissionMode?: "ask" | "bypass";
+    /**
+     * Kill live agent and respawn so MCP servers are rebuilt (fresh OAuth
+     * Bearer headers after `/mcp auth`).
+     */
+    forceRespawn?: boolean;
   }): Promise<HostSession>;
   startTurn(input: {
     sessionKey: string;
@@ -1160,16 +1165,23 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     async ensureSession(input) {
       const existing = live.get(input.sessionKey);
       if (existing) {
-        // Agent or cwd change → kill and respawn (e.g. /agent switch).
+        // Agent/cwd change or force (post-OAuth MCP rebuild) → kill and respawn.
         if (
+          input.forceRespawn ||
           existing.agent !== input.agent ||
           existing.cwd !== input.cwd
         ) {
-          log.info("ensureSession: agent/cwd changed; respawning", {
-            sessionKey: input.sessionKey,
-            fromAgent: existing.agent,
-            toAgent: input.agent,
-          });
+          log.info(
+            input.forceRespawn
+              ? "ensureSession: forceRespawn; rebuilding MCP"
+              : "ensureSession: agent/cwd changed; respawning",
+            {
+              sessionKey: input.sessionKey,
+              fromAgent: existing.agent,
+              toAgent: input.agent,
+              forceRespawn: Boolean(input.forceRespawn),
+            },
+          );
           await killLiveSession(input.sessionKey);
         } else {
           return {

@@ -395,7 +395,11 @@ export interface AgentsPort {
    */
   ensureSession(
     identity: SessionIdentity,
-    opts?: { permissionMode?: PermissionMode },
+    opts?: {
+      permissionMode?: PermissionMode;
+      /** Rebuild agent + MCP (after OAuth / token change). */
+      forceRespawn?: boolean;
+    },
   ): Promise<AgentSessionHandle>;
 
   /**

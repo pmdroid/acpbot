@@ -497,9 +497,13 @@ export function createDaemon(
     return session?.permissionMode ?? getDefaultPermissionMode();
   }
 
-  async function ensureSessionWithPerms(session: PersistedSession) {
+  async function ensureSessionWithPerms(
+    session: PersistedSession,
+    opts?: { forceRespawn?: boolean },
+  ) {
     return env.agents.ensureSession(session.identity, {
       permissionMode: effectivePermissionMode(session),
+      ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
     });
   }
 
@@ -1723,7 +1727,8 @@ export function createDaemon(
     const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
     const oauthStateDir = stateDir;
     const oauthConfigured = Boolean(
-      process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
+      process.env.ACPBOT_OAUTH_CALLBACK_BASE?.trim() ||
+        process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
     );
     const sub = (args[0] ?? "status").toLowerCase();
 
@@ -1842,8 +1847,8 @@ export function createDaemon(
             `Discovered client \`${started.clientId}\` · resource \`${started.resource}\`\n` +
             `Redirect: \`${started.redirectUri}\`\n` +
             `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
-            `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n` +
-            `Active on next ensure.\n\n` +
+            `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n\n` +
+            `After the browser succeeds, send any message here — MCP reconnects with the new token.\n\n` +
             `If the browser cannot reach the host (or acp-host OAuth listen failed), ` +
             `paste the **full** final redirect URL:\n` +
             `\`/mcp code <callback-url>\``,
@@ -1875,10 +1880,24 @@ export function createDaemon(
           id: result.id,
           repoKey: result.repoKey,
         });
+        // Rebuild agent MCP now (Bearer headers only apply at session spawn).
+        let reconnected = false;
+        try {
+          await ensureSessionWithPerms(session, { forceRespawn: true });
+          reconnected = true;
+        } catch (err) {
+          log.warn("mcp oauth post-auth respawn failed", {
+            sessionKey: session.sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         await sendInTopic(
           session,
           `OAuth complete for MCP **${result.id}**.\n` +
-            `Token stored on host (not in repo). Active on next session ensure / restart.`,
+            `Token stored on host (not in repo).` +
+            (reconnected
+              ? `\nAgent MCP reconnected with the new token — try your tools again.`
+              : `\nSend any message to reconnect MCP (or \`/agent\` to force).`),
         );
         return;
       }

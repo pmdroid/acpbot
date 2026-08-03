@@ -266,13 +266,30 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         agent,
         cwd,
         permissionMode,
+        forceRespawn: Boolean(opts?.forceRespawn),
       });
       try {
+        if (opts?.forceRespawn) {
+          try {
+            await host.cancel?.(key, "forceRespawn MCP rebuild");
+          } catch {
+            /* */
+          }
+          if (host.disposeSession) {
+            try {
+              await host.disposeSession(key);
+            } catch {
+              /* */
+            }
+          }
+          handles.delete(key);
+        }
         const hs = await host.ensureSession({
           sessionKey: key,
           agent,
           cwd,
           permissionMode,
+          ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
         });
         if (options.forceReadOnly) {
           const modes = await host.getAvailableModes(key);
@@ -288,6 +305,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         log.info("ensureSession ok", {
           sessionKey: key,
           agentSessionId: hs.agentSessionId,
+          forceRespawn: Boolean(opts?.forceRespawn),
         });
         return {
           sessionKey: key,

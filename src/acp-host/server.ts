@@ -84,8 +84,12 @@ export async function startAcpHostServer(
 ): Promise<{
   sockPath: string;
   close: () => Promise<void>;
+  /** Drop live slots for a repo so MCP rebuilds with new OAuth tokens. */
+  dropSlotsForRepo: (repoKey: string) => Promise<number>;
   /** Exposed for tests — run one schedule tick. */
   scheduleTickNow?: () => Promise<import("./scheduler").TickResult>;
+  /** Mutable repos catalog (scheduler + hot-reload). */
+  repos?: Record<string, string>;
 }> {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
@@ -225,12 +229,50 @@ export async function startAcpHostServer(
     };
   }
 
+  /**
+   * Drop live agent slots for a repo so the next ensure rebuilds MCP with
+   * fresh OAuth tokens (after /mcp auth callback).
+   */
+  async function dropSlotsForRepo(repoKey: string): Promise<number> {
+    const key = repoKey.trim();
+    if (!key) return 0;
+    const prefix = `${key}/`;
+    let n = 0;
+    for (const [slotKey, slot] of [...slots.entries()]) {
+      if (slotKey !== key && !slotKey.startsWith(prefix)) continue;
+      try {
+        await slot.host.dispose();
+      } catch {
+        /* */
+      }
+      slots.delete(slotKey);
+      n++;
+      log.info("dropped slot after OAuth (MCP will rebuild on next ensure)", {
+        slotKey,
+        repoKey: key,
+      });
+    }
+    return n;
+  }
+
   async function ensureSlot(
     sock: Socket,
     msg: Extract<WorkerToHost, { type: "ensure" }>,
   ): Promise<void> {
     const { slotKey, config } = msg;
     let slot = slots.get(slotKey);
+
+    // Post-OAuth: force kill so MCP servers pick up new Bearer tokens.
+    if (slot && config.forceRespawn) {
+      log.info("ensure forceRespawn", { slotKey });
+      try {
+        await slot.host.dispose();
+      } catch {
+        /* */
+      }
+      slots.delete(slotKey);
+      slot = undefined;
+    }
 
     // Reattach: same agent+cwd, prefer resume if agentSessionId matches or any live
     if (slot) {
@@ -248,6 +290,7 @@ export async function startAcpHostServer(
             ...(config.permissionMode
               ? { permissionMode: config.permissionMode }
               : {}),
+            ...(config.forceRespawn ? { forceRespawn: true } : {}),
           });
           slot.agentSessionId = hs.agentSessionId;
           const mode = await slot.host.getModeState(slotKey);
@@ -951,6 +994,7 @@ export async function startAcpHostServer(
   return {
     sockPath,
     close,
+    dropSlotsForRepo,
     /** Shared mutable repo catalog (hot-reload mutates in place). */
     repos,
     ...(scheduler

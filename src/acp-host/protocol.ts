@@ -24,6 +24,11 @@ export type HostAgentConfig = {
   mcpEnabled?: boolean;
   /** Tool-permission policy (ask | bypass) */
   permissionMode?: "ask" | "bypass";
+  /**
+   * Kill any live agent for this slot and spawn fresh (rebuilds MCP servers
+   * with current OAuth tokens). Used after `/mcp auth` / token refresh.
+   */
+  forceRespawn?: boolean;
 };
 
 export type WorkerToHost =
