@@ -43,7 +43,12 @@ Commands are registered in `src/core/commands.ts`.
 
 **bypass** maps to agent auto-approve modes (`bypassPermissions` / `agent-full-access` / Grok yolo) and skips host-side gates.
 
+Permission keyboards are **deleted** after you answer (chat stays clean). Concurrent identical asks (e.g. parallel shell + host gate) are coalesced so you only see one prompt.
+
 To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.txt`”* — Grok should show a permission keyboard; Claude should at least for write when using host fs.
+
+| Command | Effect |
+|---|---|
 | `/plan` | Switch to plan mode (read-only-ish) |
 | `/build` | Switch to build/code mode (tools on) |
 | `/skills` | Pick a skill, then send a prompt |
@@ -80,13 +85,13 @@ Cap: 32 items per session (oldest dropped when full).
 | Usage | Effect |
 |---|---|
 | `/mcp status` | List configured gateways for this repo |
-| `/mcp add <id> <url>` | Register remote MCP (id + URL in repo only) |
+| `/mcp add <id> <url>` | Register remote MCP (id + URL in repo only); attaches empty per-topic proxy |
 | `/mcp remove <id>` | Remove registry entry |
-| `/mcp auth <id>` | Start OAuth (tappable authorize URL) |
+| `/mcp auth <id>` | Start OAuth (tappable authorize URL); live proxy picks up tools — no restart |
 | `/mcp code <callback-url>` | Paste-code fallback (full URL preferred) |
 | `/mcp code <code> <id>` | Bare code last resort |
 
-Tokens are stored under `state_dir` (`mcp-oauth/`), never in the repo. Full flow: [OAuth](/docs/oauth).
+Tokens are stored under `state_dir` (`mcp-oauth/`), never in the repo. Remotes always run as `acpbot mcp-proxy` (empty tools until auth). Full flow: [OAuth](/docs/oauth) · [MCP](/docs/mcp).
 
 ## Telegram menu
 

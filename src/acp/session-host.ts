@@ -350,6 +350,104 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   }
 
   /**
+   * Coalesce concurrent identical permission asks (same kind+title) and briefly
+   * cache allows so agent requestPermission + host terminal/fs gates do not
+   * each open a second Telegram keyboard for the same action.
+   */
+  const inflightPermissions = new Map<
+    string,
+    Promise<PermissionDecision | undefined>
+  >();
+  /** Fingerprint → expiry (ms) for a recent allow_once / allow_always. */
+  const recentAllows = new Map<string, number>();
+  const RECENT_ALLOW_MS = 20_000;
+
+  function permissionFingerprint(
+    sessionKey: string,
+    kind: string,
+    title: string,
+  ): string {
+    return `${sessionKey}\0${(kind || "").toLowerCase()}\0${title.trim()}`;
+  }
+
+  function wasRecentlyAllowed(fp: string): boolean {
+    const until = recentAllows.get(fp);
+    if (until == null) return false;
+    if (Date.now() > until) {
+      recentAllows.delete(fp);
+      return false;
+    }
+    return true;
+  }
+
+  function markRecentlyAllowed(fp: string): void {
+    recentAllows.set(fp, Date.now() + RECENT_ALLOW_MS);
+  }
+
+  async function askSharedPermission(input: {
+    sessionKey: string;
+    fingerprint: string;
+    toolCallId: string;
+    raw: unknown;
+  }): Promise<PermissionDecision | undefined> {
+    if (wasRecentlyAllowed(input.fingerprint)) {
+      log.info("permission auto-allow (recent identical grant)", {
+        sessionKey: input.sessionKey,
+        toolCallId: input.toolCallId,
+      });
+      return { outcome: "allow_once" };
+    }
+
+    const existing = inflightPermissions.get(input.fingerprint);
+    if (existing) {
+      log.info("permission coalesced with in-flight ask", {
+        sessionKey: input.sessionKey,
+        toolCallId: input.toolCallId,
+      });
+      return existing;
+    }
+
+    if (!hooks.onPermissionRequest) {
+      return { outcome: "reject_once" };
+    }
+
+    const work = (async () => {
+      const liveEntry = live.get(input.sessionKey);
+      if (liveEntry?.permissionMode === "bypass") {
+        return { outcome: "allow_always" as const };
+      }
+      const decision = await hooks.onPermissionRequest!(
+        {
+          sessionId: input.sessionKey,
+          toolCallId: input.toolCallId,
+          raw: input.raw,
+        },
+        { signal: signalFor(input.sessionKey) },
+      );
+      if (
+        decision?.outcome === "allow_once" ||
+        decision?.outcome === "allow_always"
+      ) {
+        markRecentlyAllowed(input.fingerprint);
+      }
+      if (decision?.outcome === "allow_always" && liveEntry) {
+        liveEntry.permissionMode = "bypass";
+        log.info("permission allow_always → session bypass", {
+          sessionKey: input.sessionKey,
+        });
+      }
+      return decision;
+    })();
+
+    inflightPermissions.set(input.fingerprint, work);
+    try {
+      return await work;
+    } finally {
+      inflightPermissions.delete(input.fingerprint);
+    }
+  }
+
+  /**
    * Grok (and some agents) run shell/write via client terminal/* and fs/*
    * without calling session/request_permission. In ask mode we synthesize
    * a permission prompt so Telegram still gates those host capabilities.
@@ -378,7 +476,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         toolCallId,
         title: input.title,
         kind: input.kind,
-        ...(input.rawInput !== undefined ? { rawInput: input.rawInput } : {}),
+        ...(input.rawInput !== undefined
+          ? { rawInput: input.rawInput }
+          : {}),
       },
       options: [
         { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
@@ -391,16 +491,19 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       ],
     };
 
+    const fp = permissionFingerprint(sessionKey, input.kind, input.title);
     log.info("host-side permission ask", {
       sessionKey,
       kind: input.kind,
       title: input.title.slice(0, 120),
     });
 
-    const decision = await hooks.onPermissionRequest(
-      { sessionId: sessionKey, toolCallId, raw },
-      { signal: signalFor(sessionKey) },
-    );
+    const decision = await askSharedPermission({
+      sessionKey,
+      fingerprint: fp,
+      toolCallId,
+      raw,
+    });
 
     if (
       !decision ||
@@ -412,14 +515,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         `Permission denied (${decision?.outcome ?? "none"}) for ${input.title}`,
       );
     }
-
-    // Session-scoped allow_always → stop asking for this slot
-    if (decision.outcome === "allow_always") {
-      entry.permissionMode = "bypass";
-      log.info("host-side permission allow_always → session bypass", {
-        sessionKey,
-      });
-    }
   }
 
   async function handlePermission(
@@ -427,7 +522,6 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   ): Promise<acp.RequestPermissionResponse> {
     const sessionKey = resolveKey(params.sessionId);
     const toolCallId = params.toolCall?.toolCallId ?? "unknown";
-    const signal = signalFor(sessionKey);
     const entry = live.get(sessionKey);
     if (entry?.permissionMode === "bypass") {
       return decisionToPermissionResponse(params.options as never, {
@@ -441,13 +535,19 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       ) as acp.RequestPermissionResponse;
     }
     try {
-      const decision = await hooks.onPermissionRequest(
-        { sessionId: sessionKey, toolCallId, raw: params },
-        { signal },
-      );
-      if (decision?.outcome === "allow_always" && entry) {
-        entry.permissionMode = "bypass";
-      }
+      const title =
+        typeof params.toolCall?.title === "string"
+          ? params.toolCall.title
+          : toolCallId;
+      const kind =
+        typeof params.toolCall?.kind === "string" ? params.toolCall.kind : "";
+      const fp = permissionFingerprint(sessionKey, kind, title);
+      const decision = await askSharedPermission({
+        sessionKey,
+        fingerprint: fp,
+        toolCallId,
+        raw: params,
+      });
       return decisionToPermissionResponse(
         params.options as never,
         decision,

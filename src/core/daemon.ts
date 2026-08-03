@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import type {
   Environment,
   PermissionDecision,
@@ -129,7 +128,10 @@ import {
   startMcpOAuth,
 } from "../mcp/oauth-flow";
 import {
+  clearMcpProxyAttachPending,
   listOAuthTokenIds,
+  markMcpProxyAttachPending,
+  remoteIdsNeedingProxyAttach,
   repoKeyForOAuth,
   resolveOAuthStateDir,
 } from "../mcp/oauth-store";
@@ -497,14 +499,96 @@ export function createDaemon(
     return session?.permissionMode ?? getDefaultPermissionMode();
   }
 
+  /**
+   * Gateway ids already attached as stdio mcp-proxy children for a live slot
+   * (including empty/unauthed proxies). Reauth does not clear this.
+   * `/mcp add` on a live slot → force-respawn once to spawn the new proxy.
+   */
+  const attachedMcpProxies = new Map<string, Set<string>>();
+
+  async function registryRemoteIds(repoRoot: string): Promise<string[]> {
+    const config = await readMcpConfig(repoRoot);
+    return config.mcpServers
+      .filter(
+        (s) =>
+          typeof s.name === "string" &&
+          s.name.trim() &&
+          typeof s.url === "string" &&
+          s.url.trim(),
+      )
+      .map((s) => String(s.name).trim());
+  }
+
+  async function refreshAttachedMcpProxyTracking(
+    session: PersistedSession,
+  ): Promise<void> {
+    const repoRoot = session.cwd;
+    const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
+    const oauthStateDir = resolveOAuthStateDir(stateDir);
+    // All remotes are rewritten to proxies at spawn — track registry set,
+    // not only those with tokens (empty tools until /mcp auth).
+    const remotes = await registryRemoteIds(repoRoot);
+    const attached = new Set(remotes);
+    attachedMcpProxies.set(session.sessionKey, attached);
+    if (attached.size > 0) {
+      await clearMcpProxyAttachPending(oauthStateDir, repoKey, [...attached]);
+    }
+  }
+
+  /**
+   * Remotes in the registry that this slot has not yet spawned as mcp-proxy
+   * (typical: `/mcp add` while the agent is already running).
+   */
+  async function sessionNeedsFirstProxyAttach(
+    session: PersistedSession,
+  ): Promise<string[]> {
+    const repoRoot = session.cwd;
+    const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
+    const oauthStateDir = resolveOAuthStateDir(stateDir);
+    const remotes = await registryRemoteIds(repoRoot);
+    const already =
+      attachedMcpProxies.get(session.sessionKey) ?? new Set<string>();
+    return remoteIdsNeedingProxyAttach(
+      oauthStateDir,
+      repoKey,
+      remotes,
+      already,
+    );
+  }
+
   async function ensureSessionWithPerms(
     session: PersistedSession,
     opts?: { forceRespawn?: boolean },
   ) {
-    return env.agents.ensureSession(session.identity, {
+    let forceRespawn = opts?.forceRespawn === true;
+    let firstAttach: string[] = [];
+    if (!forceRespawn) {
+      try {
+        firstAttach = await sessionNeedsFirstProxyAttach(session);
+        if (firstAttach.length > 0) {
+          forceRespawn = true;
+          log.info("ensureSession: first-time mcp-proxy attach", {
+            sessionKey: session.sessionKey,
+            gateways: firstAttach,
+          });
+        }
+      } catch (err) {
+        log.warn("ensureSession: attach check failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    const handle = await env.agents.ensureSession(session.identity, {
       permissionMode: effectivePermissionMode(session),
-      ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
+      ...(forceRespawn ? { forceRespawn: true } : {}),
     });
+    try {
+      await refreshAttachedMcpProxyTracking(session);
+    } catch {
+      /* non-fatal */
+    }
+    return handle;
   }
 
   async function loadRuntimePermissionDefault(): Promise<void> {
@@ -741,6 +825,7 @@ export function createDaemon(
       keyboard: ui.keyboard,
       sendOpts: { html: true },
       logContext: { kind: "permission", token: ui.token },
+      settledAction: "delete",
       onAbort: () => {
         permissions.cancelAllForSession(sessionKey, { outcome: "cancel" });
       },
@@ -759,10 +844,8 @@ export function createDaemon(
         });
       },
       formatSettled: (d) => {
-        const formatted = formatForTelegram(
-          `${ui.text}\n\n→ **answered:** ${d.outcome}`,
-        );
-        return { text: formatted.text, parseMode: formatted.parseMode };
+        // Unused when settledAction is delete; kept for type completeness.
+        return { text: d.outcome };
       },
     });
 
@@ -781,34 +864,17 @@ export function createDaemon(
     const parsed = parsePermissionCallback(data);
     if (!parsed) return;
 
-    const pending = permissions.get(parsed.token);
     const decision = permissions.settle(parsed.token, parsed.optionIndex);
 
-    // Always try to clear the keyboard via edit; answerCallbackQuery is best-effort only.
-    if (message && pending) {
-      try {
-        const formatted = formatForTelegram(
-          `${pending.promptText}\n\n→ **answered:** ${decision?.outcome ?? "—"}`,
-        );
-        await env.telegram.editMessageText({
-          chatId: message.chat.id,
-          messageId: message.message_id,
-          text: formatted.text,
-          parseMode: formatted.parseMode,
-          replyMarkup: { inline_keyboard: [] },
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-
+    // Permission prompts are deleted by awaitInlineDecision after settle.
+    // Best-effort answer so Telegram stops the loading spinner.
     try {
       await env.telegram.answerCallbackQuery({
         callbackQueryId,
         text: decision ? "Recorded" : "Already answered",
       });
     } catch {
-      /* assume always fails after restart — confirmation is the edit */
+      /* ignore */
     }
   }
 
@@ -1773,12 +1839,27 @@ export function createDaemon(
           // url only — never log tokens (none accepted)
           url: entry.url,
         });
+        // Attach empty mcp-proxy now (stdio children are fixed at spawn).
+        // Auth later only fills tools — no second restart.
+        let attachedNow = false;
+        try {
+          await ensureSessionWithPerms(session, { forceRespawn: true });
+          attachedNow = true;
+        } catch (err) {
+          log.warn("mcp add proxy attach failed", {
+            sessionKey: session.sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         await sendInTopic(
           session,
           `Added MCP **${entry.name}** (${entry.type})\n${entry.url}\n\n` +
-            `Written to \`.tacp/mcp.json\` (id + url only; no tokens).\n` +
-            `Authorize with \`/mcp auth ${entry.name}\` if the gateway needs OAuth.\n` +
-            `Remotes are exposed via a stdio proxy (auth stays in acpbot; no agent restart on reauth).`,
+            `Written to \`.acpbot/mcp.json\` (id + url only; no tokens).\n` +
+            (attachedNow
+              ? `Per-topic **mcp-proxy** is attached (empty tools until auth).\n`
+              : `Proxy will attach on the next message.\n`) +
+            `Next: \`/mcp auth ${entry.name}\` if the gateway needs OAuth ` +
+            `(tools appear without another agent restart).`,
         );
         return;
       }
@@ -1848,10 +1929,9 @@ export function createDaemon(
             `Redirect: \`${started.redirectUri}\`\n` +
             `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
             `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n\n` +
-            `After the browser succeeds, **use the tools again** — the MCP proxy ` +
-            `picks up the new token **without restarting the agent**.\n\n` +
-            `If the browser cannot reach the host (or acp-host OAuth listen failed), ` +
-            `paste the **full** final redirect URL:\n` +
+            `After the browser succeeds the **mcp-proxy** (already attached) ` +
+            `picks up the token and advertises tools — **no agent restart**.\n\n` +
+            `If the browser cannot reach the host, paste the **full** final redirect URL:\n` +
             `\`/mcp code <callback-url>\``,
         );
         return;
@@ -1881,13 +1961,33 @@ export function createDaemon(
           id: result.id,
           repoKey: result.repoKey,
         });
-        // Tokens only — live mcp-proxy children re-read the store on the next
-        // tool call. Do not forceRespawn the agent.
+        // Proxy should already be attached (empty tools). Only force-respawn
+        // if this remote was never on the live slot (e.g. auth without prior ensure).
+        await markMcpProxyAttachPending(oauthStateDir, result.repoKey, result.id);
+        const need = await sessionNeedsFirstProxyAttach(session);
+        let attachedNow = false;
+        if (need.length > 0) {
+          try {
+            await ensureSessionWithPerms(session, { forceRespawn: true });
+            attachedNow = true;
+          } catch (err) {
+            log.warn("mcp first-proxy attach failed", {
+              sessionKey: session.sessionKey,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        } else {
+          await clearMcpProxyAttachPending(oauthStateDir, result.repoKey, [
+            result.id,
+          ]);
+        }
         await sendInTopic(
           session,
           `OAuth complete for MCP **${result.id}**.\n` +
             `Token stored on host (not in repo).\n` +
-            `Try the tools again — no agent restart needed (stdio proxy holds auth).`,
+            (attachedNow
+              ? `Per-topic MCP proxy started for: ${need.join(", ")}.\nTools are ready.`
+              : `Proxy already running — tools should appear shortly (no agent restart).`),
         );
         return;
       }

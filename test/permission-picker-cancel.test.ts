@@ -166,7 +166,7 @@ describe("minimal repo picker", () => {
 });
 
 describe("permission inline keyboard round-trip", () => {
-  test("raises keyboard, marks waiting in bubble, settles via callback + edit", async () => {
+  test("raises keyboard, marks waiting in bubble, settles via callback + delete", async () => {
     const env = createFakeEnvironment({
       config: {
         operatorUserId: OPERATOR,
@@ -247,19 +247,13 @@ describe("permission inline keyboard round-trip", () => {
     const decision = await permPromise;
     expect(decision).toEqual({ outcome: "allow_once" });
 
-    // Confirmation via editMessageText (keyboard cleared).
-    const edits = env.telegram.outbound.filter(
-      (c) => c.method === "editMessageText",
+    // Permission prompts are deleted after settle (cleaner chat).
+    // Note: fake sentMessages() renumbers ids after clearOutbound; assert
+    // that deleteMessage ran rather than matching the renumbered id.
+    const deletes = env.telegram.outbound.filter(
+      (c) => c.method === "deleteMessage",
     );
-    expect(edits.length).toBeGreaterThan(0);
-    expect(
-      edits.some(
-        (c) =>
-          c.method === "editMessageText" &&
-          c.params.text.includes("allow_once") &&
-          c.params.text.includes("answered"),
-      ),
-    ).toBe(true);
+    expect(deletes.length).toBeGreaterThan(0);
   });
 
   test("buildPermissionUi keeps callback_data within 64 bytes", () => {

@@ -90,15 +90,19 @@ export async function runHostMain(): Promise<void> {
         `(worker must use the same state_dir)`,
     );
     try {
-      // OAuth success only writes tokens. Live agents keep running; `acpbot
-      // mcp-proxy` children re-read Bearer tokens on each request / 401.
-      // Do NOT kill agent slots here — restart is the wrong recovery path.
+      // OAuth success writes tokens. Proxies are already attached at session
+      // start (empty tools); they re-read tokens / connect without agent kill.
+      // Attach-pending only matters if a remote was added but never ensured.
       const oauth = await maybeStartOauthHttpServer({
         stateDir,
         log,
         onAuthorized: async ({ id, repoKey }) => {
+          const { markMcpProxyAttachPending } = await import(
+            "./mcp/oauth-store"
+          );
+          await markMcpProxyAttachPending(stateDir, repoKey, id);
           log.info(
-            "oauth authorized — tokens stored; mcp-proxy will pick them up without agent restart",
+            "oauth authorized — token stored; live mcp-proxy will connect without agent restart",
             { id, repoKey },
           );
         },

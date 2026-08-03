@@ -62,10 +62,19 @@ Agent (one process per topic/slot)
 - **Per slot:** each topic session (`repo/name`) gets its own agent + its own `mcp-proxy` children. Slots do not share proxy processes.
 - OAuth tokens stay on the host (`/mcp auth`); the proxy owns refresh.
 - The agent only sees a normal **stdio** server (named like the gateway id, e.g. `full`).
-- On 401 / expiry the **proxy** re-reads the token store and reconnects upstream — **the agent process is not killed**.
-- After `/mcp auth`, try the tools again; no `/agent` restart required.
+- **Always attached:** remotes start as `mcp-proxy` at session spawn (and on `/mcp add`). Until OAuth, the proxy advertises an **empty tool list**.
+- **After `/mcp auth`:** the live proxy connects and re-advertises tools — **no agent restart**.
+- **Reauth** / token refresh / 401: proxy re-reads the store — **no agent restart**.
 
-## Per-repo registry
+### Why empty tools first?
+
+stdio MCP children are fixed when the agent process is spawned. Starting the proxy **before** auth means:
+
+1. `/mcp add` (or session start with remotes in `.acpbot/mcp.json`) always attaches the proxy.
+2. `/mcp auth` only stores a token; the running proxy connects and lists tools.
+3. Reauth never needs another agent respawn.
+
+If you add a remote while a topic is already live, acpbot force-respawns **once** so the new stdio child appears; later auth does not.
 
 ## Per-repo MCP (`.acpbot/mcp.json`)
 

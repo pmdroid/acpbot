@@ -452,6 +452,102 @@ export function formatBearerHeader(record: McpOAuthTokenRecord): string {
   return `${prefix} ${record.accessToken}`;
 }
 
+// ── Proxy attach flags (host OAuth / registry change → worker) ──────────────
+// Remotes always get an mcp-proxy child at session spawn (empty tools until
+// auth). Attach flags only matter when a remote is **added while the agent is
+// already live** (stdio children are fixed at spawn) — force-respawn once.
+// Reauth does not need this (existing proxy re-reads tokens / connects).
+
+function attachPendingDir(stateDir: string, repoKey: string): string {
+  const paths = oauthStorePaths(stateDir);
+  return join(paths.root, "attach-pending", sanitizeSegment(repoKey));
+}
+
+/** Host: mark that workers should attach mcp-proxy for this gateway once. */
+export async function markMcpProxyAttachPending(
+  stateDir: string,
+  repoKey: string,
+  id: string,
+): Promise<void> {
+  const dir = attachPendingDir(stateDir, repoKey);
+  await ensurePrivateDir(dir);
+  const file = join(dir, `${sanitizeSegment(id)}.json`);
+  assertNotRepoPath(file);
+  await atomicWrite(
+    file,
+    `${JSON.stringify({ id, repoKey, at: Date.now() }, null, 2)}\n`,
+  );
+}
+
+/** Worker: list gateway ids pending first-time proxy attach for a repo. */
+export async function listMcpProxyAttachPending(
+  stateDir: string,
+  repoKey: string,
+): Promise<string[]> {
+  const dir = attachPendingDir(stateDir, repoKey);
+  try {
+    const names = await readdir(dir);
+    return names
+      .filter((n) => n.endsWith(".json"))
+      .map((n) => n.slice(0, -".json".length));
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? (err as { code?: string }).code
+        : undefined;
+    if (code === "ENOENT") return [];
+    throw err;
+  }
+}
+
+/** Worker: clear attach-pending flags after a successful force-respawn. */
+export async function clearMcpProxyAttachPending(
+  stateDir: string,
+  repoKey: string,
+  ids?: string[],
+): Promise<number> {
+  const dir = attachPendingDir(stateDir, repoKey);
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  const want =
+    ids && ids.length > 0
+      ? new Set(ids.map((id) => `${sanitizeSegment(id)}.json`))
+      : null;
+  let n = 0;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    if (want && !want.has(name)) continue;
+    try {
+      await unlink(join(dir, name));
+      n++;
+    } catch {
+      /* */
+    }
+  }
+  return n;
+}
+
+/**
+ * Registry remotes that are not yet present as stdio mcp-proxy children on
+ * the live slot. Tokens are **not** required — proxies start with empty tools
+ * and connect after `/mcp auth`.
+ *
+ * `stateDir` / `repoKey` kept for call-site stability (attach-pending is
+ * cleared separately after a successful ensure).
+ */
+export async function remoteIdsNeedingProxyAttach(
+  _stateDir: string,
+  _repoKey: string,
+  remoteIdsFromRegistry: string[],
+  alreadyAttached: ReadonlySet<string>,
+): Promise<string[]> {
+  return remoteIdsFromRegistry.filter((id) => !alreadyAttached.has(id));
+}
+
 /**
  * Authorization header value for a stored token, or undefined if missing.
  * `expired` is true when past expiry (before refresh). Prefer
