@@ -45,6 +45,14 @@ export type OauthHttpServerOptions = {
   fetchImpl?: typeof fetch;
   /** Override TLS paths (tests). */
   tls?: { cert: string; key: string } | null;
+  /**
+   * Called after tokens are stored. Host should drop live agent slots for
+   * `repoKey` so the next ensure rebuilds MCP with the new Bearer.
+   */
+  onAuthorized?: (info: {
+    id: string;
+    repoKey: string;
+  }) => void | Promise<void>;
 };
 
 export type OauthHttpServer = {
@@ -265,14 +273,27 @@ export async function startOauthHttpServer(
           id: result.id,
           repoKey: result.repoKey,
         });
+        if (options.onAuthorized) {
+          try {
+            await options.onAuthorized({
+              id: result.id,
+              repoKey: result.repoKey,
+            });
+          } catch (hookErr) {
+            log.warn("oauth onAuthorized hook failed", {
+              error:
+                hookErr instanceof Error ? hookErr.message : String(hookErr),
+            });
+          }
+        }
         send(
           res,
           200,
           htmlPage(
             "MCP authorized",
             `Gateway <code>${escapeHtml(result.id)}</code> is connected. ` +
-              `Return to Telegram — tokens are stored on the host (not in the repo). ` +
-              `Active on next session ensure / restart.`,
+              `Return to Telegram and send any message in the topic — ` +
+              `MCP reconnects with the new token automatically.`,
             true,
           ),
         );

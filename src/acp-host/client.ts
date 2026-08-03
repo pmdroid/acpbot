@@ -412,6 +412,7 @@ export function createAcpHostClient(
         ...(input.permissionMode
           ? { permissionMode: input.permissionMode }
           : {}),
+        ...(input.forceRespawn ? { forceRespawn: true } : {}),
       };
       const msg = await request({
         type: "ensure",
