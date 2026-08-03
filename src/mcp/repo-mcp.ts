@@ -28,12 +28,11 @@ import {
   type BuildAcpbotMcpServersOptions,
   type AcpbotMcpServer,
 } from "./servers";
-import { missingOAuthTokenMessage } from "./oauth-flow";
 import {
-  bearerForMcp,
-  repoKeyForOAuth,
-  resolveOAuthStateDir,
-} from "./oauth-store";
+  ensureFreshBearerForMcp,
+  missingOAuthTokenMessage,
+} from "./oauth-flow";
+import { repoKeyForOAuth, resolveOAuthStateDir } from "./oauth-store";
 import { resolveRepoConfigDir } from "../env/repo-config-dir";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
@@ -608,6 +607,7 @@ export async function applyOAuthTokensToServers(
     repoKey: string;
     failClosed?: boolean;
     log?: Logger;
+    fetchImpl?: typeof fetch;
   },
 ): Promise<SessionMcpServer[]> {
   const log = input.log ?? silentLogger();
@@ -620,7 +620,35 @@ export async function applyOAuthTokensToServers(
       continue;
     }
     const remote = s as AcpbotMcpRemoteServer;
-    const auth = await bearerForMcp(input.stateDir, input.repoKey, remote.name);
+    let auth:
+      | { value: string; refreshed: boolean; record: { id: string } }
+      | undefined;
+    try {
+      auth = await ensureFreshBearerForMcp(
+        input.stateDir,
+        input.repoKey,
+        remote.name,
+        {
+          log,
+          ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+        },
+      );
+    } catch (err) {
+      // Refresh failed (expired + no refresh, or provider rejected) — surface
+      // when fail-closed; otherwise leave remote without a Bearer and let the
+      // agent fail at call time with a clearer re-auth path.
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn("mcp oauth token refresh failed", {
+        id: remote.name,
+        repoKey: input.repoKey,
+        error: msg,
+      });
+      if (input.failClosed) {
+        throw new Error(msg);
+      }
+      out.push(remote);
+      continue;
+    }
     if (!auth) {
       if (input.failClosed) {
         throw new Error(missingOAuthTokenMessage(remote.name));
@@ -628,8 +656,8 @@ export async function applyOAuthTokensToServers(
       out.push(remote);
       continue;
     }
-    if (auth.expired) {
-      log.warn("mcp oauth token expired; using anyway (no refresh in MVP)", {
+    if (auth.refreshed) {
+      log.info("mcp oauth bearer refreshed for session", {
         id: remote.name,
         repoKey: input.repoKey,
       });

@@ -19,12 +19,16 @@ import {
   createPkcePair,
   exchangeAuthorizationCode,
   parseCallbackPayload,
+  refreshAccessToken,
   type TokenResponse,
 } from "./oauth-pkce";
 import {
   deletePendingForGateway,
   deletePendingOAuth,
+  formatBearerHeader,
+  isAccessTokenStale,
   pruneExpiredPendingOAuth,
+  readOAuthToken,
   readPendingOAuth,
   repoKeyForOAuth,
   resolveOAuthStateDir,
@@ -33,6 +37,8 @@ import {
   type McpOAuthPendingRecord,
   type McpOAuthTokenRecord,
 } from "./oauth-store";
+import type { Logger } from "../env/logger";
+import { silentLogger } from "../env/logger";
 
 export type StartMcpAuthInput = {
   /** Gateway id from mcp.json (e.g. "linear"). */
@@ -264,11 +270,200 @@ function tokenRecordFromResponse(
   }
   if (pending.resourceUrl) rec.resourceUrl = pending.resourceUrl;
   if (pending.clientId) rec.clientId = pending.clientId;
+  if (pending.tokenEndpoint) rec.tokenEndpoint = pending.tokenEndpoint;
+  if (pending.clientSecret) rec.clientSecret = pending.clientSecret;
   if (pending.authorizationServer) {
     rec.authorizationServer = pending.authorizationServer;
   }
   if (pending.mcpUrl) rec.mcpUrl = pending.mcpUrl;
   return rec;
+}
+
+/** Merge a refresh/token response onto an existing stored record. */
+export function mergeTokenResponse(
+  prev: McpOAuthTokenRecord,
+  tokens: TokenResponse,
+  now: number = Date.now(),
+): McpOAuthTokenRecord {
+  const expiresAt =
+    typeof tokens.expires_in === "number"
+      ? now + tokens.expires_in * 1000
+      : prev.expiresAt;
+  const rec: McpOAuthTokenRecord = {
+    ...prev,
+    accessToken: tokens.access_token,
+    tokenType: tokens.token_type || prev.tokenType || "Bearer",
+    updatedAt: now,
+  };
+  // Keep previous refresh_token when provider omits a new one (common).
+  if (tokens.refresh_token) {
+    rec.refreshToken = tokens.refresh_token;
+  } else if (prev.refreshToken) {
+    rec.refreshToken = prev.refreshToken;
+  }
+  if (expiresAt !== undefined) rec.expiresAt = expiresAt;
+  if (tokens.scope) rec.scope = tokens.scope;
+  return rec;
+}
+
+/** In-flight refreshes keyed by stateDir|repoKey|id (process-local). */
+const inflightRefresh = new Map<string, Promise<McpOAuthTokenRecord>>();
+
+function refreshKey(stateDir: string, repoKey: string, id: string): string {
+  return `${resolveOAuthStateDir(stateDir)}\0${repoKey}\0${id}`;
+}
+
+/**
+ * Resolve token endpoint for refresh: stored field, else re-discover via mcpUrl.
+ */
+export async function resolveTokenEndpointForRefresh(
+  record: McpOAuthTokenRecord,
+  opts?: { fetchImpl?: typeof fetch },
+): Promise<string> {
+  if (record.tokenEndpoint?.trim()) return record.tokenEndpoint.trim();
+  const mcpUrl = record.mcpUrl?.trim() || record.resourceUrl?.trim();
+  if (!mcpUrl) {
+    throw new Error(
+      `MCP "${record.id}" token expired and no tokenEndpoint/mcpUrl to refresh; run /mcp auth ${record.id}`,
+    );
+  }
+  const discovered = await discoverMcpOAuth(mcpUrl, {
+    ...(opts?.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  });
+  return discovered.tokenEndpoint;
+}
+
+/**
+ * Refresh a stored OAuth token when stale. Writes the new record to disk.
+ * Concurrent callers for the same id share one in-flight request.
+ */
+export async function refreshStoredOAuthToken(
+  stateDir: string,
+  repoKey: string,
+  id: string,
+  opts?: {
+    fetchImpl?: typeof fetch;
+    log?: Logger;
+    now?: number;
+    /** Force refresh even if not stale. */
+    force?: boolean;
+  },
+): Promise<McpOAuthTokenRecord> {
+  const abs = resolveOAuthStateDir(stateDir);
+  const key = refreshKey(abs, repoKey, id);
+  const existing = inflightRefresh.get(key);
+  if (existing) return existing;
+
+  const work = (async () => {
+    const log = opts?.log ?? silentLogger();
+    const now = opts?.now ?? Date.now();
+    const record = await readOAuthToken(abs, repoKey, id);
+    if (!record) {
+      throw new Error(missingOAuthTokenMessage(id));
+    }
+    if (!opts?.force && !isAccessTokenStale(record, now)) {
+      return record;
+    }
+    if (!record.refreshToken?.trim()) {
+      throw new Error(
+        `MCP "${id}" access token expired and no refresh_token stored; run /mcp auth ${id}`,
+      );
+    }
+    if (!record.clientId?.trim()) {
+      throw new Error(
+        `MCP "${id}" cannot refresh (missing client_id); run /mcp auth ${id}`,
+      );
+    }
+
+    let tokenEndpoint: string;
+    try {
+      tokenEndpoint = await resolveTokenEndpointForRefresh(record, {
+        ...(opts?.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `MCP "${id}" token refresh failed (no token endpoint): ${msg}`,
+      );
+    }
+
+    log.info("mcp oauth refreshing access token", { id, repoKey });
+
+    let tokens: TokenResponse;
+    try {
+      tokens = await refreshAccessToken({
+        tokenEndpoint,
+        refreshToken: record.refreshToken,
+        clientId: record.clientId,
+        ...(record.clientSecret ? { clientSecret: record.clientSecret } : {}),
+        ...(record.resourceUrl ? { resource: record.resourceUrl } : {}),
+        ...(record.scope ? { scope: record.scope } : {}),
+        ...(opts?.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // invalid_grant / revoked → operator must re-auth
+      throw new Error(
+        `MCP "${id}" token refresh failed: ${msg}. Run /mcp auth ${id}`,
+      );
+    }
+
+    const next = mergeTokenResponse(record, tokens, now);
+    // Persist resolved endpoint for next refresh (helps older records).
+    if (!next.tokenEndpoint) next.tokenEndpoint = tokenEndpoint;
+    await writeOAuthToken(abs, next);
+    log.info("mcp oauth access token refreshed", {
+      id,
+      repoKey,
+      expiresAt: next.expiresAt,
+    });
+    return next;
+  })();
+
+  inflightRefresh.set(key, work);
+  try {
+    return await work;
+  } finally {
+    inflightRefresh.delete(key);
+  }
+}
+
+/**
+ * Read token and refresh when stale. Returns Authorization header value.
+ */
+export async function ensureFreshBearerForMcp(
+  stateDir: string,
+  repoKey: string,
+  id: string,
+  opts?: {
+    fetchImpl?: typeof fetch;
+    log?: Logger;
+    now?: number;
+  },
+): Promise<
+  | { value: string; refreshed: boolean; record: McpOAuthTokenRecord }
+  | undefined
+> {
+  const abs = resolveOAuthStateDir(stateDir);
+  const now = opts?.now ?? Date.now();
+  let record = await readOAuthToken(abs, repoKey, id);
+  if (!record) return undefined;
+
+  let refreshed = false;
+  if (isAccessTokenStale(record, now)) {
+    record = await refreshStoredOAuthToken(abs, repoKey, id, {
+      ...(opts?.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+      ...(opts?.log ? { log: opts.log } : {}),
+      now,
+    });
+    refreshed = true;
+  }
+
+  return {
+    value: formatBearerHeader(record),
+    refreshed,
+    record,
+  };
 }
 
 /**

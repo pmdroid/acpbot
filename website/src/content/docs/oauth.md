@@ -105,6 +105,7 @@ If bind fails (port in use), **acp-host exits** with a clear error when `callbac
 3. Open the **tappable authorize URL** in Telegram (host does not open a browser)
 4. On callback, PKCE completes; Bearer tokens merge into remote MCP at ensure
 5. Pending PKCE expires after **15 minutes**
+6. **Access tokens auto-refresh** when stale (uses stored `refresh_token` + token endpoint). If refresh fails (`invalid_grant`, no refresh token), run `/mcp auth <id>` again.
 
 When `callback_base` is set, ensure **fail-closes** if a remote MCP has no token:
 
