@@ -24,6 +24,7 @@ import type { AcpbotConfig } from "../env/types";
 import {
   extractSessionModes,
   isEffortLikeModeId,
+  pickModeForPermissionPolicy,
   pickSessionModeId,
 } from "./session-mode";
 import {
@@ -983,15 +984,25 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       !isEffortLikeModeId(prior.modeId)
         ? prior.modeId
         : undefined;
+    const policy =
+      input.permissionMode === "bypass" ? "bypass" : "ask";
+    // Align agent session mode with acpbot ask|bypass (Claude auto → default, etc.)
     let modeId: string | undefined =
-      priorModeOk ??
-      modeView.currentModeId ??
-      (available.length > 0
-        ? // Grok builtin prefers default (agent), not "ask" from pickSessionModeId.
-          modeView.source === "grok.builtin"
-          ? "default"
-          : pickSessionModeId(available)
-        : undefined);
+      available.length > 0
+        ? modeView.source === "grok.builtin"
+          ? // Grok: default for ask; ask mode id is product "ask" not tool bypass
+            policy === "bypass"
+              ? pickModeForPermissionPolicy(available, "bypass", "default")
+              : "default"
+          : pickModeForPermissionPolicy(
+              available,
+              policy,
+              priorModeOk ?? modeView.currentModeId,
+            )
+        : undefined;
+    if (!modeId && available.length > 0) {
+      modeId = pickSessionModeId(available);
+    }
     if (available.length > 0 && modeId) {
       try {
         await connection.agent.request(acp.methods.agent.session.setMode, {
@@ -1004,6 +1015,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           sessionKey: input.sessionKey,
           modeId,
           source: modeView.source,
+          permissionPolicy: policy,
           available,
         });
       } catch (err) {

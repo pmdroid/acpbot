@@ -25,7 +25,20 @@ Commands are registered in `src/core/commands.ts`.
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
 | `/mode` | Session mode picker (plan/build/ask), or `/mode <id>` / toggle |
-| `/permissions` | Tool policy: `/permissions ask|bypass` (topic) or `default ask|bypass` (new topics). **ask** shows Telegram Allow/Reject for shell + file writes (Grok uses host terminal/fs; acpbot gates those in ask mode) |
+| `/permissions` | Tool policy: `/permissions ask|bypass` (topic) or `default ask|bypass` (new topics). See below. |
+
+### Permission mode vs agent tools
+
+| Agent | What **ask** does |
+|---|---|
+| **Grok** | Host gates **shell** + **file write** (Telegram Allow/Reject). Agent is not started with yolo. |
+| **Claude** | Session mode set to **`default`** (not `auto` / `bypassPermissions`). Writes that go through ACP still prompt; Claude may still auto-run some built-in tools. |
+| **Codex** | Session mode **`agent`** (not `agent-full-access`). Many Codex tools run inside the adapter and may not hit Telegram. |
+| **OpenCode** | Mode **`build`/`plan`** only; tools often run in-process without ACP `request_permission`. |
+
+**bypass** maps to agent auto-approve modes (`bypassPermissions` / `agent-full-access` / Grok yolo) and skips host-side gates.
+
+To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.txt`”* — Grok should show a permission keyboard; Claude should at least for write when using host fs.
 | `/plan` | Switch to plan mode (read-only-ish) |
 | `/build` | Switch to build/code mode (tools on) |
 | `/skills` | Pick a skill, then send a prompt |

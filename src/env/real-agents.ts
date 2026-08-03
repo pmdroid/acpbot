@@ -22,11 +22,18 @@ import {
   resolveAcpHostSockPath,
 } from "../acp-host/client";
 import {
+  isAutoApproveAgentMode,
+  pickModeForPermissionPolicy,
   pickSessionModeId,
   pickReadOnlyModeId,
 } from "../acp/session-mode";
 
-export { pickSessionModeId, pickReadOnlyModeId };
+export {
+  pickSessionModeId,
+  pickReadOnlyModeId,
+  pickModeForPermissionPolicy,
+  isAutoApproveAgentMode,
+};
 
 export type RealAgentsOptions = {
   config: AcpbotConfig;

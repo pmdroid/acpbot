@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isAutoApproveAgentMode,
+  pickModeForPermissionPolicy,
   pickReadOnlyModeId,
   pickSessionModeId,
   realAgents,
@@ -20,6 +22,42 @@ describe("pickSessionModeId", () => {
       "read-only",
     );
     expect(pickReadOnlyModeId([])).toBe("read-only");
+  });
+});
+
+describe("pickModeForPermissionPolicy", () => {
+  const claude = [
+    "auto",
+    "default",
+    "acceptEdits",
+    "plan",
+    "dontAsk",
+    "bypassPermissions",
+  ];
+  const codex = ["read-only", "agent", "agent-full-access"];
+
+  test("ask moves Claude off auto to default", () => {
+    expect(pickModeForPermissionPolicy(claude, "ask", "auto")).toBe("default");
+    expect(isAutoApproveAgentMode("auto")).toBe(true);
+    expect(isAutoApproveAgentMode("default")).toBe(false);
+  });
+
+  test("bypass picks Claude bypassPermissions", () => {
+    expect(pickModeForPermissionPolicy(claude, "bypass", "auto")).toBe(
+      "bypassPermissions",
+    );
+  });
+
+  test("ask picks Codex agent not agent-full-access", () => {
+    expect(pickModeForPermissionPolicy(codex, "ask", "agent-full-access")).toBe(
+      "agent",
+    );
+  });
+
+  test("bypass picks Codex agent-full-access", () => {
+    expect(pickModeForPermissionPolicy(codex, "bypass", "agent")).toBe(
+      "agent-full-access",
+    );
   });
 });
 
