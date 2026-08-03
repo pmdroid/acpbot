@@ -93,7 +93,7 @@ Run:
 ```bash
 acpbot host      # serves GET /oauth/callback when callback_base is set
 acpbot worker    # same config.toml / state_dir
-# from source: bun run acp-host · bun run start
+# from source: acpbot host · acpbot worker
 ```
 
 If bind fails (port in use), **acp-host exits** with a clear error when `callback_base` is set. Free the port or use the paste fallback below.

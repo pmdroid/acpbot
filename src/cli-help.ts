@@ -1,6 +1,7 @@
 import { pairCliHelp } from "./setup/pair-cli";
 import { repoCliHelp } from "./setup/repo-cli";
 import { serviceCliHelp } from "./setup/service-cli";
+import { skillsCliHelp } from "./setup/skills-cli";
 
 /** Top-level help for the unified `acpbot` binary. */
 export function acpbotCliHelp(): string {
@@ -17,6 +18,7 @@ Setup & config:
   acpbot setup                Guided setup TUI
   acpbot repo                 Manage workspace repos (folder browser)
   acpbot pair …               Operator pairing (see below)
+  acpbot skills install       Install telegram + schedules into global agent dirs
 
 Services (background LaunchAgent / systemd):
   acpbot install|start|stop|restart|status|uninstall
@@ -32,6 +34,8 @@ Typical local run:
 ${repoCliHelp()}
 
 ${pairCliHelp()}
+
+${skillsCliHelp()}
 
 ${serviceCliHelp()}`;
 }

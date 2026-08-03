@@ -59,7 +59,7 @@ Start the API by starting the worker:
 
 ```bash
 acpbot              # binary
-# or from source: bun run start
+# or from source: acpbot worker
 # logs: acpbot worker API: unix://…/worker-api.sock
 ```
 

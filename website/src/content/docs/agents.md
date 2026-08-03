@@ -151,17 +151,17 @@ Setting uses ACP `session/set_mode` or `session/set_config_option` as appropriat
 
 ## Skills
 
-acpbot ships **telegram** and **schedules** under package [`skills/`](https://github.com/pmdroid/acpbot/tree/main/skills). Binary installs use Telegram **`/skills`** in a topic; no Bun step required.
-
-From a source checkout only, optionally install into global agent dirs so CLIs see them outside Telegram:
+acpbot ships **telegram** and **schedules**. Install globally so every agent CLI sees them:
 
 ```bash
-bun run skills:install   # once — not on every worker start
+acpbot skills install   # once — not on every worker start
 ```
+
+Works from the release binary (skills are embedded). Telegram **`/skills`** also discovers them without a global install.
 
 `/skills` (topic) discovers collections from:
 
-- Package `skills/` (always on `skillRoots`)
+- Bundled skills root (package `skills/` or materialised under `~/.local/share/acpbot/bundled-skills/`)
 - Session cwd (`.agents/skills`, `.grok/skills`, …)
 - `[skills].roots` / `ACPBOT_SKILL_ROOTS` (extra dirs)
 - Defaults under `$HOME`: `.grok/skills`, `.grok/bundled/skills`, `.agents/skills`, `.claude/skills`

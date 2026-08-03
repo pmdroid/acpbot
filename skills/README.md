@@ -11,10 +11,12 @@ Operator skills shipped with acpbot and installed **globally** for coding agents
 ## Install
 
 ```bash
-bun run skills:install
+acpbot skills install
 ```
 
-Run after clone or skill upgrades. Worker boot does **not** install skills.
+Works from the **release binary** (skills are embedded) and from a source
+checkout (uses package `skills/`). Run after setup or skill upgrades.
+Worker boot does **not** install skills.
 
 Installs (symlink preferred, copy fallback) into:
 
@@ -22,4 +24,5 @@ Installs (symlink preferred, copy fallback) into:
 - `~/.grok/skills/`
 - `~/.claude/skills/`
 
-Canonical source of truth: this directory in the acpbot package.
+Binary materialises skills under `~/.local/share/acpbot/bundled-skills/` when
+the package tree is not on disk.

@@ -37,7 +37,7 @@ Optional scripts (relative to repo root):
 - The `timezone` field is stored (non-UTC values may warn on create) but does **not** shift the schedule yet
 - When both day-of-month and day-of-week are restricted, classic cron **OR** applies (either may match)
 
-## Host fire (`acpbot host` / `bun run acp-host`)
+## Host fire (`acpbot host`)
 
 Requirements:
 
@@ -61,7 +61,7 @@ Each tick:
 
 Works without the Telegram worker (create/list/cancel only need MCP). Firing needs **acp-host**. Delivering Telegram photos/files from a fire needs the **worker** (worker API).
 
-Agent skill: package [`skills/schedules`](https://github.com/pmdroid/acpbot/blob/main/skills/schedules/SKILL.md) — use Telegram `/skills`, or from a source checkout `bun run skills:install` (see [Skills](/docs/skills)).
+Agent skill: package [`skills/schedules`](https://github.com/pmdroid/acpbot/blob/main/skills/schedules/SKILL.md) — use Telegram `/skills`, or `acpbot skills install` (see [Skills](/docs/skills)).
 
 ## Implementation map
 

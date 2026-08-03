@@ -12,18 +12,15 @@ acpbot ships two **operator skills** for coding agents (Grok, Claude, Codex, …
 | **telegram** | [`skills/telegram/SKILL.md`](https://github.com/pmdroid/acpbot/blob/main/skills/telegram/SKILL.md) | Progress pings, mid-turn text, photos, files, voice via host MCP `acpbot` |
 | **schedules** | [`skills/schedules/SKILL.md`](https://github.com/pmdroid/acpbot/blob/main/skills/schedules/SKILL.md) | Create / list / cancel / fire delayed or recurring jobs |
 
-The package tree is the source of truth. Telegram **`/skills`** always discovers the bundled collection when present; you do **not** need a source checkout for that.
+Skills are **embedded in the release binary**. Telegram **`/skills`** discovers them automatically. Install globally so agent CLIs also see them in every workspace.
 
-## Global install (from source / optional)
-
-So agent CLIs (Grok, Claude, …) also see the skills in every workspace, install them into global skill dirs **once** after cloning the repo (or upgrading skills):
+## Install
 
 ```bash
-# from a git checkout — not required for binary operators
-bun run skills:install
+acpbot skills install
 ```
 
-The **worker does not** install skills on boot.
+Run after setup or skill upgrades. The **worker does not** install skills on boot.
 
 Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already an acpbot skill symlink:
 
@@ -31,12 +28,14 @@ Install targets (symlink preferred, copy fallback). Never overwrites a real dire
 - `~/.grok/skills/{telegram,schedules}`
 - `~/.claude/skills/{telegram,schedules}`
 
+Binary installs materialise skills under `~/.local/share/acpbot/bundled-skills/` when the package tree is not on disk.
+
 ## Discovery
 
 | Path | Who uses it |
 |---|---|
-| Package `skills/` | Always on `skillRoots` for Telegram `/skills` |
-| `~/.agents/skills`, `~/.grok/skills`, `~/.claude/skills` | Global agent CLIs after install |
+| Bundled root (package or materialised) | Always on `skillRoots` for Telegram `/skills` |
+| `~/.agents/skills`, `~/.grok/skills`, `~/.claude/skills` | Global agent CLIs after `acpbot skills install` |
 | Session cwd `.agents/skills` (etc.) | Per-repo overrides |
 
 Extra roots: `[skills].roots` in `config.toml`, or env `ACPBOT_SKILL_ROOTS` (colon / semicolon / comma separated). See [Configuration](/docs/configuration).

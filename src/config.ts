@@ -21,6 +21,7 @@ import {
 } from "./env/speech";
 import { parsePermissionMode } from "./acp/permission-mode";
 import { normalizeOauthCallbackBase } from "./mcp/oauth-flow";
+import { ensureBundledSkillsRoot } from "./core/bundled-skills";
 
 export type ProcessConfig = AcpbotConfig & {
   botToken: string;
@@ -573,9 +574,9 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   }
   if (repos && Object.keys(repos).length > 0) config.repos = repos;
 
-  // Skills
+  // Skills — package skills/ or materialised embedded skills (binary)
   const skillRoots: string[] = [];
-  skillRoots.push(join(import.meta.dir, "..", "skills"));
+  skillRoots.push(ensureBundledSkillsRoot(env));
   if (Array.isArray(file.skillRoots)) {
     for (const p of file.skillRoots) {
       if (typeof p === "string" && p.trim()) {

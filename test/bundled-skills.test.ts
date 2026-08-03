@@ -103,4 +103,24 @@ describe("bundled skills", () => {
       roots.some((r) => r.endsWith("/skills") || r.endsWith("\\skills")),
     ).toBe(true);
   });
+
+  test("ensureBundledSkillsRoot materialises embedded skills when package missing", async () => {
+    const {
+      ensureBundledSkillsRoot,
+      materializeEmbeddedSkillsSync,
+      defaultBundledSkillsDir,
+    } = await import("../src/core/bundled-skills");
+    const home = await mkdtemp(join(tmpdir(), "acpbot-embed-skills-"));
+    const env = { HOME: home, XDG_DATA_HOME: join(home, "share") };
+    const dest = defaultBundledSkillsDir(env);
+    // Point fromDir at empty tree so package skills/ is not used
+    const fakeCore = await mkdtemp(join(tmpdir(), "acpbot-fake-core-"));
+    materializeEmbeddedSkillsSync(dest);
+    const root = ensureBundledSkillsRoot(env, fakeCore);
+    expect(root).toBe(dest);
+    const tg = await Bun.file(join(dest, "telegram", "SKILL.md")).text();
+    expect(tg).toContain("name: telegram");
+    await rm(home, { recursive: true, force: true });
+    await rm(fakeCore, { recursive: true, force: true });
+  });
 });

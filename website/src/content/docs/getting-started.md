@@ -102,6 +102,12 @@ acpbot repo add demo ~/code/demo
 # host/worker hot-reload [repos]; restart worker only if needed
 ```
 
+Optional — install **telegram** / **schedules** skills into global agent dirs so Grok/Claude/… see them outside Telegram:
+
+```bash
+acpbot skills install
+```
+
 Background service paths: [Configuration](/docs/configuration#background-services-host--worker).
 
 ## 4. Pair as operator
@@ -192,15 +198,19 @@ Full provider options: [Configuration](/docs/configuration#speech-tts--stt-provi
 
 ## From source (developers only)
 
-Binary installs do not need Bun. For contributors:
+Binary installs do not need Bun. For contributors, build or run via Bun, but
+**all operator commands stay `acpbot`**:
 
 ```bash
 git clone https://github.com/pmdroid/acpbot.git
 cd acpbot
 bun install
-bun run skills:install   # optional — global agent skills
-bun run acp-host         # terminal 1  (= acpbot host)
-bun run start            # terminal 2  (= acpbot worker)
+bun run build:compile    # → dist/acpbot
+# or during dev: bun run src/main.ts <command>
+
+acpbot skills install    # global agent skills
+acpbot host              # terminal 1
+acpbot worker            # terminal 2
 ```
 
 ```bash
