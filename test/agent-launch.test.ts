@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   agentDisplayName,
+  agentSelectOptions,
   isAgentAvailable,
   listKnownAgentIds,
   listRegisteredAgents,
@@ -185,6 +186,43 @@ describe("listRegisteredAgents availability", () => {
     expect(requiredBinsForAgent("claude")).toEqual(["npx", "claude"]);
     expect(isAgentAvailable("opencode", { which })).toBe(true);
     expect(isAgentAvailable("codex", { which })).toBe(false);
+  });
+
+  test("agentSelectOptions only lists PATH-available agents", () => {
+    const whichLocal: WhichFn = (cmd) =>
+      cmd === "grok" || cmd === "opencode" ? `/usr/bin/${cmd}` : null;
+    const pick = agentSelectOptions({ which: whichLocal });
+    expect(pick.noneInstalled).toBe(false);
+    expect(pick.agents).toEqual(["grok-build", "opencode"]);
+    expect(pick.options.map((o) => o.value)).toEqual([
+      "grok-build",
+      "opencode",
+    ]);
+    expect(pick.options[0]!.label).toBe("Grok Build");
+    expect(pick.options[1]!.label).toBe("OpenCode");
+    // Claude/Codex need npx+cli — absent
+    expect(pick.agents).not.toContain("claude");
+    expect(pick.agents).not.toContain("codex");
+  });
+
+  test("agentSelectOptions noneInstalled when PATH empty", () => {
+    const pick = agentSelectOptions({ which: () => null });
+    expect(pick.noneInstalled).toBe(true);
+    expect(pick.agents).toEqual([]);
+    expect(pick.options).toEqual([]);
+  });
+
+  test("agentSelectOptions availableOnly false shows full registry", () => {
+    const pick = agentSelectOptions({
+      which: () => null,
+      availableOnly: false,
+    });
+    expect(pick.noneInstalled).toBe(false);
+    expect(pick.agents).toContain("grok-build");
+    expect(pick.agents).toContain("claude");
+    expect(pick.options.some((o) => o.hint.includes("not on PATH"))).toBe(
+      true,
+    );
   });
 
   test("no duplicates under real PATH", () => {

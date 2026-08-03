@@ -39,6 +39,11 @@ import {
   isDarwinPlatform,
   openFullDiskAccessSettings,
 } from "./macos-fda";
+import {
+  agentSelectOptions,
+  listKnownAgentIds,
+  normalizeAgentName as normalizeAgentId,
+} from "../acp/agent-launch";
 
 export type GuidedSetupResult = {
   configPath: string;
@@ -475,7 +480,7 @@ export async function runGuidedSetupTui(
         "",
         "Prereqs:",
         "  • Telegram bot from @BotFather (topics in private chats)",
-        "  • Agent CLI on PATH: grok · claude · codex · opencode",
+        "  • At least one agent CLI on PATH (detected next step)",
         "  • Optional: OpenAI / ElevenLabs keys for voice",
         "",
         "Re-run anytime: acpbot setup",
@@ -514,20 +519,62 @@ export async function runGuidedSetupTui(
     botToken = String(entered).trim();
   }
 
-  // ── Agent ─────────────────────────────────────────────────────────────
+  // ── Agent (PATH-detected only) ────────────────────────────────────────
   p.log.step("Agent");
+
+  let agentPick = agentSelectOptions();
+  if (agentPick.noneInstalled) {
+    const known = listKnownAgentIds();
+    p.note(
+      [
+        "No agent CLIs found on PATH.",
+        "",
+        "Install at least one, then re-run setup (or show the full list):",
+        ...known.map((id) => `  • ${id}`),
+        "",
+        "Claude and Codex also need `npx` (Node).",
+      ].join("\n"),
+      "No agents installed",
+    );
+    const showAll = await p.confirm({
+      message: "Show all agents anyway? (launch will fail until the CLI is installed)",
+      initialValue: false,
+    });
+    if (cancelled(showAll)) abort();
+    if (!showAll) {
+      p.cancel("Install an agent CLI, then run: acpbot setup");
+      process.exit(0);
+    }
+    agentPick = agentSelectOptions({ availableOnly: false });
+  } else {
+    p.note(
+      `Found on PATH: ${agentPick.agents.join(", ")}`,
+      "Installed agents",
+    );
+  }
+
+  const currentAgent = existing?.defaultAgent
+    ? normalizeAgentId(existing.defaultAgent)
+    : undefined;
+  const initialAgent =
+    (currentAgent && agentPick.agents.includes(currentAgent)
+      ? currentAgent
+      : undefined) ??
+    agentPick.agents[0] ??
+    "grok-build";
+
+  if (currentAgent && !agentPick.agents.includes(currentAgent)) {
+    p.log.warn(
+      `Current default \`${currentAgent}\` is not among the listed agents — pick a new default.`,
+    );
+  }
 
   const agent = await p.select({
     message: reconfigure
-      ? `Default coding agent (current: ${existing?.defaultAgent ?? "grok-build"})`
+      ? `Default coding agent (current: ${existing?.defaultAgent ?? initialAgent})`
       : "Default coding agent",
-    options: [
-      { value: "grok-build", label: "Grok Build", hint: "grok agent stdio" },
-      { value: "claude", label: "Claude", hint: "claude-agent-acp" },
-      { value: "codex", label: "Codex", hint: "codex-acp" },
-      { value: "opencode", label: "OpenCode", hint: "opencode acp" },
-    ],
-    initialValue: existing?.defaultAgent ?? "grok-build",
+    options: agentPick.options,
+    initialValue: initialAgent,
   });
   if (cancelled(agent)) abort();
   const defaultAgent = normalizeAgentName(String(agent));

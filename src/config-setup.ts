@@ -27,6 +27,10 @@ import {
   type ProcessConfig,
   configPathFromArgv,
 } from "./config";
+import {
+  agentSelectOptions,
+  listKnownAgentIds,
+} from "./acp/agent-launch";
 
 const PLACEHOLDER_TOKEN = "REPLACE_ME";
 
@@ -269,8 +273,7 @@ export async function runFirstRunSetup(
             : `\n`) +
           `Prereqs:\n` +
           `  • @BotFather → bot token + topics in private chats\n` +
-          `  • Optional: your Telegram user id (@userinfobot)\n` +
-          `  • Agent CLI on PATH (grok / claude / codex / opencode)\n\n`,
+          `  • Agent CLI on PATH (detected below)\n\n`,
       );
 
       let botToken = "";
@@ -293,13 +296,49 @@ export async function runFirstRunSetup(
         }
       }
 
-      const agentDefault = existing?.defaultAgent || "grok-build";
+      let agentPick = agentSelectOptions();
+      if (agentPick.noneInstalled) {
+        stdout.write(
+          "\nNo agent CLIs found on PATH. Install one of:\n" +
+            listKnownAgentIds()
+              .map((id) => `  • ${id}`)
+              .join("\n") +
+            "\n\n",
+        );
+        const force = (
+          await ask(rl, "Show all agents anyway? (y/N)", "n")
+        ).toLowerCase();
+        if (force === "y" || force === "yes") {
+          agentPick = agentSelectOptions({ availableOnly: false });
+        } else {
+          throw new Error(
+            "No agent CLIs on PATH. Install grok/claude/codex/opencode, then re-run acpbot setup.",
+          );
+        }
+      } else {
+        stdout.write(
+          `\nInstalled agents: ${agentPick.agents.join(", ")}\n`,
+        );
+      }
+      const agentDefault =
+        (existing?.defaultAgent &&
+        agentPick.agents.includes(normalizeAgentName(existing.defaultAgent))
+          ? normalizeAgentName(existing.defaultAgent)
+          : undefined) ??
+        agentPick.agents[0] ??
+        "grok-build";
       const agentRaw = await ask(
         rl,
-        "Default agent (grok-build | claude | codex | opencode)",
+        `Default agent (${agentPick.agents.join(" | ")})`,
         agentDefault,
       );
-      const defaultAgent = normalizeAgentName(agentRaw || "grok-build");
+      let defaultAgent = normalizeAgentName(agentRaw || agentDefault);
+      if (!agentPick.agents.includes(defaultAgent)) {
+        stdout.write(
+          `  Unknown or unavailable agent \`${defaultAgent}\` — using ${agentDefault}.\n`,
+        );
+        defaultAgent = agentDefault;
+      }
 
       const existingRepos = existing?.repos
         ? Object.entries(existing.repos)

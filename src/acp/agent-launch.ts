@@ -399,3 +399,73 @@ export function listRegisteredAgents(
   }
   return sortAgentIds(ids);
 }
+
+/** Title-case labels for setup / status (canonical id still used for launch). */
+const SETUP_LABELS: Record<string, string> = {
+  "grok-build": "Grok Build",
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
+
+/** Human label for setup pickers (e.g. grok-build → Grok Build). */
+export function agentSetupLabel(agentId: string): string {
+  const id = normalizeAgentName(agentId);
+  return SETUP_LABELS[id] ?? agentDisplayName(id);
+}
+
+/**
+ * Select-menu options for setup / CLI: one entry per installed agent.
+ * `noneInstalled` is true when PATH has no known agent CLIs (caller may
+ * re-call with `availableOnly: false` after confirmation).
+ */
+export function agentSelectOptions(
+  envOrOptions: NodeJS.ProcessEnv | ListAgentsOptions = process.env,
+): {
+  agents: string[];
+  options: Array<{ value: string; label: string; hint: string }>;
+  noneInstalled: boolean;
+} {
+  const options: ListAgentsOptions =
+    envOrOptions &&
+    typeof envOrOptions === "object" &&
+    ("env" in envOrOptions ||
+      "which" in envOrOptions ||
+      "availableOnly" in envOrOptions)
+      ? (envOrOptions as ListAgentsOptions)
+      : { env: envOrOptions as NodeJS.ProcessEnv };
+
+  const env = options.env ?? process.env;
+  const agents = listRegisteredAgents(options);
+  const forceAll =
+    options.availableOnly === false ||
+    env.ACPBOT_AGENTS_ALL === "1" ||
+    env.ACPBOT_AGENTS_ALL === "true";
+
+  return {
+    agents,
+    noneInstalled: agents.length === 0 && !forceAll,
+    options: agents.map((id) => {
+      const launch = resolveAgentLaunch(id, env);
+      const cmd = [launch.command, ...launch.args].join(" ");
+      const bins = requiredBinsForAgent(id, env);
+      const pathHint =
+        bins.length > 0
+          ? bins
+              .map((b) => {
+                const which = options.which ?? defaultWhich;
+                const abs = which(b);
+                return abs ? `${b} ✓` : `${b} ✗`;
+              })
+              .join(" · ")
+          : cmd;
+      return {
+        value: id,
+        label: agentSetupLabel(id),
+        hint: forceAll && !isAgentAvailable(id, options)
+          ? `not on PATH · ${cmd}`
+          : pathHint || cmd,
+      };
+    }),
+  };
+}
