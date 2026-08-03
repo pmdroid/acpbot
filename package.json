@@ -25,7 +25,9 @@
     "docker:down": "docker compose down",
     "website:dev": "cd website && bun run dev",
     "website:build": "cd website && bun install && bun run build",
-    "website:preview": "cd website && bun run preview"
+    "website:preview": "cd website && bun run preview",
+    "website:deploy": "npx wrangler pages deploy",
+    "deploy": "npx wrangler pages deploy"
   },
   "license": "MIT",
   "dependencies": {
