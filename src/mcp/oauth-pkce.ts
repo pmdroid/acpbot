@@ -106,29 +106,13 @@ export type ExchangeCodeInput = {
   fetchImpl?: typeof fetch;
 };
 
-/**
- * Exchange authorization code for tokens (authorization_code + PKCE).
- * Throws on non-2xx or missing access_token.
- */
-export async function exchangeAuthorizationCode(
-  input: ExchangeCodeInput,
+async function postTokenEndpoint(
+  tokenEndpoint: string,
+  body: URLSearchParams,
+  fetchImpl?: typeof fetch,
 ): Promise<TokenResponse> {
-  const fetchFn = input.fetchImpl ?? fetch;
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: input.code,
-    redirect_uri: input.redirectUri,
-    client_id: input.clientId,
-    code_verifier: input.codeVerifier,
-  });
-  if (input.clientSecret) {
-    body.set("client_secret", input.clientSecret);
-  }
-  if (input.resource?.trim()) {
-    body.set("resource", input.resource.trim());
-  }
-
-  const res = await fetchFn(input.tokenEndpoint, {
+  const fetchFn = fetchImpl ?? fetch;
+  const res = await fetchFn(tokenEndpoint, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -174,6 +158,65 @@ export async function exchangeAuthorizationCode(
   }
   if (typeof parsed.scope === "string") out.scope = parsed.scope;
   return out;
+}
+
+/**
+ * Exchange authorization code for tokens (authorization_code + PKCE).
+ * Throws on non-2xx or missing access_token.
+ */
+export async function exchangeAuthorizationCode(
+  input: ExchangeCodeInput,
+): Promise<TokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: input.code,
+    redirect_uri: input.redirectUri,
+    client_id: input.clientId,
+    code_verifier: input.codeVerifier,
+  });
+  if (input.clientSecret) {
+    body.set("client_secret", input.clientSecret);
+  }
+  if (input.resource?.trim()) {
+    body.set("resource", input.resource.trim());
+  }
+  return postTokenEndpoint(input.tokenEndpoint, body, input.fetchImpl);
+}
+
+export type RefreshTokenInput = {
+  tokenEndpoint: string;
+  refreshToken: string;
+  clientId: string;
+  clientSecret?: string;
+  /** RFC 8707 resource indicator (MCP OAuth). */
+  resource?: string;
+  scope?: string;
+  fetchImpl?: typeof fetch;
+};
+
+/**
+ * Refresh an access token (grant_type=refresh_token).
+ * Throws on non-2xx or missing access_token.
+ * When the response omits refresh_token, callers should keep the previous one.
+ */
+export async function refreshAccessToken(
+  input: RefreshTokenInput,
+): Promise<TokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken,
+    client_id: input.clientId,
+  });
+  if (input.clientSecret) {
+    body.set("client_secret", input.clientSecret);
+  }
+  if (input.resource?.trim()) {
+    body.set("resource", input.resource.trim());
+  }
+  if (input.scope?.trim()) {
+    body.set("scope", input.scope.trim());
+  }
+  return postTokenEndpoint(input.tokenEndpoint, body, input.fetchImpl);
 }
 
 /**

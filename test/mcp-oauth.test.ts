@@ -10,10 +10,12 @@ import {
   createPkcePair,
   generateCodeVerifier,
   parseCallbackPayload,
+  refreshAccessToken,
 } from "../src/mcp/oauth-pkce";
 import {
   assertNotRepoPath,
   bearerForMcp,
+  isAccessTokenStale,
   isPendingExpired,
   oauthStorePaths,
   PENDING_OAUTH_TTL_MS,
@@ -27,7 +29,10 @@ import {
 import {
   completeMcpOAuthCallback,
   completeMcpOAuthFromPaste,
+  ensureFreshBearerForMcp,
+  mergeTokenResponse,
   missingOAuthTokenMessage,
+  refreshStoredOAuthToken,
   startMcpOAuth,
 } from "../src/mcp/oauth-flow";
 import {
@@ -287,6 +292,7 @@ describe("oauth callback state validation", () => {
       expect(result.id).toBe("linear");
       expect(result.record.accessToken).toBe("access-xyz");
       expect(result.record.refreshToken).toBe("refresh-xyz");
+      expect(result.record.tokenEndpoint).toBe("https://auth.example/token");
 
       // pending consumed
       await expect(
@@ -301,6 +307,214 @@ describe("oauth callback state validation", () => {
       // token not under repo
       expect(result.tokenPath.startsWith(state)).toBe(true);
       expect(result.tokenPath.includes(repo)).toBe(false);
+    });
+  });
+
+  test("refreshAccessToken posts grant_type=refresh_token", async () => {
+    const fetchImpl: typeof fetch = async (input, init) => {
+      expect(String(input)).toBe("https://auth.example/token");
+      const body = String(init?.body ?? "");
+      expect(body).toContain("grant_type=refresh_token");
+      expect(body).toContain("refresh_token=rt-old");
+      expect(body).toContain("client_id=acpbot");
+      expect(body).toContain("resource=");
+      return new Response(
+        JSON.stringify({
+          access_token: "access-new",
+          token_type: "Bearer",
+          expires_in: 1800,
+          // no new refresh_token — client must keep previous
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const tokens = await refreshAccessToken({
+      tokenEndpoint: "https://auth.example/token",
+      refreshToken: "rt-old",
+      clientId: "acpbot",
+      resource: "https://mcp.example/linear",
+      fetchImpl,
+    });
+    expect(tokens.access_token).toBe("access-new");
+    expect(tokens.refresh_token).toBeUndefined();
+    expect(tokens.expires_in).toBe(1800);
+  });
+
+  test("mergeTokenResponse keeps previous refresh_token when omitted", () => {
+    const prev = {
+      id: "linear",
+      repoKey: "demo",
+      accessToken: "old",
+      tokenType: "Bearer",
+      refreshToken: "rt-keep",
+      expiresAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const next = mergeTokenResponse(
+      prev,
+      { access_token: "new", token_type: "Bearer", expires_in: 60 },
+      1000,
+    );
+    expect(next.accessToken).toBe("new");
+    expect(next.refreshToken).toBe("rt-keep");
+    expect(next.expiresAt).toBe(1000 + 60_000);
+  });
+
+  test("isAccessTokenStale respects skew window", () => {
+    const now = 1_000_000;
+    expect(isAccessTokenStale({ expiresAt: now + 30_000 }, now)).toBe(true);
+    expect(isAccessTokenStale({ expiresAt: now + 120_000 }, now)).toBe(false);
+    expect(isAccessTokenStale({}, now)).toBe(false);
+  });
+
+  test("refreshStoredOAuthToken updates disk when stale", async () => {
+    await withTempDirs(async ({ state }) => {
+      const past = Date.now() - 60_000;
+      await writeOAuthToken(state, {
+        id: "linear",
+        repoKey: "demo",
+        accessToken: "stale-access",
+        tokenType: "Bearer",
+        refreshToken: "rt-1",
+        expiresAt: past,
+        clientId: "acpbot",
+        tokenEndpoint: "https://auth.example/token",
+        resourceUrl: "https://mcp.example/linear",
+        createdAt: past - 3600_000,
+        updatedAt: past - 3600_000,
+      });
+
+      let posts = 0;
+      const fetchImpl: typeof fetch = async (_input, init) => {
+        posts++;
+        const body = String(init?.body ?? "");
+        expect(body).toContain("grant_type=refresh_token");
+        expect(body).toContain("refresh_token=rt-1");
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            token_type: "Bearer",
+            expires_in: 3600,
+            refresh_token: "rt-2",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      };
+
+      const rec = await refreshStoredOAuthToken(state, "demo", "linear", {
+        fetchImpl,
+      });
+      expect(rec.accessToken).toBe("fresh-access");
+      expect(rec.refreshToken).toBe("rt-2");
+      expect(posts).toBe(1);
+
+      const disk = await readOAuthToken(state, "demo", "linear");
+      expect(disk?.accessToken).toBe("fresh-access");
+      expect(disk?.refreshToken).toBe("rt-2");
+      expect(disk?.expiresAt).toBeGreaterThan(Date.now());
+    });
+  });
+
+  test("ensureFreshBearerForMcp refreshes before attach", async () => {
+    await withTempDirs(async ({ state }) => {
+      const past = Date.now() - 1;
+      await writeOAuthToken(state, {
+        id: "linear",
+        repoKey: "demo",
+        accessToken: "old",
+        tokenType: "Bearer",
+        refreshToken: "rt",
+        expiresAt: past,
+        clientId: "cli",
+        tokenEndpoint: "https://auth.example/token",
+        createdAt: past,
+        updatedAt: past,
+      });
+
+      const fetchImpl: typeof fetch = async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "new-token",
+            token_type: "Bearer",
+            expires_in: 7200,
+          }),
+          { status: 200 },
+        );
+
+      const auth = await ensureFreshBearerForMcp(state, "demo", "linear", {
+        fetchImpl,
+      });
+      expect(auth?.value).toBe("Bearer new-token");
+      expect(auth?.refreshed).toBe(true);
+      // Kept previous refresh when omitted
+      expect(auth?.record.refreshToken).toBe("rt");
+    });
+  });
+
+  test("refresh fails clearly when no refresh_token", async () => {
+    await withTempDirs(async ({ state }) => {
+      await writeOAuthToken(state, {
+        id: "linear",
+        repoKey: "demo",
+        accessToken: "old",
+        tokenType: "Bearer",
+        expiresAt: Date.now() - 1,
+        clientId: "cli",
+        tokenEndpoint: "https://auth.example/token",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await expect(
+        refreshStoredOAuthToken(state, "demo", "linear"),
+      ).rejects.toThrow(/no refresh_token|run \/mcp auth/i);
+    });
+  });
+
+  test("applyOAuthTokensToServers refreshes expired token", async () => {
+    await withTempDirs(async ({ state }) => {
+      await writeOAuthToken(state, {
+        id: "linear",
+        repoKey: "demo",
+        accessToken: "expired-tok",
+        tokenType: "Bearer",
+        refreshToken: "rt",
+        expiresAt: Date.now() - 5_000,
+        clientId: "cli",
+        tokenEndpoint: "https://auth.example/token",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const fetchImpl: typeof fetch = async () =>
+        new Response(
+          JSON.stringify({
+            access_token: "refreshed-tok",
+            token_type: "Bearer",
+            expires_in: 3600,
+          }),
+          { status: 200 },
+        );
+      const servers: AcpbotMcpRemoteServer[] = [
+        {
+          type: "http",
+          name: "linear",
+          url: "https://mcp.example/linear",
+          headers: [],
+        },
+      ];
+      const out = await applyOAuthTokensToServers(servers, {
+        stateDir: state,
+        repoKey: "demo",
+        failClosed: true,
+        fetchImpl,
+      });
+      const remote = out[0] as AcpbotMcpRemoteServer;
+      expect(remote.headers).toContainEqual({
+        name: "Authorization",
+        value: "Bearer refreshed-tok",
+      });
+      const disk = await readOAuthToken(state, "demo", "linear");
+      expect(disk?.accessToken).toBe("refreshed-tok");
     });
   });
 

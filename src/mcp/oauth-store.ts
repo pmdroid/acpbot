@@ -42,11 +42,18 @@ export type McpOAuthTokenRecord = {
   mcpUrl?: string;
   /** Public client_id from dynamic registration. */
   clientId?: string;
+  /** Token endpoint used at authorize + refresh. */
+  tokenEndpoint?: string;
+  /** Optional confidential-client secret (rare for public DCR clients). */
+  clientSecret?: string;
   /** Authorization server issuer. */
   authorizationServer?: string;
   createdAt: number;
   updatedAt: number;
 };
+
+/** Refresh if expired or within this many ms of expiry (clock skew / lag). */
+export const OAUTH_REFRESH_SKEW_MS = 60_000;
 
 export type McpOAuthPendingRecord = {
   state: string;
@@ -426,25 +433,43 @@ export async function listOAuthTokenIds(
   }
 }
 
+/** True when access token is missing expiry or past skew window. */
+export function isAccessTokenStale(
+  record: Pick<McpOAuthTokenRecord, "expiresAt">,
+  now: number = Date.now(),
+  skewMs: number = OAUTH_REFRESH_SKEW_MS,
+): boolean {
+  if (typeof record.expiresAt !== "number" || !Number.isFinite(record.expiresAt)) {
+    // No expiry → treat as valid (some providers omit expires_in).
+    return false;
+  }
+  return record.expiresAt <= now + skewMs;
+}
+
+export function formatBearerHeader(record: McpOAuthTokenRecord): string {
+  const typ = (record.tokenType || "Bearer").trim() || "Bearer";
+  const prefix = typ.toLowerCase() === "bearer" ? "Bearer" : typ;
+  return `${prefix} ${record.accessToken}`;
+}
+
 /**
- * Authorization header value for a stored token, or undefined if missing/expired.
- * Expired tokens still return the value (refresh is out of MVP scope) but
- * `expired` is set so callers can warn.
+ * Authorization header value for a stored token, or undefined if missing.
+ * `expired` is true when past expiry (before refresh). Prefer
+ * `ensureFreshBearerForMcp` when attaching tokens to MCP sessions.
  */
 export async function bearerForMcp(
   stateDir: string,
   repoKey: string,
   id: string,
+  opts?: { now?: number },
 ): Promise<{ value: string; expired: boolean; record: McpOAuthTokenRecord } | undefined> {
   const record = await readOAuthToken(stateDir, repoKey, id);
   if (!record) return undefined;
+  const now = opts?.now ?? Date.now();
   const expired =
-    typeof record.expiresAt === "number" && record.expiresAt <= Date.now();
-  const typ = (record.tokenType || "Bearer").trim() || "Bearer";
-  // Normalize "bearer" → "Bearer"
-  const prefix = typ.toLowerCase() === "bearer" ? "Bearer" : typ;
+    typeof record.expiresAt === "number" && record.expiresAt <= now;
   return {
-    value: `${prefix} ${record.accessToken}`,
+    value: formatBearerHeader(record),
     expired,
     record,
   };
