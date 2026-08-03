@@ -51,20 +51,21 @@ mcp = false
 
 ## Remote OAuth MCP → per-slot stdio proxy
 
-Agents (especially **Grok**) mishandle remote OAuth MCP. acpbot **always** proxies remotes:
+Agents (especially **Grok**) mishandle remote OAuth MCP. acpbot **always** proxies remotes via the **official MCP TypeScript SDK** (`@modelcontextprotocol/client` + `@modelcontextprotocol/server`):
 
 ```text
 Agent (one process per topic/slot)
-  └── stdio ──►  acpbot mcp-proxy   (one child per remote, per slot)
-                    └── HTTP + Bearer ──►  remote gateway
+  └── stdio ──►  acpbot mcp-proxy   (McpServer + StdioServerTransport)
+                    └── Client + StreamableHTTPClientTransport
+                         └── HTTP + Bearer ──►  remote gateway
 ```
 
 - **Per slot:** each topic session (`repo/name`) gets its own agent + its own `mcp-proxy` children. Slots do not share proxy processes.
-- OAuth tokens stay on the host (`/mcp auth`); the proxy owns refresh.
+- OAuth tokens stay on the host (`/mcp auth`); the proxy’s `AuthProvider` re-reads the store every request and force-refreshes on 401.
 - The agent only sees a normal **stdio** server (named like the gateway id, e.g. `full`).
 - **Always attached:** remotes start as `mcp-proxy` at session spawn (and on `/mcp add`). Until OAuth, the proxy advertises an **empty tool list**.
-- **After `/mcp auth`:** the live proxy connects and re-advertises tools — **no agent restart**.
-- **Reauth** / token refresh / 401: proxy re-reads the store — **no agent restart**.
+- **After `/mcp auth`:** the live proxy connects, registers tools, and sends `tools/list_changed` — **no agent restart**.
+- **Reauth** / token refresh / session drop: proxy reconnects upstream — **no agent restart**.
 
 ### Why empty tools first?
 
