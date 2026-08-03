@@ -49,6 +49,28 @@ mcp = false
 
 (Env override: `ACPBOT_MCP=0`.)
 
+## Remote OAuth MCP → stdio proxy (default)
+
+Agents (especially **Grok**) often fail at remote OAuth MCP (`invalid_token`, tools “not found” after reauth).  
+By default acpbot **does not hand remotes to the agent as `type: http`**. Instead it rewrites each remote gateway into a **local stdio MCP child**:
+
+```text
+Agent  ──stdio──►  acpbot mcp-proxy  ──HTTP + Bearer──►  remote gateway
+```
+
+- OAuth tokens stay on the host (`/mcp auth`); the proxy refreshes them.
+- The agent only sees a normal stdio server named like the gateway id (`full`, …).
+- After reauth, the next agent respawn picks up the new token through the proxy.
+
+Disable the rewrite (pass raw http/sse to the agent again):
+
+```bash
+# env
+ACPBOT_MCP_PROXY=0
+```
+
+## Per-repo registry
+
 ## Per-repo MCP (`.acpbot/mcp.json`)
 
 Each session’s **cwd** (repo root) may declare:

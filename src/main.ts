@@ -5,7 +5,7 @@
  *   acpbot                 → help
  *   acpbot host            → ACP host
  *   acpbot worker          → Telegram worker
- *   acpbot setup | repo | pair | skills | install | …
+ *   acpbot setup | repo | pair | skills | mcp-proxy | install | …
  *
  * Legacy: if the executable is named `acpbot-host`, defaults to host mode
  * (after service/setup subcommands).
@@ -34,6 +34,7 @@ import {
   isSkillsCliCommand,
   runSkillsCli,
 } from "./setup/skills-cli";
+import { runMcpProxyMain } from "./mcp/proxy";
 
 function printHelp(): void {
   console.log(acpbotCliHelp());
@@ -108,6 +109,18 @@ async function main(): Promise<void> {
   if (cmd === "worker") {
     process.argv = [process.argv[0]!, process.argv[1]!, ...args.slice(1)];
     await runWorkerMain();
+    return;
+  }
+
+  // Stdio MCP proxy for a remote OAuth gateway (spawned per agent session)
+  if (cmd === "mcp-proxy" || cmd === "mcp_proxy" || cmd === "mcpproxy") {
+    await runMcpProxyMain();
+    return;
+  }
+
+  // Built-in acpbot tools MCP (speak / telegram / schedules) over stdio
+  if (cmd === "mcp-server" || cmd === "mcp_server") {
+    await import("./mcp/server");
     return;
   }
 

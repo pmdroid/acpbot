@@ -779,6 +779,28 @@ export async function buildSessionMcpServers(
     log,
   });
 
+  // Default: expose remotes as local stdio proxies so agents (Grok) never
+  // negotiate OAuth HTTP themselves. Tokens stay in acpbot; set
+  // ACPBOT_MCP_PROXY=0 to pass raw http/sse instead.
+  const { rewriteRemotesAsStdioProxies, mcpProxyEnabled } = await import(
+    "./proxy-rewrite"
+  );
+  if (mcpProxyEnabled()) {
+    const before = merged.filter(
+      (s) => (s as { type?: string }).type === "http" || (s as { type?: string }).type === "sse",
+    ).length;
+    merged = rewriteRemotesAsStdioProxies(merged, {
+      stateDir: oauthStateDir,
+      repoKey,
+    });
+    if (before > 0) {
+      log.info("mcp remotes rewritten as stdio proxies", {
+        count: before,
+        repoKey,
+      });
+    }
+  }
+
   // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).
   return merged as McpServer[];
 }
