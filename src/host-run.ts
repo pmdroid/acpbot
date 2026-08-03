@@ -90,16 +90,17 @@ export async function runHostMain(): Promise<void> {
         `(worker must use the same state_dir)`,
     );
     try {
+      // OAuth success only writes tokens. Live agents keep running; `acpbot
+      // mcp-proxy` children re-read Bearer tokens on each request / 401.
+      // Do NOT kill agent slots here — restart is the wrong recovery path.
       const oauth = await maybeStartOauthHttpServer({
         stateDir,
         log,
         onAuthorized: async ({ id, repoKey }) => {
-          const n = await host.dropSlotsForRepo(repoKey);
-          log.info("oauth authorized — dropped live slots for MCP rebuild", {
-            id,
-            repoKey,
-            dropped: n,
-          });
+          log.info(
+            "oauth authorized — tokens stored; mcp-proxy will pick them up without agent restart",
+            { id, repoKey },
+          );
         },
       });
       if (oauth) {

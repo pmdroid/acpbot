@@ -292,8 +292,8 @@ export async function startOauthHttpServer(
           htmlPage(
             "MCP authorized",
             `Gateway <code>${escapeHtml(result.id)}</code> is connected. ` +
-              `Return to Telegram and send any message in the topic — ` +
-              `MCP reconnects with the new token automatically.`,
+              `Return to Telegram and use the tools — acpbot's MCP proxy picks up ` +
+              `the new token without restarting the agent.`,
             true,
           ),
         );
