@@ -30,7 +30,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 |---|---|
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
 | Agent | grok-build · claude · codex · opencode |
-| Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` |
+| Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [commands.md](commands.md) `/permissions` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |

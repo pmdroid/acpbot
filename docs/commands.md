@@ -25,7 +25,7 @@ Commands are registered in `src/core/commands.ts`.
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
 | `/mode` | Session mode picker (plan/build/ask), or `/mode <id>` / toggle |
-| `/permissions` | Tool policy: `/permissions ask|bypass` (topic) or `default ask|bypass` (new topics) |
+| `/permissions` | Tool policy: `/permissions ask|bypass` (topic) or `default ask|bypass` (new topics). **ask** shows Telegram Allow/Reject for shell + file writes (Grok uses host terminal/fs; acpbot gates those in ask mode) |
 | `/plan` | Switch to plan mode (read-only-ish) |
 | `/build` | Switch to build/code mode (tools on) |
 | `/skills` | Pick a skill, then send a prompt |
