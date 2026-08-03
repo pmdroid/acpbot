@@ -20,6 +20,7 @@ import {
   type SpeechSettings,
 } from "./env/speech";
 import { parsePermissionMode } from "./acp/permission-mode";
+import { normalizeOauthCallbackBase } from "./mcp/oauth-flow";
 
 export type ProcessConfig = AcpbotConfig & {
   botToken: string;
@@ -34,6 +35,10 @@ export type ProcessConfig = AcpbotConfig & {
   oauthCallbackBase?: string;
   oauthListenHost?: string;
   oauthListenPort?: number;
+  /** Absolute path to TLS cert (e.g. Tailscale MagicDNS .crt). */
+  oauthTlsCert?: string;
+  /** Absolute path to TLS private key (.key). */
+  oauthTlsKey?: string;
   scheduleTickMs?: number;
   /** Absolute extra skill roots from config. */
   skillRoots?: string[];
@@ -225,10 +230,16 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     if (o.listenHost !== undefined) out.oauthListenHost = o.listenHost;
     if (o.listen_port !== undefined) out.oauthListenPort = o.listen_port;
     if (o.listenPort !== undefined) out.oauthListenPort = o.listenPort;
+    if (o.tls_cert !== undefined) out.oauthTlsCert = o.tls_cert;
+    if (o.tlsCert !== undefined) out.oauthTlsCert = o.tlsCert;
+    if (o.tls_key !== undefined) out.oauthTlsKey = o.tls_key;
+    if (o.tlsKey !== undefined) out.oauthTlsKey = o.tlsKey;
   }
   pick("oauthCallbackBase", "oauth_callback_base");
   pick("oauthListenHost", "oauth_listen_host");
   pick("oauthListenPort", "oauth_listen_port");
+  pick("oauthTlsCert", "oauth_tls_cert");
+  pick("oauthTlsKey", "oauth_tls_key");
 
   const schedule = raw.schedule;
   if (schedule && typeof schedule === "object" && !Array.isArray(schedule)) {
@@ -640,9 +651,13 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   config.permissionMode = (perm ?? "ask") as PermissionMode;
 
   // OAuth / schedule / agents / speech from file + env
-  config.oauthCallbackBase =
-    str(file.oauthCallbackBase as string | undefined) ??
-    firstEnv(env, "ACPBOT_OAUTH_CALLBACK_BASE", "TACP_OAUTH_CALLBACK_BASE");
+  // Normalize so bare https://host becomes https://host:8788 (not silent :443).
+  {
+    const raw =
+      str(file.oauthCallbackBase as string | undefined) ??
+      firstEnv(env, "ACPBOT_OAUTH_CALLBACK_BASE", "TACP_OAUTH_CALLBACK_BASE");
+    if (raw) config.oauthCallbackBase = normalizeOauthCallbackBase(raw);
+  }
   config.oauthListenHost =
     str(file.oauthListenHost as string | undefined) ??
     firstEnv(env, "ACPBOT_OAUTH_LISTEN_HOST", "TACP_OAUTH_LISTEN_HOST");
@@ -654,6 +669,14 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     const n = Number(portRaw);
     if (Number.isFinite(n)) config.oauthListenPort = n;
   }
+  const tlsCertRaw =
+    str(file.oauthTlsCert as string | undefined) ??
+    firstEnv(env, "ACPBOT_OAUTH_TLS_CERT", "TACP_OAUTH_TLS_CERT");
+  const tlsKeyRaw =
+    str(file.oauthTlsKey as string | undefined) ??
+    firstEnv(env, "ACPBOT_OAUTH_TLS_KEY", "TACP_OAUTH_TLS_KEY");
+  if (tlsCertRaw) config.oauthTlsCert = resolvePath(tlsCertRaw, env);
+  if (tlsKeyRaw) config.oauthTlsKey = resolvePath(tlsKeyRaw, env);
 
   const tickRaw =
     file.scheduleTickMs !== undefined
@@ -798,6 +821,14 @@ export function applyConfigToEnv(
   if (cfg.oauthListenPort !== undefined) {
     env.ACPBOT_OAUTH_LISTEN_PORT = String(cfg.oauthListenPort);
     env.TACP_OAUTH_LISTEN_PORT = String(cfg.oauthListenPort);
+  }
+  if (cfg.oauthTlsCert) {
+    env.ACPBOT_OAUTH_TLS_CERT = cfg.oauthTlsCert;
+    env.TACP_OAUTH_TLS_CERT = cfg.oauthTlsCert;
+  }
+  if (cfg.oauthTlsKey) {
+    env.ACPBOT_OAUTH_TLS_KEY = cfg.oauthTlsKey;
+    env.TACP_OAUTH_TLS_KEY = cfg.oauthTlsKey;
   }
   if (cfg.scheduleTickMs !== undefined) {
     env.ACPBOT_SCHEDULE_TICK_MS = String(cfg.scheduleTickMs);

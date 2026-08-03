@@ -198,8 +198,10 @@ mcp = true
 tts_mode = "agent"           # when the agent may speak: agent | always | off
 
 [oauth]
-# callback_base = "http://your-host.ts.net:8788"  # setup detects Tailscale DNS / IP / LAN
+# callback_base = "https://your-host.ts.net:8788"  # MagicDNS HTTPS on :8788
+# # or http://100.x.y.z:8788  · see docs/oauth.md
 # listen_port = 8788
+# tls_cert / tls_key auto-detected from ~/.local/share/tailscale-certs/
 
 [schedule]
 # tick_ms = 20000

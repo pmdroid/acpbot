@@ -48,11 +48,15 @@ tts_mode = "agent"                       # agent | always | off
 # verbose = false
 
 # ── Remote MCP OAuth (optional) ────────────────────────────────────────────
-# `acpbot setup` can detect Tailscale DNS / 100.x IP / LAN IP and offer a picker.
+# Always listen on 8788. MagicDNS uses https:// + Tailscale certs; IP stays http://
+# Certs: ~/.local/share/tailscale-certs/<dns>.crt|.key  (auto-detected)
 [oauth]
-# callback_base = "http://your-host.ts.net:8788"   # phone browser must reach this
+# callback_base = "https://your-host.ts.net:8788"  # MagicDNS HTTPS on :8788
 # listen_host = "0.0.0.0"
 # listen_port = 8788
+# tls_cert = "~/.local/share/tailscale-certs/your-host.ts.net.crt"  # optional; auto-detected
+# tls_key  = "~/.local/share/tailscale-certs/your-host.ts.net.key"
+# # HTTP fallback: callback_base = "http://100.x.y.z:8788"
 
 # ── Schedules (acp-host ticker) ────────────────────────────────────────────
 [schedule]

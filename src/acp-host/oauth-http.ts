@@ -1,21 +1,40 @@
 /**
- * Small HTTP listener for MCP OAuth callbacks.
+ * HTTP(S) listener for MCP OAuth callbacks.
  *
  *   GET /oauth/callback?code=&state=  — complete PKCE, store tokens
  *   GET /oauth/status                 — liveness (no secrets)
  *
  * Bind address/port from ACPBOT_OAUTH_LISTEN_* or derived from ACPBOT_OAUTH_CALLBACK_BASE.
- * Started by acp-host (preferred) when callback base is configured.
+ * Default port is always 8788. When callback_base is https:// (MagicDNS) and
+ * Tailscale certs are available, serves HTTPS on that same port.
  */
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { existsSync, readFileSync } from "node:fs";
+import {
+  createServer as createHttpServer,
+  type Server as HttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import {
+  createServer as createHttpsServer,
+  type Server as HttpsServer,
+} from "node:https";
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import {
   completeMcpOAuthCallback,
+  oauthCallbackIsHttps,
   oauthListenHost,
   oauthListenPort,
+  oauthTlsPaths,
 } from "../mcp/oauth-flow";
 import { resolveOAuthStateDir } from "../mcp/oauth-store";
+import {
+  findTailscaleCertPair,
+  parseTailscaleStatusJson,
+  stripDnsTrailingDots,
+} from "../setup/oauth-callback-detect";
+import { spawnSync } from "node:child_process";
 
 export type OauthHttpServerOptions = {
   stateDir?: string;
@@ -24,14 +43,82 @@ export type OauthHttpServerOptions = {
   log?: Logger;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  /** Override TLS paths (tests). */
+  tls?: { cert: string; key: string } | null;
 };
 
 export type OauthHttpServer = {
   host: string;
   port: number;
   url: string;
+  /** True when TLS cert/key are loaded. */
+  tls: boolean;
   close: () => Promise<void>;
 };
+
+function resolveTlsMaterial(
+  env: NodeJS.ProcessEnv,
+  override?: { cert: string; key: string } | null,
+): { cert: Buffer; key: Buffer; certPath: string; keyPath: string } | null {
+  // Explicit opt-out (tests / force plain HTTP)
+  if (override === null) return null;
+
+  const wantHttps = oauthCallbackIsHttps(env);
+  let certPath = override?.cert ?? oauthTlsPaths(env)?.cert;
+  let keyPath = override?.key ?? oauthTlsPaths(env)?.key;
+
+  // Auto-detect Tailscale certs only when callback_base is https://.
+  // Do not flip plain http:// callbacks to HTTPS just because certs exist on disk.
+  if ((!certPath || !keyPath) && wantHttps) {
+    const base = env.ACPBOT_OAUTH_CALLBACK_BASE?.trim() ?? "";
+    let dns: string | undefined;
+    try {
+      const u = new URL(base.includes("://") ? base : `https://${base}`);
+      if (u.hostname.endsWith(".ts.net")) dns = stripDnsTrailingDots(u.hostname);
+    } catch {
+      /* ignore */
+    }
+    if (!dns) {
+      try {
+        const r = spawnSync("tailscale", ["status", "--json"], {
+          encoding: "utf8",
+          timeout: 3000,
+        });
+        if (r.status === 0 && r.stdout) {
+          dns = parseTailscaleStatusJson(r.stdout).dnsName;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (dns) {
+      const pair = findTailscaleCertPair(dns, env);
+      if (pair) {
+        certPath = pair.certPath;
+        keyPath = pair.keyPath;
+      }
+    }
+  }
+
+  // Plain HTTP callback and no explicit TLS paths → plain HTTP server
+  if (!certPath || !keyPath) {
+    if (wantHttps) return null; // caller throws with setup help
+    return null;
+  }
+
+  if (!existsSync(certPath) || !existsSync(keyPath)) {
+    throw new Error(
+      `OAuth TLS files missing:\n  cert: ${certPath}\n  key:  ${keyPath}\n` +
+        `Issue with: tailscale cert <MagicDNS>  (store under ~/.local/share/tailscale-certs/)`,
+    );
+  }
+  return {
+    cert: readFileSync(certPath),
+    key: readFileSync(keyPath),
+    certPath,
+    keyPath,
+  };
+}
 
 function send(
   res: ServerResponse,
@@ -105,9 +192,31 @@ export async function startOauthHttpServer(
   const host = options.host ?? oauthListenHost(env);
   const port = options.port ?? oauthListenPort(env);
 
-  const server: Server = createServer((req, res) => {
+  const wantHttps = oauthCallbackIsHttps(env);
+  let tlsMat: ReturnType<typeof resolveTlsMaterial> = null;
+  try {
+    tlsMat = resolveTlsMaterial(env, options.tls);
+  } catch (err) {
+    if (wantHttps) throw err;
+    log.warn("oauth TLS config ignored", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  if (wantHttps && !tlsMat) {
+    throw new Error(
+      "OAuth callback_base is https:// but no TLS cert/key found.\n" +
+        "  Set oauth.tls_cert / oauth.tls_key, or place Tailscale certs at:\n" +
+        "  ~/.local/share/tailscale-certs/<MagicDNS>.crt and .key\n" +
+        "  mkdir -p ~/.local/share/tailscale-certs && cd $_ && tailscale cert <dns>",
+    );
+  }
+
+  const onRequest = (req: IncomingMessage, res: ServerResponse) => {
     void handle(req, res);
-  });
+  };
+  const server: HttpServer | HttpsServer = tlsMat
+    ? createHttpsServer({ cert: tlsMat.cert, key: tlsMat.key }, onRequest)
+    : createHttpServer(onRequest);
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = (req.method || "GET").toUpperCase();
@@ -204,13 +313,23 @@ export async function startOauthHttpServer(
     });
   });
 
-  const url = `http://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`;
-  log.info("oauth http listening", { host, port, stateDir });
+  const scheme = tlsMat ? "https" : "http";
+  const url = `${scheme}://${host === "0.0.0.0" ? "127.0.0.1" : host}:${port}`;
+  log.info("oauth http listening", {
+    host,
+    port,
+    stateDir,
+    tls: Boolean(tlsMat),
+    ...(tlsMat
+      ? { certPath: tlsMat.certPath, keyPath: tlsMat.keyPath }
+      : {}),
+  });
 
   return {
     host,
     port,
     url,
+    tls: Boolean(tlsMat),
     close: () =>
       new Promise((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));

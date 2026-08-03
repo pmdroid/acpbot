@@ -65,6 +65,8 @@ describe("renderFullConfigToml", () => {
       openaiApiKey: "sk-test",
       openaiTtsVoice: "nova",
       oauthCallbackBase: "https://x.ts.net",
+      oauthTlsCert: "/home/u/.local/share/tailscale-certs/x.ts.net.crt",
+      oauthTlsKey: "/home/u/.local/share/tailscale-certs/x.ts.net.key",
     });
     expect(toml).toContain("bot_token");
     expect(toml).toContain('default_agent = "claude"');
@@ -74,6 +76,9 @@ describe("renderFullConfigToml", () => {
     expect(toml).toContain('api_key = "sk-test"');
     expect(toml).toContain("[oauth]");
     expect(toml).toContain("https://x.ts.net");
+    expect(toml).toContain("tls_cert");
+    expect(toml).toContain("tls_key");
+    expect(toml).toContain("x.ts.net.crt");
     expect(toml).toContain('permission_mode = "ask"');
   });
 

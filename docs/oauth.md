@@ -21,9 +21,46 @@ Both processes **must** use the **same config file** (or the same absolute `stat
 
 ## Setup
 
+### Recommended: Tailscale MagicDNS HTTPS
+
+Listener always uses port **8788**. Selecting MagicDNS only switches the scheme to
+**https** and loads Tailscale certs — it does **not** bind :443.
+
 ```toml
 [oauth]
-callback_base = "http://mac-mini.taile07e4.ts.net:8788"   # phone browser must reach this
+callback_base = "https://mac-mini.taile07e4.ts.net:8788"   # phone on the same tailnet
+# listen_port = 8788   # default (same for http and https)
+# tls_cert / tls_key optional — auto-detected from ~/.local/share/tailscale-certs/
+```
+
+Issue a cert once (macOS and Linux — same paths):
+
+```bash
+mkdir -p ~/.local/share/tailscale-certs
+cd ~/.local/share/tailscale-certs
+tailscale cert mac-mini.taile07e4.ts.net
+```
+
+| File | Path |
+|------|------|
+| **Certificate** | `~/.local/share/tailscale-certs/<MagicDNS>.crt` |
+| **Private key** | `~/.local/share/tailscale-certs/<MagicDNS>.key` |
+
+`acpbot` auto-detects those files from `callback_base` (or `tailscale status`).  
+You can also set them explicitly:
+
+```toml
+[oauth]
+callback_base = "https://mac-mini.taile07e4.ts.net:8788"
+tls_cert = "/Users/you/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.crt"
+tls_key  = "/Users/you/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.key"
+```
+
+### Plain HTTP fallback
+
+```toml
+[oauth]
+callback_base = "http://100.x.y.z:8788"   # Tailscale IP or LAN — no cert needed
 # listen_host = "0.0.0.0"
 # listen_port = 8788
 ```
@@ -35,17 +72,16 @@ callback_base = "http://mac-mini.taile07e4.ts.net:8788"   # phone browser must r
 
 | Option | Source | Example |
 |--------|--------|---------|
-| **Tailscale DNS** | `Self.DNSName` (MagicDNS) | `http://mac-mini.taile07e4.ts.net:8788` |
+| **Tailscale HTTPS** | `Self.DNSName` (MagicDNS) + local certs | `https://mac-mini.taile07e4.ts.net:8788` |
 | **Tailscale IP** | Tailscale `100.x` IPv4 | `http://100.114.193.89:8788` |
 | **LAN IP** | Private interface addrs (`10.x`, `172.16–31.x`, `192.168.x`) | `http://192.168.1.10:8788` |
-| **Custom URL…** | Manual entry | tunnel / Serve / Funnel HTTPS |
+| **Custom URL…** | Manual entry | tunnel / Serve / Funnel |
 | **Skip / clear** | Unset | use `/mcp code` paste fallback |
 
-- All three detection rows appear when available (DNS is **not** hidden if it matches the current config — it is marked `← current`).
-- Suggested URLs use `http://…:8788` so they match the default OAuth listener port.
-- Prefer **Tailscale DNS** when the phone is on the same tailnet. LAN IPs only work on the same Wi‑Fi/Ethernet.
-- HTTPS via Tailscale Serve/Funnel is fine as a **custom** URL.
-- Detection code: `src/setup/oauth-callback-detect.ts` (tests in `test/oauth-callback-detect.test.ts`).
+- All options use port **8788**. MagicDNS is **`https://…:8788`** (TLS); IP options stay **`http://…:8788`**.
+- If certs are missing, setup prints the `tailscale cert` commands (table of `.crt` / `.key` paths).
+- Prefer **Tailscale HTTPS** when the phone is on the same tailnet. LAN IPs only work on the same Wi‑Fi/Ethernet.
+- Detection + cert helpers: `src/setup/oauth-callback-detect.ts` (tests in `test/oauth-callback-detect.test.ts`).
 
 Run:
 

@@ -615,6 +615,17 @@ describe("startMcpOAuth + oauth-http callback", () => {
         host: "127.0.0.1",
         port,
         fetchImpl,
+        // Force plain HTTP — ignore any host env/Tailscale certs
+        tls: null,
+        env: {
+          ...process.env,
+          ACPBOT_OAUTH_CALLBACK_BASE: "http://127.0.0.1",
+          TACP_OAUTH_CALLBACK_BASE: "http://127.0.0.1",
+          ACPBOT_OAUTH_TLS_CERT: "",
+          ACPBOT_OAUTH_TLS_KEY: "",
+          TACP_OAUTH_TLS_CERT: "",
+          TACP_OAUTH_TLS_KEY: "",
+        },
       });
       try {
         // bad state

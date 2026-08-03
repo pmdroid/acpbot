@@ -26,7 +26,10 @@ import {
 } from "./daemon-install";
 import {
   detectOAuthCallbackSuggestions,
+  findTailscaleCertPair,
   resolveOAuthSuggestPort,
+  stripDnsTrailingDots,
+  tailscaleCertSetupHelp,
   type OAuthCallbackSuggestion,
 } from "./oauth-callback-detect";
 import { pickDirectoryPath } from "./folder-browser";
@@ -109,7 +112,7 @@ async function promptOAuthCallbackBase(input: {
   options.push({
     value: { kind: "custom" },
     label: "Custom URL…",
-    hint: "e.g. http://host:8788 or https://your-tunnel.example",
+    hint: "e.g. https://host.ts.net:8788 or http://100.x:8788",
   });
 
   options.push({
@@ -159,7 +162,7 @@ async function promptOAuthCallbackBase(input: {
 
   const base = await p.text({
     message: "Public callback base URL",
-    placeholder: "http://mac-mini.taile07e4.ts.net:8788",
+    placeholder: "https://mac-mini.taile07e4.ts.net:8788",
     initialValue: current,
     validate: (v) => {
       const t = String(v ?? "").trim();
@@ -179,6 +182,52 @@ async function promptOAuthCallbackBase(input: {
   return trimmed.includes("://") ? trimmed : `http://${trimmed}`;
 }
 
+/**
+ * Resolve TLS cert/key paths for a callback base (Tailscale MagicDNS HTTPS).
+ * Shows setup help when MagicDNS HTTPS is chosen but certs are missing.
+ */
+function resolveOAuthTlsForCallback(input: {
+  callbackBase: string | undefined;
+  suggestions: OAuthCallbackSuggestion[];
+  existingCert?: string;
+  existingKey?: string;
+  env?: NodeJS.ProcessEnv;
+}): { cert?: string; key?: string; needsHelp?: string } {
+  const base = input.callbackBase?.trim();
+  if (!base) return {};
+
+  let hostname = "";
+  let isHttps = false;
+  try {
+    const u = new URL(base.includes("://") ? base : `http://${base}`);
+    hostname = stripDnsTrailingDots(u.hostname);
+    isHttps = u.protocol === "https:";
+  } catch {
+    return {};
+  }
+
+  // Plain HTTP — no TLS material
+  if (!isHttps) return {};
+
+  const matched = input.suggestions.find((s) => s.url === base);
+  if (matched?.tlsCertPath && matched.tlsKeyPath) {
+    return { cert: matched.tlsCertPath, key: matched.tlsKeyPath };
+  }
+
+  // MagicDNS: look under ~/.local/share/tailscale-certs/
+  if (hostname.endsWith(".ts.net")) {
+    const pair = findTailscaleCertPair(hostname, input.env);
+    if (pair) return { cert: pair.certPath, key: pair.keyPath };
+    return { needsHelp: tailscaleCertSetupHelp(hostname) };
+  }
+
+  // Custom HTTPS: keep existing explicit paths if still set
+  if (input.existingCert && input.existingKey) {
+    return { cert: input.existingCert, key: input.existingKey };
+  }
+  return {};
+}
+
 /** Fields the wizard manages + optional preserved extras from an existing config. */
 export type FullConfigTomlInput = {
   botToken: string;
@@ -194,11 +243,16 @@ export type FullConfigTomlInput = {
   elevenlabsApiKey?: string;
   elevenlabsVoiceId?: string;
   oauthCallbackBase?: string;
+  /** Absolute paths written as [oauth] tls_cert / tls_key (Tailscale certs). */
+  oauthTlsCert?: string;
+  oauthTlsKey?: string;
   /** Preserve non-wizard fields from a prior ProcessConfig. */
   preserve?: {
     mcpEnabled?: boolean;
     oauthListenHost?: string;
     oauthListenPort?: number;
+    oauthTlsCert?: string;
+    oauthTlsKey?: string;
     scheduleTickMs?: number;
     skillRoots?: string[];
     agentCommandJson?: string;
@@ -282,10 +336,14 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
     lines.push(``);
   }
 
+  const tlsCert = a.oauthTlsCert ?? a.preserve?.oauthTlsCert;
+  const tlsKey = a.oauthTlsKey ?? a.preserve?.oauthTlsKey;
   if (
     a.oauthCallbackBase ||
     a.preserve?.oauthListenHost ||
-    a.preserve?.oauthListenPort
+    a.preserve?.oauthListenPort != null ||
+    tlsCert ||
+    tlsKey
   ) {
     lines.push(`[oauth]`);
     if (a.oauthCallbackBase) {
@@ -297,8 +355,10 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
     if (a.preserve?.oauthListenPort != null) {
       lines.push(`listen_port = ${a.preserve.oauthListenPort}`);
     } else if (a.oauthCallbackBase) {
-      lines.push(`# listen_port = 8788`);
+      lines.push(`# listen_port = 8788   # same port for http and https`);
     }
+    if (tlsCert) lines.push(`tls_cert = ${tomlString(tlsCert)}`);
+    if (tlsKey) lines.push(`tls_key = ${tomlString(tlsKey)}`);
     lines.push(``);
   }
 
@@ -346,6 +406,10 @@ function preserveFromExisting(
     ...(existing.oauthListenPort !== undefined
       ? { oauthListenPort: existing.oauthListenPort }
       : {}),
+    ...(existing.oauthTlsCert
+      ? { oauthTlsCert: existing.oauthTlsCert }
+      : {}),
+    ...(existing.oauthTlsKey ? { oauthTlsKey: existing.oauthTlsKey } : {}),
     ...(existing.scheduleTickMs !== undefined
       ? { scheduleTickMs: existing.scheduleTickMs }
       : {}),
@@ -689,8 +753,9 @@ export async function runGuidedSetupTui(
   // ── OAuth (optional) ──────────────────────────────────────────────────
   p.log.step("Remote MCP OAuth (optional)");
   p.log.message(
-    "Remote MCP providers redirect the browser back to this host. " +
-      "Use a URL your phone can open (Tailscale MagicDNS / 100.x, or a custom tunnel).",
+    "Remote MCP providers redirect the browser back to this host on port 8788. " +
+      "Prefer Tailscale MagicDNS HTTPS (certs from `tailscale cert`) so the phone " +
+      "opens https://your-node.ts.net:8788 on the tailnet.",
   );
 
   const oauthPort = resolveOAuthSuggestPort({
@@ -699,14 +764,25 @@ export async function runGuidedSetupTui(
   });
   let detected: OAuthCallbackSuggestion[] = [];
   try {
-    detected = detectOAuthCallbackSuggestions({ port: oauthPort });
+    detected = detectOAuthCallbackSuggestions({
+      port: oauthPort,
+      env: env as NodeJS.ProcessEnv,
+    });
   } catch {
     detected = [];
   }
   if (detected.length > 0) {
     p.log.info(
-      `Detected: ${detected.map((d) => d.url).join(" · ")}`,
+      `Detected: ${detected.map((d) => `${d.label}`).join(" · ")}`,
     );
+    const missing = detected.find((d) => d.needsTailscaleCert);
+    if (missing) {
+      p.log.message(
+        "MagicDNS HTTPS needs a local cert pair (macOS + Linux):\n" +
+          "  mkdir -p ~/.local/share/tailscale-certs && cd $_ && " +
+          `tailscale cert ${missing.host}`,
+      );
+    }
   } else {
     p.log.message(
       "No Tailscale MagicDNS/IP detected (is `tailscale` installed and logged in?). " +
@@ -719,6 +795,29 @@ export async function runGuidedSetupTui(
     current: oauthCallbackBase,
     suggestions: detected,
   });
+
+  const tlsResolved = resolveOAuthTlsForCallback({
+    callbackBase: oauthCallbackBase,
+    suggestions: detected,
+    existingCert: existing?.oauthTlsCert,
+    existingKey: existing?.oauthTlsKey,
+    env: env as NodeJS.ProcessEnv,
+  });
+  if (tlsResolved.needsHelp) {
+    p.note(tlsResolved.needsHelp, "Tailscale HTTPS cert setup");
+    p.log.warn(
+      "callback_base is https:// but cert files are missing — " +
+        "run the commands above, then re-run setup or restart the host " +
+        "(certs under ~/.local/share/tailscale-certs/ are auto-detected).",
+    );
+  } else if (tlsResolved.cert && tlsResolved.key) {
+    p.log.success(
+      `TLS cert ready:\n  ${tlsResolved.cert}\n  ${tlsResolved.key}`,
+    );
+  }
+
+  const oauthTlsCert = tlsResolved.cert;
+  const oauthTlsKey = tlsResolved.key;
 
   // ── Log level ─────────────────────────────────────────────────────────
   const logLevel = await p.select({
@@ -737,6 +836,15 @@ export async function runGuidedSetupTui(
   // ── Write config ──────────────────────────────────────────────────────
   const s = p.spinner();
   s.start(reconfigure ? "Updating config.toml" : "Writing config.toml");
+  // When TLS was resolved for this callback, write paths; when HTTP, drop prior TLS.
+  const preserve = preserveFromExisting(existing);
+  if (oauthCallbackBase && !oauthTlsCert) {
+    // Explicit clear of TLS when switching to HTTP or certs missing
+    if (preserve) {
+      delete preserve.oauthTlsCert;
+      delete preserve.oauthTlsKey;
+    }
+  }
   const body = renderFullConfigToml({
     botToken,
     defaultAgent,
@@ -751,7 +859,9 @@ export async function runGuidedSetupTui(
     elevenlabsApiKey,
     elevenlabsVoiceId,
     oauthCallbackBase,
-    preserve: preserveFromExisting(existing),
+    oauthTlsCert,
+    oauthTlsKey,
+    preserve,
   });
   writeConfigToml(layout.configPath, body);
   s.stop(`Saved ${layout.configPath}`);
