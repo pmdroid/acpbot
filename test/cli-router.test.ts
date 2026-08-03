@@ -10,6 +10,7 @@ describe("unified CLI", () => {
     expect(h).toContain("acpbot setup");
     expect(h).toContain("acpbot repo");
     expect(h).toContain("acpbot skills install");
+    expect(h).toContain("acpbot mcp-proxy");
   });
 
   test("isAcpbotHostInvocation by basename", () => {

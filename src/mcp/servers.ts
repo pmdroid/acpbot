@@ -4,6 +4,7 @@
  */
 import { join } from "node:path";
 import { workerApiSockPath } from "./worker-api";
+import { acpbotSubArgs } from "./acpbot-spawn";
 
 /** ACP stdio MCP server descriptor (matches @agentclientprotocol/sdk McpServer). */
 export type AcpbotMcpServer = {
@@ -68,13 +69,23 @@ export function buildAcpbotMcpServers(
     (process.env.ACPBOT_MCP !== "0" && process.env.ACPBOT_MCP !== "false");
   if (!enabled) return [];
 
-  const entry = options.serverEntry ?? defaultAcpbotMcpServerEntry();
-  const command = options.command ?? process.execPath;
   const stateDir =
     options.stateDir?.trim() ||
     process.env.ACPBOT_STATE_DIR?.trim() ||
     "./data/acpbot-state";
   const sockPath = workerApiSockPath(stateDir);
+
+  // Prefer `acpbot mcp-server` (works compiled + bun). Tests may override entry.
+  let command: string;
+  let args: string[];
+  if (options.command !== undefined || options.serverEntry !== undefined) {
+    command = options.command ?? process.execPath;
+    args = [options.serverEntry ?? defaultAcpbotMcpServerEntry()];
+  } else {
+    const spawn = acpbotSubArgs("mcp-server");
+    command = spawn.command;
+    args = spawn.args;
+  }
 
   const env: Array<{ name: string; value: string }> = [
     { name: "ACPBOT_STATE_DIR", value: stateDir },
@@ -90,7 +101,7 @@ export function buildAcpbotMcpServers(
     {
       name: "acpbot",
       command,
-      args: [entry],
+      args,
       env,
     },
   ];

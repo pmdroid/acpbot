@@ -23,14 +23,24 @@ import {
 } from "../src/mcp/repo-mcp";
 
 describe("buildAcpbotMcpServers", () => {
-  test("returns stdio acpbot server with bun entry", () => {
+  test("returns stdio acpbot server via mcp-server subcommand", () => {
     const servers = buildAcpbotMcpServers({ enabled: true });
     expect(servers).toHaveLength(1);
     expect(servers[0]?.name).toBe("acpbot");
     expect(servers[0]?.command).toBe(process.execPath);
-    expect(servers[0]?.args[0]).toBe(defaultAcpbotMcpServerEntry());
-    expect(existsSync(servers[0]!.args[0]!)).toBe(true);
+    // bun path: [main.ts, "mcp-server"] · compiled: ["mcp-server"]
+    expect(servers[0]?.args).toContain("mcp-server");
     expect(Array.isArray(servers[0]?.env)).toBe(true);
+  });
+
+  test("serverEntry override still uses script path", () => {
+    const entry = defaultAcpbotMcpServerEntry();
+    const servers = buildAcpbotMcpServers({
+      enabled: true,
+      serverEntry: entry,
+    });
+    expect(servers[0]?.args[0]).toBe(entry);
+    expect(existsSync(servers[0]!.args[0]!)).toBe(true);
   });
 
   test("disabled returns empty", () => {
@@ -500,7 +510,7 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
     expect(env.ACPBOT_REPO_ROOT).toBe(resolve("/repo"));
   });
 
-  test("http/sse remote entries are passed through", async () => {
+  test("http/sse remotes become stdio mcp-proxy by default", async () => {
     await withRepo(
       async (repo) => {
         await mkdir(join(repo, ".acpbot"), { recursive: true });
@@ -523,18 +533,65 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
           cwd: repo,
           enabled: true,
           sessionKey: "demo/main",
+          repoKey: "demo",
           // Public remote without OAuth — do not fail-closed.
           oauthFailClosed: false,
         });
-        expect(servers[0]).toMatchObject({
-          type: "http",
-          name: "linear",
-          url: "https://mcp.example/linear",
-          headers: [],
-        });
+        const linear = servers[0] as {
+          name: string;
+          command: string;
+          args: string[];
+          env: Array<{ name: string; value: string }>;
+        };
+        expect(linear.name).toBe("linear");
+        expect(linear.args).toContain("mcp-proxy");
+        const env = Object.fromEntries(linear.env.map((e) => [e.name, e.value]));
+        expect(env.ACPBOT_MCP_PROXY_URL).toBe("https://mcp.example/linear");
+        expect(env.ACPBOT_MCP_PROXY_ID).toBe("linear");
         expect(servers[1]?.name).toBe("acpbot");
       },
     );
+  });
+
+  test("ACPBOT_MCP_PROXY=0 keeps raw http remotes", async () => {
+    const prev = process.env.ACPBOT_MCP_PROXY;
+    process.env.ACPBOT_MCP_PROXY = "0";
+    try {
+      await withRepo(
+        async (repo) => {
+          await mkdir(join(repo, ".acpbot"), { recursive: true });
+          await writeFile(
+            join(repo, ".acpbot", "mcp.json"),
+            JSON.stringify({
+              mcpServers: [
+                {
+                  name: "linear",
+                  type: "http",
+                  url: "https://mcp.example/linear",
+                },
+              ],
+            }),
+            "utf8",
+          );
+        },
+        async (repo) => {
+          const servers = await buildSessionMcpServers({
+            cwd: repo,
+            enabled: true,
+            sessionKey: "demo/main",
+            oauthFailClosed: false,
+          });
+          expect(servers[0]).toMatchObject({
+            type: "http",
+            name: "linear",
+            url: "https://mcp.example/linear",
+          });
+        },
+      );
+    } finally {
+      if (prev === undefined) delete process.env.ACPBOT_MCP_PROXY;
+      else process.env.ACPBOT_MCP_PROXY = prev;
+    }
   });
 
   test("disabled returns empty", async () => {

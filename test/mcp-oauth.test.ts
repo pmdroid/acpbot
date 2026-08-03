@@ -638,7 +638,7 @@ describe("merge OAuth headers into remote MCP", () => {
     });
   });
 
-  test("buildSessionMcpServers merges Bearer for remote", async () => {
+  test("buildSessionMcpServers rewrites remote as proxy after OAuth", async () => {
     await withTempDirs(async ({ state, repo }) => {
       await mkdir(join(repo, ".acpbot"), { recursive: true });
       await writeFile(
@@ -674,14 +674,16 @@ describe("merge OAuth headers into remote MCP", () => {
       });
 
       const linear = servers.find((s) => s.name === "linear") as {
-        type: string;
-        headers: Array<{ name: string; value: string }>;
+        command: string;
+        args: string[];
+        env: Array<{ name: string; value: string }>;
       };
-      expect(linear?.type).toBe("http");
-      expect(linear.headers).toContainEqual({
-        name: "Authorization",
-        value: "Bearer session-tok",
-      });
+      // Default: stdio proxy — agent never sees raw http + Bearer
+      expect(linear.args).toContain("mcp-proxy");
+      const env = Object.fromEntries(linear.env.map((e) => [e.name, e.value]));
+      expect(env.ACPBOT_MCP_PROXY_ID).toBe("linear");
+      expect(env.ACPBOT_MCP_PROXY_URL).toBe("https://mcp.example/linear");
+      expect(env.ACPBOT_STATE_DIR).toBe(state);
 
       // Still must not have written token into repo
       const mcpRaw = await readFile(join(repo, ".acpbot", "mcp.json"), "utf8");
