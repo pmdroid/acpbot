@@ -1,0 +1,68 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import DocsSidebar from "../components/DocsSidebar.astro";
+import { docHref, getDocsSorted, type DocEntry } from "../lib/docs";
+
+interface Props {
+  entry: DocEntry;
+}
+
+const { entry } = Astro.props;
+const docs = await getDocsSorted();
+const idx = docs.findIndex((d) => d.id === entry.id);
+const prev = idx > 0 ? docs[idx - 1] : null;
+const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
+
+const title =
+  entry.id === "index"
+    ? "acpbot docs"
+    : `${entry.data.title} — acpbot docs`;
+const description =
+  entry.data.description ??
+  "Operator and architecture documentation for acpbot.";
+const canonicalPath = docHref(entry);
+---
+
+<BaseLayout title={title} description={description} canonicalPath={canonicalPath}>
+  <Nav active="docs" />
+  <div class="docs-shell">
+    <DocsSidebar docs={docs} currentId={entry.id} />
+    <main class="docs-main">
+      <header class="docs-hero">
+        <p class="eyebrow">Documentation</p>
+        <h1>{entry.data.title}</h1>
+        {
+          entry.data.description && (
+            <p class="lede docs-lede">{entry.data.description}</p>
+          )
+        }
+      </header>
+      <article class="prose">
+        <slot />
+      </article>
+      {
+        (prev || next) && (
+          <nav class="docs-pager" aria-label="Page navigation">
+            {prev ? (
+              <a href={docHref(prev)}>
+                <span class="label">Previous</span>
+                <span class="title">{prev.data.title}</span>
+              </a>
+            ) : (
+              <span />
+            )}
+            {next && (
+              <a class="next" href={docHref(next)}>
+                <span class="label">Next</span>
+                <span class="title">{next.data.title}</span>
+              </a>
+            )}
+          </nav>
+        )
+      }
+    </main>
+  </div>
+  <Footer />
+</BaseLayout>

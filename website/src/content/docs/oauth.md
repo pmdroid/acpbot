@@ -1,4 +1,9 @@
-# Remote MCP OAuth
+---
+title: OAuth
+description: Remote MCP auth with PKCE and DCR.
+order: 16
+section: advanced
+---
 
 Set `[oauth].callback_base` in `config.toml` so acp-host can complete browser OAuth.  
 Public remotes work without it; authenticated gateways need the callback (or `/mcp code` paste).
@@ -10,7 +15,7 @@ $state_dir/mcp-oauth/by-repo/<repoKey>/<id>.json   # mode 0600
 $state_dir/mcp-oauth/pending/                      # PKCE in flight
 ```
 
-Default `state_dir` is `~/.local/share/acpbot/state` (see [configuration.md](configuration.md)).
+Default `state_dir` is `~/.local/share/acpbot/state` (see [Configuration](/docs/configuration)).
 
 ## Shared state dir
 

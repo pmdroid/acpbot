@@ -1,4 +1,9 @@
-# Slash commands
+---
+title: Commands
+description: Lobby vs topic slash surface, queue, and steer.
+order: 5
+section: start
+---
 
 Commands are registered in `src/core/commands.ts`.  
 **Slash input never goes to the agent.** Lobby commands typed inside a topic get a short “use the main chat” reply.
@@ -81,7 +86,7 @@ Cap: 32 items per session (oldest dropped when full).
 | `/mcp code <callback-url>` | Paste-code fallback (full URL preferred) |
 | `/mcp code <code> <id>` | Bare code last resort |
 
-Tokens are stored under `state_dir` (`mcp-oauth/`), never in the repo. Full flow: [oauth.md](oauth.md).
+Tokens are stored under `state_dir` (`mcp-oauth/`), never in the repo. Full flow: [OAuth](/docs/oauth).
 
 ## Telegram menu
 

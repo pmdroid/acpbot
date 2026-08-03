@@ -1,17 +1,25 @@
-# acpbot.app static site
+# acpbot.app (Astro)
 
-Two pages, one stylesheet:
+Landing page + full documentation for [acpbot](https://github.com/pmdroid/acpbot).
 
-| File | Role |
+## Commands
+
+```bash
+cd website
+bun install
+bun run dev      # http://localhost:4321
+bun run build    # static output → dist/
+bun run preview
+```
+
+## Structure
+
+| Path | Role |
 |---|---|
-| [`index.html`](index.html) | Landing / marketing |
-| [`docs.html`](docs.html) | Simple quick-start docs |
-| [`styles.css`](styles.css) | Shared brand system |
-| [`assets/`](assets/) | Logo |
+| `src/pages/index.astro` | Marketing landing |
+| `src/pages/docs/` | Docs routes |
+| `src/content/docs/` | Markdown docs (content collection) |
+| `src/styles/global.css` | Brand system (dark metallic) |
+| `public/assets/` | Logo |
 
-Serve the directory root (e.g. `bunx serve website -p 4321`).
-
-- **Home:** https://acpbot.app/
-- **Docs:** https://acpbot.app/docs.html
-
-Deep configuration lives in the repo under [`../docs/`](../docs/) (linked from the docs page).
+Site: https://acpbot.app · Docs: https://acpbot.app/docs

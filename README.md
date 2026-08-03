@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="website/assets/acpbot-logo.png" alt="acpbot" width="420" />
+  <img src="website/public/assets/acpbot-logo.png" alt="acpbot" width="420" />
 </p>
 
 # acpbot
 
 **Telegram control surface for ACP coding agents.**  
-**Site:** [acpbot.app](https://acpbot.app) · **Docs:** [quick start](https://acpbot.app/docs.html) · **License:** [MIT](LICENSE)
+**Site:** [acpbot.app](https://acpbot.app) · **Docs:** [docs](https://acpbot.app/docs) · **License:** [MIT](LICENSE)
 
 Each agent session is a **forum topic** in your private chat with the bot. Talk to Grok, Claude, Codex, or OpenCode from Telegram — permissions, media, MCP tools, and schedules on **your** machine.
 
@@ -82,7 +82,7 @@ Walks through bot token, agent, workspace, speech keys, OAuth, then optionally i
 - **Linux:** `acpbot-host.service` + `acpbot.service` (systemd user)
 
 Same `config.toml` for both. Logs: `~/.local/share/acpbot/logs/` (macOS) or `journalctl --user -u acpbot-host -u acpbot` (Linux).  
-Details: [docs/configuration.md](docs/configuration.md#background-services-host--worker).
+Details: [Configuration](https://acpbot.app/docs/configuration#background-services-host--worker).
 
 Day-to-day service control (default = **both** host + worker):
 
@@ -115,7 +115,7 @@ Bare `acpbot` prints help. Use `acpbot setup` for the TUI when config is missing
 # while busy: free-text is queued; /steer <text> interrupts
 ```
 
-More: [acpbot.app/docs.html](https://acpbot.app/docs.html) · [docs/](docs/)
+More: [acpbot.app/docs](https://acpbot.app/docs)
 
 ---
 
@@ -123,11 +123,12 @@ More: [acpbot.app/docs.html](https://acpbot.app/docs.html) · [docs/](docs/)
 
 | | |
 |---|---|
-| [Quick start (web)](https://acpbot.app/docs.html) | Short install path |
-| [configuration.md](docs/configuration.md) | TOML, speech providers, paths |
-| [commands.md](docs/commands.md) | Lobby & topic commands |
-| [getting-started.md](docs/getting-started.md) | Extra operator notes |
-| [architecture.md](docs/architecture.md) | How the pieces fit |
+| [Docs home](https://acpbot.app/docs) | Full operator docs (Astro site) |
+| [Getting started](https://acpbot.app/docs/getting-started) | Install, pair, first topic |
+| [Configuration](https://acpbot.app/docs/configuration) | TOML, speech providers, paths |
+| [Commands](https://acpbot.app/docs/commands) | Lobby & topic commands |
+| [Architecture](https://acpbot.app/docs/architecture) | How the pieces fit |
+| [Source](website/src/content/docs/) | Markdown in the website package |
 
 ---
 

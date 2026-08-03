@@ -1,4 +1,9 @@
-# Worker outbound API
+---
+title: Worker API
+description: Unix HTTP API from MCP tools to Telegram.
+order: 13
+section: reference
+---
 
 MCP tools run inside (or beside) the agent process and **must not** hold the Telegram bot token. They call the acpbot **worker** over HTTP on a Unix socket; the worker owns the token and session → topic map.
 
@@ -31,7 +36,7 @@ All bodies are JSON. Responses are JSON `{ ok: true, … }` or `{ ok: false, err
 
 Exact path strings are defined in `src/mcp/worker-api.ts` / the server; MCP tool wrappers hide them from agents.
 
-The working bubble is owned by the worker (posted at turn start, deleted at turn end). Topic forum titles are **not** renamed for status — see [architecture.md](architecture.md#turn-ux-working-bubble).
+The working bubble is owned by the worker (posted at turn start, deleted at turn end). Topic forum titles are **not** renamed for status — see [Architecture](/docs/architecture#turn-ux-working-bubble).
 
 ## Path safety (photo / file)
 
@@ -62,7 +67,7 @@ Tests: `test/worker-api.test.ts`.
 
 ## Speech modes
 
-Controlled in `config.toml` (see [configuration.md](configuration.md#speech-tts--stt-providers)):
+Controlled in `config.toml` (see [Configuration](/docs/configuration#speech-tts--stt-providers)):
 
 | `features.tts_mode` | Behavior |
 |---|---|

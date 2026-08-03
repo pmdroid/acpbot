@@ -1,0 +1,3 @@
+[install]
+# Website deps (Astro) — allow current registry versions for this package.
+minimumReleaseAge = 0

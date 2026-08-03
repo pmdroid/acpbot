@@ -1,4 +1,9 @@
-# In-repo schedules
+---
+title: Schedules
+description: Durable delayed/recurring jobs and host ticker.
+order: 14
+section: reference
+---
 
 Agents can create **durable jobs** as JSON files under the session repo. The long-lived **acp-host** process fires due jobs into the right session slots — even if the Telegram worker is down.
 
@@ -56,7 +61,7 @@ Each tick:
 
 Works without the Telegram worker (create/list/cancel only need MCP). Firing needs **acp-host**. Delivering Telegram photos/files from a fire needs the **worker** (worker API).
 
-Agent skill: package [`skills/schedules`](../skills/schedules/SKILL.md) — install with `bun run skills:install` (see [skills.md](skills.md)).
+Agent skill: package [`skills/schedules`](https://github.com/pmdroid/acpbot/blob/main/skills/schedules/SKILL.md) — install with `bun run skills:install` (see [Skills](/docs/skills)).
 
 ## Implementation map
 

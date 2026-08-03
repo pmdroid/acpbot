@@ -29,7 +29,7 @@ Config is **TOML-first** (`~/.config/acpbot/config.toml`) for the bot token and 
 1. DM the bot in a private chat → receive a pairing code  
 2. On the host: `acpbot pair approve <code>`  
 
-Only someone with **shell access to the host** can approve. See [docs/pairing.md](docs/pairing.md).
+Only someone with **shell access to the host** can approve. See [Pairing](https://acpbot.app/docs/pairing).
 
 - Keep **`state_dir`** absolute and private (sessions, sockets, OAuth tokens, pairing state).
 - Treat mounted workspaces as fully trusted by the agent.

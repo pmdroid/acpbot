@@ -22,7 +22,10 @@
     "release:darwin": "bash scripts/release-darwin.sh",
     "docker:build": "docker build -t acpbot:local .",
     "docker:up": "docker compose up --build -d",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "website:dev": "bun --cwd website run dev",
+    "website:build": "bun --cwd website run build",
+    "website:preview": "bun --cwd website run preview"
   },
   "license": "MIT",
   "dependencies": {

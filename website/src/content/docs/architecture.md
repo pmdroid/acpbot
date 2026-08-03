@@ -1,4 +1,9 @@
-# Architecture
+---
+title: Architecture
+description: Worker, acp-host, sockets, and store layout.
+order: 10
+section: reference
+---
 
 ## Goals
 
@@ -78,7 +83,7 @@ The guided setup can install **both** host and worker as user services (same
 | Host | `app.acpbot.host` (`acpbot host`) | `acpbot-host.service` |
 | Worker | `app.acpbot.worker` | `acpbot.service` |
 
-See [configuration.md](configuration.md#background-services-host--worker).
+See [Configuration](/docs/configuration#background-services-host--worker).
 
 ## Environment port
 
@@ -141,7 +146,7 @@ Per-session FIFO in the **worker** (not host-only):
 | `/steer <text>` | Abort in-flight turn (queue kept), start steer turn immediately |
 | `/cancel` | Abort + **clear** queue |
 
-Host `promptQueue` (acp-host) remains a separate serialization for concurrent host clients. Operator UX is owned by the worker queue. Details: [commands.md](commands.md#queue-vs-steer-while-a-turn-is-busy).
+Host `promptQueue` (acp-host) remains a separate serialization for concurrent host clients. Operator UX is owned by the worker queue. Details: [Commands](/docs/commands#queue-vs-steer-while-a-turn-is-busy).
 
 ## Message volume policy
 
@@ -151,6 +156,6 @@ Host `promptQueue` (acp-host) remains a separate serialization for concurrent ho
 
 - Single-operator allowlist via CLI pairing (`acpbot pair approve`; state under `$state_dir/pairing/`)
 - Bot token only in the worker process
-- Repo path containment for photo/file tools ([worker-api.md](worker-api.md))
+- Repo path containment for photo/file tools ([Worker API](/docs/worker-api))
 - OAuth tokens never written under the repo tree
 - OAuth HTTP listen defaults to `0.0.0.0` when enabled — prefer Tailscale Serve; protection is high-entropy `state` + PKCE

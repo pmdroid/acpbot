@@ -1,0 +1,39 @@
+---
+import {
+  docHref,
+  groupDocsBySection,
+  type DocEntry,
+} from "../lib/docs";
+
+interface Props {
+  docs: DocEntry[];
+  currentId: string;
+}
+
+const { docs, currentId } = Astro.props;
+const groups = groupDocsBySection(docs);
+---
+
+<aside class="docs-sidebar" aria-label="Documentation">
+  <p class="docs-sidebar-title">Docs</p>
+  {
+    groups.map((group) => (
+      <div class="docs-nav-group">
+        <h3>{group.label}</h3>
+        <ul>
+          {group.entries.map((entry) => {
+            const href = docHref(entry);
+            const isActive = entry.id === currentId;
+            return (
+              <li>
+                <a href={href} class:list={[{ active: isActive }]} aria-current={isActive ? "page" : undefined}>
+                  {entry.data.title}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    ))
+  }
+</aside>

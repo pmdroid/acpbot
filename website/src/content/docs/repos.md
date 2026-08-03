@@ -1,4 +1,9 @@
-# Workspace repos CLI
+---
+title: Repos
+description: Workspace roots via acpbot repo manager and folder browser.
+order: 3
+section: start
+---
 
 Named workspace roots live in `config.toml` under `[repos]`.  
 Telegram `/new` uses these keys as the repo picker.
@@ -51,6 +56,6 @@ Still restart if you change **bot_token**, paths (`state_dir` / `store_path`), o
 
 ## Related
 
-- [Configuration](configuration.md) — full `config.toml`
-- [Getting started](getting-started.md) — first `/new`
-- [Commands](commands.md) — `/new` lobby slash
+- [Configuration](/docs/configuration) — full `config.toml`
+- [Getting started](/docs/getting-started) — first `/new`
+- [Commands](/docs/commands) — `/new` lobby slash

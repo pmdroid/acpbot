@@ -1,0 +1,24 @@
+---
+interface Props {
+  homeHref?: string;
+}
+
+const { homeHref = "/" } = Astro.props;
+---
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span class="footer-brand">acpbot</span>
+    <span class="footer-sep">·</span>
+    <a href={homeHref}>Home</a>
+    <span class="footer-sep">·</span>
+    <a href="/docs">Docs</a>
+    <span class="footer-sep">·</span>
+    <a href="https://github.com/pmdroid/acpbot">GitHub</a>
+    <span class="footer-sep">·</span>
+    <a href="https://agentclientprotocol.com">ACP</a>
+    <span class="footer-sep">·</span>
+    <span>MIT</span>
+  </div>
+  <p class="footer-credit">Made with ❤️ in SF · Pascal Matthiesen</p>
+</footer>

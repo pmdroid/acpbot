@@ -1,27 +1,11 @@
-# acpbot documentation
+# Documentation moved
 
-Operator and architecture docs for **acpbot** — Telegram as a control surface for ACP coding agents.
+Operator docs now live on the Astro site:
 
-## Start here
-
-1. [Getting started](getting-started.md) — bot, config, pair, first topic
-2. [Pairing](pairing.md) — CLI operator approve flow
-3. [Repos](repos.md) — `acpbot repo` manager + folder browser
-4. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
-5. [Commands](commands.md) — lobby vs topic slash surface
-
-## How it works
-
-| Doc | Topic |
+| | |
 |---|---|
-| [Architecture](architecture.md) | Worker, acp-host, sockets, store layout |
-| [Agents](agents.md) | Built-in agents, `/model`, `/agent` |
-| [MCP](mcp.md) | Built-in `acpbot` tools, per-repo servers, profiles |
-| [Worker API](worker-api.md) | Unix HTTP API MCP → Telegram |
-| [Schedules](schedules.md) | Durable delayed/recurring jobs + host ticker |
-| [Skills](skills.md) | Bundled `telegram` + `schedules` skills, global install |
-| [OAuth](oauth.md) | Remote MCP auth (PKCE + DCR) |
+| **Local** | `cd website && bun run dev` → [http://localhost:4321/docs](http://localhost:4321/docs) |
+| **Site** | [https://acpbot.app/docs](https://acpbot.app/docs) |
+| **Source** | [`website/src/content/docs/`](../website/src/content/docs/) |
 
-## Root README
-
-High-level overview and quick start: [../README.md](../README.md).
+Edit markdown under `website/src/content/docs/`. Landing page: `website/src/pages/index.astro`.
