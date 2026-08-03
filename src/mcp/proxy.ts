@@ -1,21 +1,31 @@
 /**
- * Stdio MCP proxy for a remote HTTP/SSE MCP gateway (one process per slot).
+ * Stdio MCP proxy for a remote OAuth HTTP MCP gateway (one process per slot).
  *
- *   Agent  ──stdio──►  acpbot mcp-proxy  ──HTTP + Bearer──►  remote
+ * Built entirely on the official Model Context Protocol TypeScript SDK:
  *
- * - Starts even with **no OAuth token** (empty tool list) so the agent always
- *   has the proxy attached; when `/mcp auth` completes, we connect and
- *   re-advertise tools via list_changed (no agent restart).
- * - token() re-reads the store every request; 401 force-refreshes.
+ *   Agent  ──stdio──►  McpServer (this process)
+ *                         │
+ *                         └─ Client + StreamableHTTPClientTransport
+ *                              ──HTTP + Bearer──►  remote gateway
+ *
+ * - Attaches even with **no OAuth token** (empty tools) so the agent always
+ *   has the proxy; when `/mcp auth` completes, we connect and send
+ *   `tools/list_changed` (no agent restart).
+ * - `AuthProvider.token()` re-reads the host store every request; 401
+ *   force-refreshes via `onUnauthorized`.
  */
-import { FastMCP } from "@prefecthq/fastmcp-ts/server";
-import { z } from "zod";
 import {
   Client,
   StreamableHTTPClientTransport,
   type AuthProvider,
   type CallToolResult,
 } from "@modelcontextprotocol/client";
+import {
+  fromJsonSchema,
+  McpServer,
+  type RegisteredTool,
+} from "@modelcontextprotocol/server";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import {
   ensureFreshBearerForMcp,
   refreshStoredOAuthToken,
@@ -50,74 +60,40 @@ type RemoteTool = {
   inputSchema?: Record<string, unknown>;
 };
 
-async function connectRemote(
-  url: string,
-  stateDir: string,
-  repoKey: string,
-  id: string,
-): Promise<RemoteConn> {
-  const authProvider: AuthProvider = {
-    async token() {
-      const auth = await ensureFreshBearerForMcp(stateDir, repoKey, id, {
-        log,
-      });
-      if (!auth) return undefined;
-      return rawToken(auth.value);
-    },
-    async onUnauthorized() {
-      log.info("mcp-proxy: 401 — force-refresh (agent stays up)", { id });
-      await refreshStoredOAuthToken(stateDir, repoKey, id, {
-        force: true,
-        log,
-      });
-    },
-  };
-
-  const transport = new StreamableHTTPClientTransport(new URL(url), {
-    authProvider,
-    onInsufficientScope: "throw",
-  });
-
-  const client = new Client({
-    name: `acpbot-proxy/${id}`,
-    version: "0.1.0",
-  });
-
-  await client.connect(transport);
-  return { client, transport };
+function looksLikeAuthOrSessionFailure(msg: string): boolean {
+  return /401|403|unauthoriz|invalid_token|expired|forbidden|auth|session|mcp-session|not connected|ECONNRESET|EPIPE|fetch failed|network/i.test(
+    msg,
+  );
 }
 
-async function closeRemote(remote: RemoteConn | null): Promise<void> {
-  if (!remote) return;
-  try {
-    await remote.transport.close?.();
-  } catch {
-    /* */
-  }
+function emptyObjectSchema(): ReturnType<typeof fromJsonSchema> {
+  return fromJsonSchema({
+    type: "object",
+    properties: {},
+    additionalProperties: true,
+  });
 }
 
-function toolResultToText(result: CallToolResult): string {
-  if (!result?.content || !Array.isArray(result.content)) {
-    return JSON.stringify(result ?? null);
-  }
-  const parts: string[] = [];
-  for (const block of result.content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
-    } else {
-      parts.push(JSON.stringify(b));
+function schemaForTool(
+  inputSchema: Record<string, unknown> | undefined,
+): ReturnType<typeof fromJsonSchema> {
+  if (inputSchema && typeof inputSchema === "object") {
+    try {
+      return fromJsonSchema(inputSchema as Parameters<typeof fromJsonSchema>[0]);
+    } catch (err) {
+      log.warn("mcp-proxy: inputSchema convert failed; using open object", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
-  if (result.isError) {
-    return parts.length ? `Error: ${parts.join("\n")}` : "Tool error (no detail)";
-  }
-  return parts.join("\n") || "(empty tool result)";
+  return emptyObjectSchema();
 }
 
-function looksLikeAuthFailure(msg: string): boolean {
-  return /401|unauthoriz|invalid_token|expired|forbidden|auth/i.test(msg);
+function errorToolResult(message: string): CallToolResult {
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+  };
 }
 
 /**
@@ -130,7 +106,7 @@ export async function runMcpProxyMain(): Promise<void> {
   const repoKey = envRequired("ACPBOT_REPO_KEY");
   const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim() || undefined;
 
-  log.info("mcp-proxy starting (per-slot)", {
+  log.info("mcp-proxy starting (official SDK, per-slot)", {
     id,
     url,
     repoKey,
@@ -138,48 +114,145 @@ export async function runMcpProxyMain(): Promise<void> {
     sessionKey,
   });
 
-  const server = new FastMCP({
-    name: id,
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    { name: id, version: "0.1.0" },
+    {
+      capabilities: {
+        tools: { listChanged: true },
+      },
+    },
+  );
 
-  // Mutable remote connection — may be null until first successful auth.
   let remote: RemoteConn | null = null;
   let connectLock: Promise<void> | null = null;
-  const registeredTools = new Set<string>();
+  /** tool name → registration handle (for remove / re-register) */
+  const registered = new Map<string, RegisteredTool>();
 
-  async function registerTools(tools: RemoteTool[]): Promise<void> {
+  async function connectRemote(): Promise<RemoteConn> {
+    const authProvider: AuthProvider = {
+      async token() {
+        const auth = await ensureFreshBearerForMcp(stateDir, repoKey, id, {
+          log,
+        });
+        if (!auth) return undefined;
+        return rawToken(auth.value);
+      },
+      async onUnauthorized() {
+        log.info("mcp-proxy: 401 — force-refresh (agent stays up)", { id });
+        await refreshStoredOAuthToken(stateDir, repoKey, id, {
+          force: true,
+          log,
+        });
+      },
+    };
+
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      authProvider,
+      onInsufficientScope: "throw",
+    });
+
+    const client = new Client({
+      name: `acpbot-proxy/${id}`,
+      version: "0.1.0",
+    });
+
+    await client.connect(transport);
+    return { client, transport };
+  }
+
+  async function closeRemote(conn: RemoteConn | null): Promise<void> {
+    if (!conn) return;
+    try {
+      await conn.client.close?.();
+    } catch {
+      /* */
+    }
+    try {
+      await conn.transport.close?.();
+    } catch {
+      /* */
+    }
+  }
+
+  async function callProxiedTool(
+    toolName: string,
+    args: unknown,
+  ): Promise<CallToolResult> {
+    const payload =
+      args && typeof args === "object"
+        ? (args as Record<string, unknown>)
+        : {};
+
+    const callOnce = async (conn: RemoteConn): Promise<CallToolResult> => {
+      const result = await conn.client.callTool({
+        name: toolName,
+        arguments: payload,
+      });
+      // Pass remote content blocks through (text / image / …).
+      return {
+        content: Array.isArray(result.content) ? result.content : [],
+        ...(result.isError ? { isError: true } : {}),
+        ...(result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent }
+          : {}),
+      } as CallToolResult;
+    };
+
+    try {
+      if (!remote) {
+        await reconnectRemote("lazy-connect");
+      }
+      return await callOnce(remote!);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!looksLikeAuthOrSessionFailure(msg) && remote) {
+        return errorToolResult(`Proxy tool ${toolName} failed: ${msg}`);
+      }
+      try {
+        const conn = await reconnectRemote(msg);
+        return await callOnce(conn);
+      } catch (err2) {
+        const m2 = err2 instanceof Error ? err2.message : String(err2);
+        return errorToolResult(
+          `Proxy tool ${toolName} failed: ${m2}. ` +
+            `Run /mcp auth ${id} if unauthorized (no agent restart required).`,
+        );
+      }
+    }
+  }
+
+  function registerTools(tools: RemoteTool[]): void {
+    let added = 0;
     for (const t of tools) {
-      if (registeredTools.has(t.name)) continue;
+      if (registered.has(t.name)) continue;
       const toolName = t.name;
       const description =
         typeof t.description === "string" && t.description.trim()
           ? t.description
           : `Proxied tool ${toolName} (via acpbot → ${id})`;
-      const inputSchema =
+      const inputSchema = schemaForTool(
         t.inputSchema && typeof t.inputSchema === "object"
           ? t.inputSchema
-          : { type: "object", properties: {} };
+          : undefined,
+      );
 
-      server.tool(
+      const handle = server.registerTool(
+        toolName,
         {
-          name: toolName,
           description,
           inputSchema,
-          input: z.record(z.string(), z.unknown()).optional(),
         },
         async (args) => callProxiedTool(toolName, args),
       );
-      registeredTools.add(toolName);
+      registered.set(toolName, handle);
+      added++;
     }
-    // Notify agent that tools/list changed (when supported).
-    try {
-      const notify = (
-        server as unknown as { _notifyToolListChanged?: () => void }
-      )._notifyToolListChanged;
-      notify?.call(server);
-    } catch {
-      /* best-effort */
+    if (added > 0 && server.isConnected()) {
+      try {
+        server.sendToolListChanged();
+      } catch {
+        /* best-effort — agent may not support listChanged */
+      }
     }
   }
 
@@ -195,13 +268,13 @@ export async function runMcpProxyMain(): Promise<void> {
       remote = null;
       try {
         await refreshStoredOAuthToken(stateDir, repoKey, id, {
-          force: reason.includes("401"),
+          force: /401|unauthoriz|invalid_token/i.test(reason),
           log,
         });
       } catch {
         /* may already be fresh or missing */
       }
-      remote = await connectRemote(url, stateDir, repoKey, id);
+      remote = await connectRemote();
       const list = await remote.client.listTools();
       const tools = (list.tools ?? []) as RemoteTool[];
       log.info("mcp-proxy remote tools", {
@@ -209,7 +282,7 @@ export async function runMcpProxyMain(): Promise<void> {
         count: tools.length,
         names: tools.map((t) => t.name).slice(0, 40),
       });
-      await registerTools(tools);
+      registerTools(tools);
     })();
     try {
       await connectLock;
@@ -218,46 +291,6 @@ export async function runMcpProxyMain(): Promise<void> {
     }
     if (!remote) throw new Error("mcp-proxy: connect failed");
     return remote;
-  }
-
-  async function callProxiedTool(
-    toolName: string,
-    args: unknown,
-  ): Promise<string> {
-    const payload =
-      args && typeof args === "object"
-        ? (args as Record<string, unknown>)
-        : {};
-
-    const callOnce = async (conn: RemoteConn) => {
-      const result = await conn.client.callTool({
-        name: toolName,
-        arguments: payload,
-      });
-      return toolResultToText(result);
-    };
-
-    try {
-      if (!remote) {
-        await reconnectRemote("lazy-connect");
-      }
-      return await callOnce(remote!);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!looksLikeAuthFailure(msg) && remote) {
-        return `Proxy tool ${toolName} failed: ${msg}`;
-      }
-      try {
-        const conn = await reconnectRemote(msg);
-        return await callOnce(conn);
-      } catch (err2) {
-        const m2 = err2 instanceof Error ? err2.message : String(err2);
-        return (
-          `Proxy tool ${toolName} failed: ${m2}. ` +
-          `Run /mcp auth ${id} if unauthorized (no agent restart required).`
-        );
-      }
-    }
   }
 
   // Prefer connect now if token exists; otherwise serve empty tools and poll.
@@ -301,7 +334,25 @@ export async function runMcpProxyMain(): Promise<void> {
   }, TOKEN_POLL_MS);
   poll.unref?.();
 
-  await server.run();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  log.info("mcp-proxy stdio connected (official McpServer)", {
+    id,
+    tools: registered.size,
+  });
+
+  // Stay alive until stdin closes / transport ends.
+  await new Promise<void>((resolve) => {
+    transport.onclose = () => resolve();
+    process.stdin.on("end", () => resolve());
+    process.stdin.on("close", () => resolve());
+  });
+
   clearInterval(poll);
   await closeRemote(remote);
+  try {
+    await server.close();
+  } catch {
+    /* */
+  }
 }

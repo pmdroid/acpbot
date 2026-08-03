@@ -33,6 +33,8 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
     "@clack/prompts": "^1.7.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@prefecthq/fastmcp-ts": "^1.2.1",
     "zod": "^4.4.3"
   },

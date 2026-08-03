@@ -147,7 +147,7 @@ The gateway must publish AS metadata with a registration endpoint. There are **n
 | Discovery | `src/mcp/oauth-discovery.ts` |
 | PKCE / flow | `src/mcp/oauth-pkce.ts`, `oauth-flow.ts` |
 | Token store | `src/mcp/oauth-store.ts` |
-| Per-slot stdio proxy | `src/mcp/proxy.ts`, `proxy-rewrite.ts` |
+| Per-slot stdio proxy (official MCP TS SDK) | `src/mcp/proxy.ts`, `proxy-rewrite.ts` |
 | HTTP callback | `src/acp-host/oauth-http.ts` |
 | Tests | `test/mcp-oauth.test.ts`, `test/mcp-proxy-rewrite.test.ts` |
 
