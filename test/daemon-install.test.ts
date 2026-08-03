@@ -21,13 +21,19 @@ describe("daemon install units", () => {
   test("launchAgentPlist includes KeepAlive and config path", () => {
     const xml = launchAgentPlist({
       label: "app.acpbot.host",
-      programArgs: ["/usr/local/bin/acpbot-host", "--config", "/cfg/config.toml"],
+      programArgs: [
+        "/usr/local/bin/acpbot",
+        "host",
+        "--config",
+        "/cfg/config.toml",
+      ],
       workingDirectory: "/cfg",
       logOut: "/tmp/out.log",
       logErr: "/tmp/err.log",
     });
     expect(xml).toContain("app.acpbot.host");
-    expect(xml).toContain("/usr/local/bin/acpbot-host");
+    expect(xml).toContain("/usr/local/bin/acpbot");
+    expect(xml).toContain("host");
     expect(xml).toContain("/cfg/config.toml");
     expect(xml).toContain("<key>KeepAlive</key>");
     expect(xml).toContain("<true/>");
@@ -36,10 +42,10 @@ describe("daemon install units", () => {
   test("systemdUserUnit has ExecStart and Restart", () => {
     const unit = systemdUserUnit({
       description: "acpbot worker",
-      execStart: "/usr/local/bin/acpbot --config /cfg/config.toml",
+      execStart: "/usr/local/bin/acpbot worker --config /cfg/config.toml",
       workingDirectory: "/cfg",
     });
-    expect(unit).toContain("ExecStart=/usr/local/bin/acpbot");
+    expect(unit).toContain("ExecStart=/usr/local/bin/acpbot worker");
     expect(unit).toContain("Restart=on-failure");
     expect(unit).toContain("WantedBy=default.target");
   });
@@ -98,7 +104,7 @@ describe("renderFullConfigToml", () => {
 
 describe("service CLI", () => {
   test("parseServiceCli recognizes install/start/stop/restart/status", () => {
-    expect(parseServiceCli(["x", "acpbot-host", "install"])).toEqual({
+    expect(parseServiceCli(["x", "acpbot", "install"])).toEqual({
       action: "install",
       target: "all",
     });

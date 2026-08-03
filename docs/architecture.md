@@ -16,7 +16,7 @@
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  acpbot worker  (acpbot / bun run start)                      │
+│  acpbot worker  (acpbot worker / bun run start)                 │
 │  · config.toml (TOML-first)                                 │
 │  · allowlist operator                                       │
 │  · lobby + topic command routing                            │
@@ -75,7 +75,7 @@ The guided setup can install **both** host and worker as user services (same
 
 | | macOS LaunchAgent | Linux systemd user |
 |---|---|---|
-| Host | `app.acpbot.host` | `acpbot-host.service` |
+| Host | `app.acpbot.host` (`acpbot host`) | `acpbot-host.service` |
 | Worker | `app.acpbot.worker` | `acpbot.service` |
 
 See [configuration.md](configuration.md#background-services-host--worker).

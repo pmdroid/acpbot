@@ -16,7 +16,6 @@ import {
   homeDir,
   loadConfig,
   normalizeAgentName,
-  resolvePath,
   type LoadConfigOptions,
   type ProcessConfig,
 } from "../config";
@@ -30,6 +29,13 @@ import {
   resolveOAuthSuggestPort,
   type OAuthCallbackSuggestion,
 } from "./oauth-callback-detect";
+import { pickDirectoryPath } from "./folder-browser";
+import {
+  fullDiskAccessGuidance,
+  hasFullDiskAccess,
+  isDarwinPlatform,
+  openFullDiskAccessSettings,
+} from "./macos-fda";
 
 export type GuidedSetupResult = {
   configPath: string;
@@ -517,16 +523,17 @@ export async function runGuidedSetupTui(
         validate: (v) => (!v?.trim() ? "Required" : undefined),
       });
       if (cancelled(key)) abort();
-      const pathRaw = await p.text({
-        message: "Absolute path to the repo",
-        placeholder: join(homeDir(env), "code", "demo"),
-        initialValue: repos[String(key).trim()] ?? join(homeDir(env), "code"),
-        validate: (v) => {
-          if (!v?.trim()) return "Required";
-        },
+      const k = String(key).trim();
+      const start =
+        repos[k] ?? join(homeDir(env), "code");
+      const picked = await pickDirectoryPath({
+        message: `Folder for repo "${k}"`,
+        initialPath: repos[k],
+        startDir: start,
+        env,
       });
-      if (cancelled(pathRaw)) abort();
-      repos[String(key).trim()] = resolvePath(String(pathRaw), env);
+      if (!picked) abort();
+      repos[k] = picked;
     }
   } else {
     const addRepo = await p.confirm({
@@ -542,16 +549,14 @@ export async function runGuidedSetupTui(
         validate: (v) => (!v?.trim() ? "Required" : undefined),
       });
       if (cancelled(key)) abort();
-      const pathRaw = await p.text({
-        message: "Absolute path to the repo",
-        placeholder: join(homeDir(env), "code", "demo"),
-        initialValue: join(homeDir(env), "code"),
-        validate: (v) => {
-          if (!v?.trim()) return "Required";
-        },
+      const k = String(key).trim();
+      const picked = await pickDirectoryPath({
+        message: `Folder for repo "${k}"`,
+        startDir: join(homeDir(env), "code"),
+        env,
       });
-      if (cancelled(pathRaw)) abort();
-      repos[String(key).trim()] = resolvePath(String(pathRaw), env);
+      if (!picked) abort();
+      repos[k] = picked;
     }
   }
 
@@ -757,23 +762,82 @@ export async function runGuidedSetupTui(
     requireTelegram: true,
   });
 
+  // ── macOS Full Disk Access ────────────────────────────────────────────
+  const acpbotBin = resolveExecutable("acpbot", env as NodeJS.ProcessEnv);
+
+  if (isDarwinPlatform()) {
+    p.log.step("macOS Full Disk Access");
+    const fdaOk = hasFullDiskAccess({
+      home: homeDir(env),
+    });
+    if (fdaOk) {
+      p.log.success(
+        "Full Disk Access looks granted for this process (protected Library paths are readable).",
+      );
+      p.log.message(
+        `If LaunchAgents still hit “Operation not permitted”, add this binary in System Settings:\n  ${acpbotBin ?? "~/.local/bin/acpbot"}`,
+      );
+    } else {
+      p.note(
+        fullDiskAccessGuidance(acpbotBin),
+        "Recommended for agents on real project folders",
+      );
+      const openFda = await p.confirm({
+        message:
+          "Open System Settings → Full Disk Access so you can enable acpbot?",
+        initialValue: true,
+      });
+      if (cancelled(openFda)) abort();
+      if (openFda) {
+        const opened = openFullDiskAccessSettings();
+        if (opened) {
+          p.log.info(
+            "Opened Full Disk Access. Add acpbot, enable the toggle, then return here.",
+          );
+        } else {
+          p.log.warn(
+            "Could not open System Settings automatically.\n" +
+              "  Open: System Settings → Privacy & Security → Full Disk Access",
+          );
+        }
+        const done = await p.confirm({
+          message:
+            "Press Yes after enabling Full Disk Access for acpbot (or skip for now)",
+          initialValue: true,
+        });
+        if (cancelled(done)) abort();
+        if (done) {
+          if (hasFullDiskAccess({ home: homeDir(env) })) {
+            p.log.success("Full Disk Access detected for this process.");
+          } else {
+            p.log.warn(
+              "Still cannot read protected paths from this process.\n" +
+                "  You may have enabled the wrong app (enable the acpbot binary),\n" +
+                "  or the toggle needs a service restart after setup.",
+            );
+          }
+        }
+      } else {
+        p.log.message("Skipped Full Disk Access — you can enable it later in System Settings.");
+      }
+    }
+  }
+
   // ── Daemon install ────────────────────────────────────────────────────
   p.log.step("Background service");
 
   const platform = detectDaemonPlatform();
-  const workerBin = resolveExecutable("acpbot", env as NodeJS.ProcessEnv);
-  const hostBin = resolveExecutable("acpbot-host", env as NodeJS.ProcessEnv);
 
   let daemonResult: GuidedSetupResult["daemon"];
 
   if (platform === "unsupported") {
     p.log.warn(
-      `Daemon install not available on ${process.platform}. Run acpbot-host and acpbot manually.`,
+      `Daemon install not available on ${process.platform}. Run \`acpbot host\` and \`acpbot worker\` manually.`,
     );
-  } else if (!workerBin || !hostBin) {
+  } else if (!acpbotBin) {
     p.log.warn(
-      "acpbot / acpbot-host not found on PATH — skip service install.\n" +
-        "  Put release binaries in /usr/local/bin (or similar), then: acpbot setup",
+      "acpbot not found on PATH — skip service install.\n" +
+        "  Put the release binary in ~/.local/bin or /usr/local/bin, then: acpbot setup",
     );
   } else {
     const install = await p.confirm({
@@ -795,8 +859,7 @@ export async function runGuidedSetupTui(
 
       const d = installUserDaemons({
         configPath: layout.configPath,
-        workerBin,
-        hostBin,
+        bin: acpbotBin,
         env: env as NodeJS.ProcessEnv,
         start: Boolean(startNow),
       });
@@ -828,8 +891,16 @@ export async function runGuidedSetupTui(
     nextLines.push(
       "",
       "Run manually:",
-      "  terminal 1:  acpbot-host",
-      "  terminal 2:  acpbot",
+      "  terminal 1:  acpbot host",
+      "  terminal 2:  acpbot worker",
+    );
+  }
+  if (isDarwinPlatform()) {
+    nextLines.push(
+      "",
+      "macOS: Full Disk Access for the acpbot binary if agents need Desktop/Documents/…",
+      `  Binary: ${acpbotBin ?? "~/.local/bin/acpbot"}`,
+      "  System Settings → Privacy & Security → Full Disk Access",
     );
   }
   nextLines.push(

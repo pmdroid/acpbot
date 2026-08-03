@@ -32,6 +32,17 @@ Commands are registered in `src/core/commands.ts`.
 | `/mcp` | Remote MCP registry + OAuth (see below) |
 | `/help` | Topic help (includes queue vs steer notes) |
 
+### Live “working” bubble
+
+While a turn is in flight, the topic shows one **⏳** status message. It updates when the agent starts tools (e.g. *Running subagent…*, *Waiting on background tasks…*, *Searching the web…*) and every ~15s appends elapsed time so long waits (research subagents, slow tools) don’t look frozen.
+
+| Bubble | Meaning |
+|---|---|
+| ⏳ Working… | Turn started / between tools |
+| ⏳ Running subagent: … | Background agent work |
+| ⏳ Waiting on background tasks… (1m 30s) | Blocked on subagent/task output |
+| ❓ Waiting for your answer… | Permission or `ask_user_question` |
+
 ### Queue vs steer (while a turn is busy)
 
 | Operator input | Effect |

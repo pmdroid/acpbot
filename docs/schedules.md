@@ -32,7 +32,7 @@ Optional scripts (relative to repo root):
 - The `timezone` field is stored (non-UTC values may warn on create) but does **not** shift the schedule yet
 - When both day-of-month and day-of-week are restricted, classic cron **OR** applies (either may match)
 
-## Host fire (`acpbot-host` / `bun run acp-host`)
+## Host fire (`acpbot host` / `bun run acp-host`)
 
 Requirements:
 

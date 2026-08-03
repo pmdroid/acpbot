@@ -44,31 +44,39 @@ Full reference: [configuration.md](configuration.md).
 ### Recommended (binaries)
 
 ```bash
+acpbot help                 # all subcommands
 acpbot setup
 # Guided TUI: config + API keys + optional OAuth callback.
 # OAuth step can suggest Tailscale DNS / Tailscale IP / LAN IP, or a custom URL.
-# Daemon step installs BOTH:
-#   • acpbot-host  (LaunchAgent / systemd user unit)
-#   • acpbot       (LaunchAgent / systemd user unit)
+# macOS: offers Full Disk Access (System Settings) so agents can read real folders
+# Daemon step installs BOTH (same binary):
+#   • acpbot host    (LaunchAgent / systemd)
+#   • acpbot worker  (LaunchAgent / systemd)
 
 # Later:
-acpbot-host start | stop | restart | status
-# (same commands on `acpbot`; --host / --worker for one side)
+acpbot start | stop | restart | status
+# one side: acpbot start --host · acpbot stop --worker
+
+# Workspace roots (folder browser) — see repos.md
+acpbot repo
+acpbot repo add demo ~/code/demo
+acpbot restart --worker     # pick up [repos] changes for /new
 ```
 
 If you skip the daemon step in setup:
 
 ```bash
-acpbot-host    # terminal 1 — agent stdio, schedules, OAuth
-acpbot         # terminal 2 — Telegram worker
-# or: acpbot-host install && acpbot-host start
+acpbot host      # terminal 1 — agent stdio, schedules, OAuth
+acpbot worker    # terminal 2 — Telegram worker
+# or: acpbot install && acpbot start
 ```
 
 ### From source (dev)
 
 ```bash
-bun run acp-host    # terminal 1
-bun run start       # terminal 2
+bun run acp-host    # terminal 1  (= acpbot host)
+bun run start       # terminal 2  (= acpbot worker)
+# or: bun run src/main.ts host | worker
 ```
 
 In the private chat with the bot:

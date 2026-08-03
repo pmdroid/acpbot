@@ -102,10 +102,15 @@ export async function startAcpHostServer(
     baseConfig.defaultAgent?.trim() ||
     process.env.ACPBOT_DEFAULT_AGENT?.trim() ||
     "grok-build";
-  const repos: Record<string, string> =
-    options.repos ??
-    baseConfig.repos ??
-    parseReposFromEnv(process.env);
+  // Mutable catalog — hot reload mutates this object in place so the
+  // scheduler picks up new [repos] without restart.
+  const repos: Record<string, string> = {
+    ...(options.repos ??
+      baseConfig.repos ??
+      parseReposFromEnv(process.env)),
+  };
+  // Keep baseConfig.repos as the same map for any code reading config.repos
+  baseConfig.repos = repos;
 
   const slots = new Map<string, Slot>();
   let scheduler: SchedulerLoopHandle | null = null;
@@ -901,8 +906,9 @@ export async function startAcpHostServer(
   log.info("listening", { sockPath });
 
   const enableScheduler = options.enableScheduler !== false;
-  const repoCount = Object.keys(repos).length;
-  if (enableScheduler && repoCount > 0) {
+  // Always start the loop when enabled so hot-reloaded repos are scanned
+  // without restart (empty catalog → no-op ticks).
+  if (enableScheduler) {
     const tickMs = options.scheduleTickMs ?? scheduleTickMs(process.env);
     scheduler = startSchedulerLoop({
       repos,
@@ -912,13 +918,12 @@ export async function startAcpHostServer(
       tickMs,
       fireImmediately: true,
     });
+    const repoCount = Object.keys(repos).length;
     log.info("scheduler started", {
       repos: repoCount,
       tickMs,
       repoKeys: Object.keys(repos),
     });
-  } else if (enableScheduler) {
-    log.info("scheduler idle (no ACPBOT_REPOS_JSON / repos catalog)");
   }
 
   const close = async () => {
@@ -946,6 +951,8 @@ export async function startAcpHostServer(
   return {
     sockPath,
     close,
+    /** Shared mutable repo catalog (hot-reload mutates in place). */
+    repos,
     ...(scheduler
       ? { scheduleTickNow: () => scheduler!.tickNow() }
       : {}),

@@ -110,35 +110,29 @@ for arch in "${ARCHS[@]}"; do
       ;;
   esac
 
-  worker="acpbot-${VERSION}-${suffix}"
-  host="acpbot-host-${VERSION}-${suffix}"
+  out="acpbot-${VERSION}-${suffix}"
 
-  log "compile ${worker} / ${host} (${target})"
+  log "compile ${out} (${target}) — unified host+worker CLI"
   bun build --compile --target="$target" \
-    --outfile="dist/${worker}" \
+    --outfile="dist/${out}" \
     src/main.ts
-  bun build --compile --target="$target" \
-    --outfile="dist/${host}" \
-    src/acp-host/main.ts
-  chmod +x "dist/${worker}" "dist/${host}"
+  chmod +x "dist/${out}"
 
-  log "codesign ${worker} ${host}"
+  log "codesign ${out}"
   if [[ "$IDENTITY" == "-" ]]; then
-    codesign --force --sign - "dist/${worker}" "dist/${host}"
+    codesign --force --sign - "dist/${out}"
   else
     # hardened runtime for Developer ID / notarization-friendly
     codesign --force --options runtime --timestamp \
       --sign "$IDENTITY" \
-      "dist/${worker}" "dist/${host}"
+      "dist/${out}"
   fi
-  codesign --verify --verbose=2 "dist/${worker}"
-  codesign --verify --verbose=2 "dist/${host}"
+  codesign --verify --verbose=2 "dist/${out}"
 
-  log "tar ${worker}.tar.gz ${host}.tar.gz"
-  tar -C dist -czf "dist/${worker}.tar.gz" "${worker}"
-  tar -C dist -czf "dist/${host}.tar.gz" "${host}"
+  log "tar ${out}.tar.gz"
+  tar -C dist -czf "dist/${out}.tar.gz" "${out}"
 
-  (cd dist && shasum -a 256 "${worker}.tar.gz" "${host}.tar.gz") >>"$SUMS_FILE"
+  (cd dist && shasum -a 256 "${out}.tar.gz") >>"$SUMS_FILE"
 done
 
 log "checksums → ${SUMS_FILE}"
@@ -153,21 +147,22 @@ if [[ "$INSTALL" -eq 1 ]]; then
     *) die "unknown machine arch: $machine" ;;
   esac
   w="dist/acpbot-${VERSION}-${inst_suffix}"
-  h="dist/acpbot-host-${VERSION}-${inst_suffix}"
-  [[ -x "$w" && -x "$h" ]] || die "missing $w / $h for --install"
+  [[ -x "$w" ]] || die "missing $w for --install"
   mkdir -p "$HOME/.local/bin"
   cp -f "$w" "$HOME/.local/bin/acpbot"
-  cp -f "$h" "$HOME/.local/bin/acpbot-host"
-  chmod +x "$HOME/.local/bin/acpbot" "$HOME/.local/bin/acpbot-host"
+  chmod +x "$HOME/.local/bin/acpbot"
   # re-sign after copy (codesign is path-bound for some setups)
   if [[ "$IDENTITY" == "-" ]]; then
-    codesign --force --sign - "$HOME/.local/bin/acpbot" "$HOME/.local/bin/acpbot-host"
+    codesign --force --sign - "$HOME/.local/bin/acpbot"
   else
     codesign --force --options runtime --timestamp \
       --sign "$IDENTITY" \
-      "$HOME/.local/bin/acpbot" "$HOME/.local/bin/acpbot-host"
+      "$HOME/.local/bin/acpbot"
   fi
-  log "installed → ~/.local/bin/acpbot{,-host}"
+  # Optional legacy name: same binary, basename triggers host when run as acpbot-host
+  ln -sfn "$HOME/.local/bin/acpbot" "$HOME/.local/bin/acpbot-host"
+  log "installed → ~/.local/bin/acpbot  (+ acpbot-host → acpbot symlink)"
+  log "run: acpbot host | acpbot worker | acpbot help"
   log "restart services:  acpbot restart   (or launchctl kickstart)"
 fi
 
@@ -180,7 +175,6 @@ if [[ "$UPLOAD" -eq 1 ]]; then
       x64|amd64|x86_64) suffix="darwin-x64" ;;
     esac
     files+=("dist/acpbot-${VERSION}-${suffix}.tar.gz")
-    files+=("dist/acpbot-host-${VERSION}-${suffix}.tar.gz")
   done
   files+=("$SUMS_FILE")
   log "upload to release ${VERSION}"
@@ -191,7 +185,7 @@ fi
 log "done"
 echo ""
 echo "Artifacts:"
-ls -la dist/acpbot*-"${VERSION}"-darwin-*.tar.gz "$SUMS_FILE" 2>/dev/null || true
+ls -la dist/acpbot-"${VERSION}"-darwin-*.tar.gz "$SUMS_FILE" 2>/dev/null || true
 echo ""
 if [[ "$IDENTITY" != "-" ]]; then
   echo "Optional notarization (for Gatekeeper on other Macs):"

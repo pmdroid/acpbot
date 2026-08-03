@@ -6,8 +6,9 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 
 1. [Getting started](getting-started.md) — bot, config, pair, first topic
 2. [Pairing](pairing.md) — CLI operator approve flow
-3. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
-4. [Commands](commands.md) — lobby vs topic slash surface
+3. [Repos](repos.md) — `acpbot repo` manager + folder browser
+4. [Configuration](configuration.md) — `config.toml` reference (paths, speech, OAuth)
+5. [Commands](commands.md) — lobby vs topic slash surface
 
 ## How it works
 

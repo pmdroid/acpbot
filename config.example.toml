@@ -29,6 +29,7 @@ log_level = "info"                       # debug | info | warn | error | silent
 
 # ── Repos for /new picker + schedule scan ──────────────────────────────────
 # Keys are short labels; values are absolute working directories.
+# Manage with: acpbot repo | acpbot repo add | acpbot repo browse
 [repos]
 # demo = "/Users/you/code/demo"
 # acpbot = "/Users/you/code/acpbot"
