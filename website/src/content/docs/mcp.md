@@ -49,25 +49,21 @@ mcp = false
 
 (Env override: `ACPBOT_MCP=0`.)
 
-## Remote OAuth MCP → stdio proxy (default)
+## Remote OAuth MCP → per-slot stdio proxy
 
-Agents (especially **Grok**) mishandle remote OAuth MCP (`invalid_token`, flaky tools after reauth).  
-Restarting the agent on every reauth is a bad operator experience, so acpbot **proxies** remotes:
+Agents (especially **Grok**) mishandle remote OAuth MCP. acpbot **always** proxies remotes:
 
 ```text
-Agent  ──stdio──►  acpbot mcp-proxy  ──HTTP + Bearer──►  remote gateway
+Agent (one process per topic/slot)
+  └── stdio ──►  acpbot mcp-proxy   (one child per remote, per slot)
+                    └── HTTP + Bearer ──►  remote gateway
 ```
 
+- **Per slot:** each topic session (`repo/name`) gets its own agent + its own `mcp-proxy` children. Slots do not share proxy processes.
 - OAuth tokens stay on the host (`/mcp auth`); the proxy owns refresh.
 - The agent only sees a normal **stdio** server (named like the gateway id, e.g. `full`).
 - On 401 / expiry the **proxy** re-reads the token store and reconnects upstream — **the agent process is not killed**.
 - After `/mcp auth`, try the tools again; no `/agent` restart required.
-
-Disable the rewrite (pass raw http/sse to the agent — not recommended for OAuth gateways):
-
-```bash
-ACPBOT_MCP_PROXY=0
-```
 
 ## Per-repo registry
 

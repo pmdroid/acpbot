@@ -548,51 +548,12 @@ describe("loadRepoMcpServers / buildSessionMcpServers", () => {
         const env = Object.fromEntries(linear.env.map((e) => [e.name, e.value]));
         expect(env.ACPBOT_MCP_PROXY_URL).toBe("https://mcp.example/linear");
         expect(env.ACPBOT_MCP_PROXY_ID).toBe("linear");
+        expect(env.ACPBOT_SESSION_KEY).toBe("demo/main");
         expect(servers[1]?.name).toBe("acpbot");
       },
     );
   });
 
-  test("ACPBOT_MCP_PROXY=0 keeps raw http remotes", async () => {
-    const prev = process.env.ACPBOT_MCP_PROXY;
-    process.env.ACPBOT_MCP_PROXY = "0";
-    try {
-      await withRepo(
-        async (repo) => {
-          await mkdir(join(repo, ".acpbot"), { recursive: true });
-          await writeFile(
-            join(repo, ".acpbot", "mcp.json"),
-            JSON.stringify({
-              mcpServers: [
-                {
-                  name: "linear",
-                  type: "http",
-                  url: "https://mcp.example/linear",
-                },
-              ],
-            }),
-            "utf8",
-          );
-        },
-        async (repo) => {
-          const servers = await buildSessionMcpServers({
-            cwd: repo,
-            enabled: true,
-            sessionKey: "demo/main",
-            oauthFailClosed: false,
-          });
-          expect(servers[0]).toMatchObject({
-            type: "http",
-            name: "linear",
-            url: "https://mcp.example/linear",
-          });
-        },
-      );
-    } finally {
-      if (prev === undefined) delete process.env.ACPBOT_MCP_PROXY;
-      else process.env.ACPBOT_MCP_PROXY = prev;
-    }
-  });
 
   test("disabled returns empty", async () => {
     const servers = await buildSessionMcpServers({

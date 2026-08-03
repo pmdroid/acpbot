@@ -10,11 +10,12 @@
  *  - token() re-reads the host store every request (picks up /mcp auth)
  *  - 401 → force-refresh and retry (no agent process kill)
  *
- * Env (set by session-host when rewriting remotes):
+ * Env (set per session slot when rewriting remotes):
  *   ACPBOT_MCP_PROXY_ID      gateway id (token store key)
  *   ACPBOT_MCP_PROXY_URL     remote MCP URL
  *   ACPBOT_STATE_DIR         token store root
  *   ACPBOT_REPO_KEY          repo key for token path
+ *   ACPBOT_SESSION_KEY       session slot (repo/name) — one proxy tree per slot
  *   ACPBOT_MCP_PROXY_TYPE    "http" | "sse" (default http / streamable)
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
@@ -138,8 +139,15 @@ export async function runMcpProxyMain(): Promise<void> {
   const url = envRequired("ACPBOT_MCP_PROXY_URL");
   const stateDir = resolveOAuthStateDir(process.env.ACPBOT_STATE_DIR);
   const repoKey = envRequired("ACPBOT_REPO_KEY");
+  const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim() || undefined;
 
-  log.info("mcp-proxy starting", { id, url, repoKey, stateDir });
+  log.info("mcp-proxy starting (per-slot)", {
+    id,
+    url,
+    repoKey,
+    stateDir,
+    sessionKey,
+  });
 
   const initial = await ensureFreshBearerForMcp(stateDir, repoKey, id, { log });
   if (!initial) {

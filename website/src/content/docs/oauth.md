@@ -106,7 +106,7 @@ If bind fails (port in use), **acp-host exits** with a clear error when `callbac
 4. On callback, PKCE completes; Bearer tokens merge into remote MCP at ensure
 5. Pending PKCE expires after **15 minutes**
 6. **Access tokens auto-refresh** when stale (uses stored `refresh_token` + token endpoint). If refresh fails (`invalid_grant`, no refresh token), run `/mcp auth <id>` again.
-7. Remote gateways are served to the agent via **`acpbot mcp-proxy`** (stdio). The proxy re-reads tokens on every request / 401 — **no agent restart** after reauth. See [MCP](/docs/mcp#remote-oauth-mcp--stdio-proxy-default).
+7. Remote gateways are served via **`acpbot mcp-proxy`** (stdio, **per session slot**). The proxy re-reads tokens on every request / 401 — **no agent restart** after reauth. See [MCP](/docs/mcp#remote-oauth-mcp--per-slot-stdio-proxy).
 
 When `callback_base` is set, ensure **fail-closes** if a remote MCP has no token:
 
