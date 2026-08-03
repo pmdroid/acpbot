@@ -1778,7 +1778,7 @@ export function createDaemon(
           `Added MCP **${entry.name}** (${entry.type})\n${entry.url}\n\n` +
             `Written to \`.tacp/mcp.json\` (id + url only; no tokens).\n` +
             `Authorize with \`/mcp auth ${entry.name}\` if the gateway needs OAuth.\n` +
-            `Active on next session ensure / restart.`,
+            `Remotes are exposed via a stdio proxy (auth stays in acpbot; no agent restart on reauth).`,
         );
         return;
       }
@@ -1848,7 +1848,8 @@ export function createDaemon(
             `Redirect: \`${started.redirectUri}\`\n` +
             `OAuth state dir (must match acp-host): \`${oauthStateDir}\`\n` +
             `Pending expires in 15 minutes. Tokens stay on the host (not in the repo).\n\n` +
-            `After the browser succeeds, send any message here — MCP reconnects with the new token.\n\n` +
+            `After the browser succeeds, **use the tools again** — the MCP proxy ` +
+            `picks up the new token **without restarting the agent**.\n\n` +
             `If the browser cannot reach the host (or acp-host OAuth listen failed), ` +
             `paste the **full** final redirect URL:\n` +
             `\`/mcp code <callback-url>\``,
@@ -1880,24 +1881,13 @@ export function createDaemon(
           id: result.id,
           repoKey: result.repoKey,
         });
-        // Rebuild agent MCP now (Bearer headers only apply at session spawn).
-        let reconnected = false;
-        try {
-          await ensureSessionWithPerms(session, { forceRespawn: true });
-          reconnected = true;
-        } catch (err) {
-          log.warn("mcp oauth post-auth respawn failed", {
-            sessionKey: session.sessionKey,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        // Tokens only — live mcp-proxy children re-read the store on the next
+        // tool call. Do not forceRespawn the agent.
         await sendInTopic(
           session,
           `OAuth complete for MCP **${result.id}**.\n` +
-            `Token stored on host (not in repo).` +
-            (reconnected
-              ? `\nAgent MCP reconnected with the new token — try your tools again.`
-              : `\nSend any message to reconnect MCP (or \`/agent\` to force).`),
+            `Token stored on host (not in repo).\n` +
+            `Try the tools again — no agent restart needed (stdio proxy holds auth).`,
         );
         return;
       }
