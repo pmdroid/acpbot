@@ -779,26 +779,27 @@ export async function buildSessionMcpServers(
     log,
   });
 
-  // Default: expose remotes as local stdio proxies so agents (Grok) never
-  // negotiate OAuth HTTP themselves. Tokens stay in acpbot; set
-  // ACPBOT_MCP_PROXY=0 to pass raw http/sse instead.
-  const { rewriteRemotesAsStdioProxies, mcpProxyEnabled } = await import(
-    "./proxy-rewrite"
-  );
-  if (mcpProxyEnabled()) {
-    const before = merged.filter(
-      (s) => (s as { type?: string }).type === "http" || (s as { type?: string }).type === "sse",
-    ).length;
+  // Always rewrite remotes → per-slot stdio proxies (acpbot owns OAuth).
+  // One mcp-proxy child per remote per sessionKey; agent never sees type:http.
+  const { rewriteRemotesAsStdioProxies } = await import("./proxy-rewrite");
+  const remoteCount = merged.filter(
+    (s) =>
+      (s as { type?: string }).type === "http" ||
+      (s as { type?: string }).type === "sse",
+  ).length;
+  if (remoteCount > 0) {
     merged = rewriteRemotesAsStdioProxies(merged, {
       stateDir: oauthStateDir,
       repoKey,
+      ...(options.sessionKey !== undefined
+        ? { sessionKey: options.sessionKey }
+        : {}),
     });
-    if (before > 0) {
-      log.info("mcp remotes rewritten as stdio proxies", {
-        count: before,
-        repoKey,
-      });
-    }
+    log.info("mcp remotes rewritten as per-slot stdio proxies", {
+      count: remoteCount,
+      repoKey,
+      sessionKey: options.sessionKey,
+    });
   }
 
   // SessionMcpServer is a structural subset of ACP McpServer (stdio | http | sse).

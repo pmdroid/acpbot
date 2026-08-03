@@ -1,6 +1,8 @@
 /**
- * Rewrite remote (http/sse) MCP descriptors into local stdio proxies so agents
- * never speak OAuth HTTP to third parties — acpbot owns the Bearer token.
+ * Always rewrite remote (http/sse) MCP descriptors into local stdio proxies.
+ *
+ * Per **session slot** (repo/name): the agent spawns its own `acpbot mcp-proxy`
+ * child for each remote. Auth stays in acpbot; agents never do OAuth HTTP.
  */
 import type { AcpbotMcpRemoteServer, SessionMcpServer } from "./repo-mcp";
 import { acpbotSubArgs } from "./acpbot-spawn";
@@ -8,38 +10,28 @@ import { acpbotSubArgs } from "./acpbot-spawn";
 export type ProxyRewriteOptions = {
   stateDir: string;
   repoKey: string;
-  /**
-   * When true (default), remotes become stdio `acpbot mcp-proxy` children.
-   * Set ACPBOT_MCP_PROXY=0 to pass raw http/sse to the agent again.
-   */
-  enabled?: boolean;
+  /** Session key (repo/name) — one proxy process tree per slot. */
+  sessionKey?: string;
   env?: NodeJS.ProcessEnv;
 };
 
-export function mcpProxyEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-  explicit?: boolean,
-): boolean {
-  if (explicit !== undefined) return explicit;
-  const v = env.ACPBOT_MCP_PROXY?.trim() || env.TACP_MCP_PROXY?.trim();
-  if (v === "0" || v === "false" || v === "off") return false;
-  // Default ON — agents (esp. Grok) struggle with remote OAuth MCP
-  return true;
-}
-
 /**
- * Convert remote http/sse servers to stdio proxy launches.
+ * Convert every remote http/sse server to a stdio `acpbot mcp-proxy` launch.
  * Stdio entries are left unchanged.
+ *
+ * Each resulting descriptor is bound to a single agent session: the host
+ * passes this list at session/new|load, so each slot gets its own proxy
+ * child processes (not a shared global proxy).
  */
 export function rewriteRemotesAsStdioProxies(
   servers: SessionMcpServer[],
   options: ProxyRewriteOptions,
 ): SessionMcpServer[] {
-  if (!mcpProxyEnabled(options.env, options.enabled)) {
-    return servers;
-  }
-
-  const { command, args: proxyArgs } = acpbotSubArgs("mcp-proxy", [], options.env);
+  const { command, args: proxyArgs } = acpbotSubArgs(
+    "mcp-proxy",
+    [],
+    options.env,
+  );
 
   return servers.map((s) => {
     const type = (s as { type?: string }).type;
@@ -52,6 +44,9 @@ export function rewriteRemotesAsStdioProxies(
       { name: "ACPBOT_MCP_PROXY_URL", value: remote.url },
       { name: "ACPBOT_MCP_PROXY_TYPE", value: remote.type },
     ];
+    if (options.sessionKey?.trim()) {
+      env.push({ name: "ACPBOT_SESSION_KEY", value: options.sessionKey.trim() });
+    }
     return {
       name: remote.name,
       command,
