@@ -20,22 +20,32 @@ bun run website:build    # install website deps + build → website/dist
 
 ## Cloudflare Pages
 
+Use **`wrangler pages deploy`**, not `wrangler deploy` (Workers).  
+`pages_build_output_dir` in `wrangler.toml` supplies the asset folder.
+
 **Recommended** — Root directory = `website`:
 
 | Setting | Value |
 |---|---|
 | Root directory | `website` |
 | Build command | `bun run build` |
-| Build output directory | `dist` |
-| Deploy config | [`wrangler.toml`](wrangler.toml) (`pages_build_output_dir = "dist"`) |
+| Deploy command | `npx wrangler pages deploy` |
+| Build output | `dist` (via [`wrangler.toml`](wrangler.toml)) |
 
 **Repo root** (if Root directory is empty):
 
 | Setting | Value |
 |---|---|
 | Build command | `bun run website:build` |
-| Build output directory | `website/dist` |
-| Deploy config | root [`../wrangler.toml`](../wrangler.toml) |
+| Deploy command | `npx wrangler pages deploy` |
+| Build output | `website/dist` (via root [`../wrangler.toml`](../wrangler.toml)) |
+
+Local:
+
+```bash
+bun run website:build
+bun run website:deploy   # or: npx wrangler pages deploy
+```
 
 ## Structure
 

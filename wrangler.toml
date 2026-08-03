@@ -1,9 +1,11 @@
-# Cloudflare Pages (repo-root config)
-# Use this when the Pages project Root directory is the repo root.
-# Prefer setting Root directory = website and using website/wrangler.toml.
+# Cloudflare Pages (repo root)
 #
-# Build command: bun run website:build
-# Output directory: website/dist
+# Dashboard settings when Root directory is empty / repo root:
+#   Build command:  bun run website:build
+#   Deploy command: npx wrangler pages deploy
+#   (do NOT use `npx wrangler deploy` — that is for Workers)
+#
+# pages_build_output_dir is relative to this file (repo root).
 
 name = "acpbot"
 compatibility_date = "2025-08-01"

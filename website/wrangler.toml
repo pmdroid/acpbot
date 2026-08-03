@@ -1,12 +1,9 @@
-# Cloudflare Pages — static Astro site
-# Dashboard (recommended): set Root directory = website
-#   Build command: bun run build
-#   Build output directory: dist
+# Cloudflare Pages (website package as Root directory)
 #
-# From repo root (if Root directory is empty):
-#   Build command: bun run website:build
-#   Build output directory: website/dist
-#   (use the root wrangler.toml in that case, or override output in the dashboard)
+# Dashboard settings when Root directory = website:
+#   Build command:  bun run build
+#   Deploy command: npx wrangler pages deploy
+#   (do NOT use `npx wrangler deploy` — that is for Workers)
 
 name = "acpbot"
 compatibility_date = "2025-08-01"
