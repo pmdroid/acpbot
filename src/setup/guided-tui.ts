@@ -162,7 +162,7 @@ async function promptOAuthCallbackBase(input: {
 
   const base = await p.text({
     message: "Public callback base URL",
-    placeholder: "https://mac-mini.taile07e4.ts.net:8788",
+    placeholder: "https://your-node.ts.net:8788",
     initialValue: current,
     validate: (v) => {
       const t = String(v ?? "").trim();

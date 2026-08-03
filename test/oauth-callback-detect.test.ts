@@ -20,49 +20,49 @@ import {
 
 const SAMPLE_STATUS = JSON.stringify({
   BackendState: "Running",
-  TailscaleIPs: ["100.114.193.89", "fd7a:115c:a1e0::f53a:c159"],
+  TailscaleIPs: ["100.64.1.2", "fd7a:115c:a1e0::1"],
   Self: {
-    DNSName: "mac-mini.taile07e4.ts.net.",
-    TailscaleIPs: ["100.114.193.89", "fd7a:115c:a1e0::f53a:c159"],
+    DNSName: "your-node.ts.net.",
+    TailscaleIPs: ["100.64.1.2", "fd7a:115c:a1e0::1"],
   },
 });
 
 describe("oauth-callback-detect", () => {
   test("stripDnsTrailingDots", () => {
-    expect(stripDnsTrailingDots("mac-mini.taile07e4.ts.net.")).toBe(
-      "mac-mini.taile07e4.ts.net",
+    expect(stripDnsTrailingDots("your-node.ts.net.")).toBe(
+      "your-node.ts.net",
     );
     expect(stripDnsTrailingDots("  host.ts.net  ")).toBe("host.ts.net");
   });
 
   test("parseTailscaleStatusJson", () => {
     const p = parseTailscaleStatusJson(SAMPLE_STATUS);
-    expect(p.dnsName).toBe("mac-mini.taile07e4.ts.net");
-    expect(p.ipv4).toBe("100.114.193.89");
+    expect(p.dnsName).toBe("your-node.ts.net");
+    expect(p.ipv4).toBe("100.64.1.2");
     expect(parseTailscaleStatusJson("not-json")).toEqual({});
   });
 
   test("buildCallbackBase https defaults to :8788 (not 443)", () => {
     expect(
-      buildCallbackBase("mac-mini.taile07e4.ts.net", { scheme: "https" }),
-    ).toBe("https://mac-mini.taile07e4.ts.net:8788");
+      buildCallbackBase("your-node.ts.net", { scheme: "https" }),
+    ).toBe("https://your-node.ts.net:8788");
     expect(
-      buildCallbackBase("mac-mini.taile07e4.ts.net", {
+      buildCallbackBase("your-node.ts.net", {
         scheme: "https",
         port: 8788,
       }),
-    ).toBe("https://mac-mini.taile07e4.ts.net:8788");
+    ).toBe("https://your-node.ts.net:8788");
     expect(
-      buildCallbackBase("mac-mini.taile07e4.ts.net", {
+      buildCallbackBase("your-node.ts.net", {
         scheme: "https",
         port: 443,
       }),
-    ).toBe("https://mac-mini.taile07e4.ts.net");
+    ).toBe("https://your-node.ts.net");
   });
 
   test("buildHttpCallbackBase", () => {
-    expect(buildHttpCallbackBase("mac-mini.taile07e4.ts.net", 8788)).toBe(
-      "http://mac-mini.taile07e4.ts.net:8788",
+    expect(buildHttpCallbackBase("your-node.ts.net", 8788)).toBe(
+      "http://your-node.ts.net:8788",
     );
     expect(buildHttpCallbackBase("100.1.2.3", 8788)).toBe(
       "http://100.1.2.3:8788",
@@ -93,7 +93,7 @@ describe("oauth-callback-detect", () => {
       `acpbot-ts-certs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const env = { HOME: root, XDG_DATA_HOME: undefined as string | undefined };
-    const dns = "mac-mini.taile07e4.ts.net";
+    const dns = "your-node.ts.net";
     const paths = tailscaleCertPaths(dns, env);
     expect(paths.certPath).toBe(
       join(root, ".local", "share", "tailscale-certs", `${dns}.crt`),
@@ -113,19 +113,19 @@ describe("oauth-callback-detect", () => {
   });
 
   test("tailscaleCertSetupHelp lists cert and key paths", () => {
-    const help = tailscaleCertSetupHelp("mac-mini.taile07e4.ts.net", {
+    const help = tailscaleCertSetupHelp("your-node.ts.net", {
       HOME: "/Users/me",
     });
-    expect(help).toContain("tailscale cert mac-mini.taile07e4.ts.net");
+    expect(help).toContain("tailscale cert your-node.ts.net");
     expect(help).toContain(
-      "/Users/me/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.crt",
+      "/Users/me/.local/share/tailscale-certs/your-node.ts.net.crt",
     );
     expect(help).toContain(
-      "/Users/me/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.key",
+      "/Users/me/.local/share/tailscale-certs/your-node.ts.net.key",
     );
     expect(help).toContain("Certificate");
     expect(help).toContain("Private key");
-    expect(help).toContain("https://mac-mini.taile07e4.ts.net:8788");
+    expect(help).toContain("https://your-node.ts.net:8788");
   });
 
   test("isPrivateIPv4", () => {
@@ -161,12 +161,12 @@ describe("oauth-callback-detect", () => {
       ],
       utun4: [
         {
-          address: "100.114.193.89",
+          address: "100.64.1.2",
           netmask: "255.255.255.255",
           family: "IPv4",
           mac: "",
           internal: false,
-          cidr: "100.114.193.89/32",
+          cidr: "100.64.1.2/32",
         },
       ],
     };
@@ -208,10 +208,10 @@ describe("oauth-callback-detect", () => {
       "lan-ip",
       "lan-ip",
     ]);
-    expect(s[0]!.url).toBe("https://mac-mini.taile07e4.ts.net:8788");
+    expect(s[0]!.url).toBe("https://your-node.ts.net:8788");
     expect(s[0]!.needsTailscaleCert).toBe(true);
     expect(s[0]!.label).toContain("cert missing");
-    expect(s[1]!.url).toBe("http://100.114.193.89:8788");
+    expect(s[1]!.url).toBe("http://100.64.1.2:8788");
     expect(s[2]!.url).toBe("http://192.168.8.224:8788");
     expect(s[3]!.url).toBe("http://10.0.0.42:8788");
   });
@@ -226,12 +226,12 @@ describe("oauth-callback-detect", () => {
         keyPath: `/certs/${dns}.key`,
       }),
     });
-    expect(s[0]!.url).toBe("https://mac-mini.taile07e4.ts.net:8788");
+    expect(s[0]!.url).toBe("https://your-node.ts.net:8788");
     expect(s[0]!.needsTailscaleCert).toBeUndefined();
     expect(s[0]!.tlsCertPath).toBe(
-      "/certs/mac-mini.taile07e4.ts.net.crt",
+      "/certs/your-node.ts.net.crt",
     );
-    expect(s[0]!.tlsKeyPath).toBe("/certs/mac-mini.taile07e4.ts.net.key");
+    expect(s[0]!.tlsKeyPath).toBe("/certs/your-node.ts.net.key");
     expect(s[0]!.label).not.toContain("cert missing");
   });
 
@@ -268,12 +268,12 @@ describe("oauth-callback-detect", () => {
     ).toBe(4444);
     expect(
       resolveOAuthSuggestPort({
-        oauthCallbackBase: "https://mac-mini.taile07e4.ts.net",
+        oauthCallbackBase: "https://your-node.ts.net",
       }),
     ).toBe(8788);
     expect(
       resolveOAuthSuggestPort({
-        oauthCallbackBase: "https://mac-mini.taile07e4.ts.net:8788",
+        oauthCallbackBase: "https://your-node.ts.net:8788",
       }),
     ).toBe(8788);
   });

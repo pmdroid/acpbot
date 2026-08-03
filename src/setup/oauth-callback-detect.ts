@@ -27,7 +27,7 @@ export type OAuthCallbackSuggestionKind =
 
 export type OAuthCallbackSuggestion = {
   kind: OAuthCallbackSuggestionKind;
-  /** e.g. mac-mini.taile07e4.ts.net or 100.x.y.z */
+  /** e.g. your-node.ts.net or 100.x.y.z */
   host: string;
   /** Full callback base URL (no trailing slash). */
   url: string;
@@ -61,7 +61,7 @@ export type TailscaleCertPair = {
   keyPath: string;
 };
 
-/** Strip trailing dots from MagicDNS names (`mac-mini.foo.ts.net.`). */
+/** Strip trailing dots from MagicDNS names (`your-node.foo.ts.net.`). */
 export function stripDnsTrailingDots(name: string): string {
   return name.trim().replace(/\.+$/, "");
 }
