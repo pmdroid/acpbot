@@ -194,6 +194,89 @@ export function pickSessionModeId(
   return nonRo ?? available[0];
 }
 
+/**
+ * Modes that auto-approve tools / skip operator prompts (Claude ACP, Codex).
+ * When acpbot is in **ask**, we avoid these agent session modes.
+ */
+export function isAutoApproveAgentMode(modeId: string): boolean {
+  const n = modeId.toLowerCase().replace(/[-_]/g, "");
+  return (
+    n === "auto" ||
+    n === "dontask" ||
+    n === "bypasspermissions" ||
+    n === "bypass" ||
+    n === "acceptedits" ||
+    n === "agentfullaccess" ||
+    n === "yolo" ||
+    n === "fullaccess"
+  );
+}
+
+/**
+ * Map acpbot permission policy onto an agent-advertised session mode.
+ *
+ * - **bypass** → Claude `bypassPermissions`, Codex `agent-full-access`, etc.
+ * - **ask** → avoid auto-approve modes (Claude must not stay on `auto`)
+ *
+ * Grok tools are gated separately on the host (terminal/fs); mode still matters
+ * for plan/ask/default semantics.
+ */
+export function pickModeForPermissionPolicy(
+  available: string[],
+  policy: "ask" | "bypass",
+  current?: string | undefined,
+): string | undefined {
+  if (available.length === 0) return undefined;
+
+  if (policy === "bypass") {
+    const preferBypass = [
+      "bypassPermissions",
+      "bypass_permissions",
+      "agent-full-access",
+      "agent_full_access",
+      "yolo",
+      "dontAsk",
+      "dont_ask",
+      "auto",
+      "acceptEdits",
+      "accept_edits",
+      "default",
+      "agent",
+      "build",
+    ];
+    for (const id of preferBypass) {
+      const hit = available.find(
+        (a) => a.toLowerCase().replace(/-/g, "_") === id.toLowerCase().replace(/-/g, "_"),
+      );
+      if (hit) return hit;
+    }
+    return current && available.includes(current) ? current : available[0];
+  }
+
+  // ask: never keep auto-approve modes as the session mode
+  if (current && available.includes(current) && !isAutoApproveAgentMode(current)) {
+    return current;
+  }
+  const preferAsk = [
+    "default",
+    "ask",
+    "agent", // Codex "agent" (not agent-full-access)
+    "build",
+    "code",
+    "plan",
+  ];
+  for (const id of preferAsk) {
+    const hit = available.find(
+      (a) =>
+        a.toLowerCase().replace(/-/g, "_") === id.toLowerCase().replace(/-/g, "_") &&
+        !isAutoApproveAgentMode(a),
+    );
+    if (hit) return hit;
+  }
+  const safe = available.find((a) => !isAutoApproveAgentMode(a));
+  return safe ?? available[0];
+}
+
 /** @deprecated use pickSessionModeId */
 export function pickReadOnlyModeId(available: string[]): string | undefined {
   return pickSessionModeId(available, { forceReadOnly: true });
