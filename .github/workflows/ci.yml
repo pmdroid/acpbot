@@ -25,5 +25,7 @@ jobs:
         run: |
           bun run build:compile
           test -x dist/acpbot
-          test -x dist/acpbot-host
+          # Unified binary: host + worker are subcommands of acpbot
+          dist/acpbot help | grep -q 'acpbot host'
+          dist/acpbot help | grep -q 'acpbot worker'
           ls -la dist/

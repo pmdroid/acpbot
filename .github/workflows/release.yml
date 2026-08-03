@@ -3,7 +3,7 @@
 #
 # Create a release in the GitHub UI (tag v0.1.0) — this workflow:
 #   1. Tests
-#   2. Compiles Linux worker + host binaries → attach to the release
+#   2. Compiles Linux unified acpbot binary (host+worker) → attach to the release
 #   3. Builds/pushes multi-arch Docker image → ghcr.io/<owner>/acpbot:<tag>
 #
 # macOS (darwin-arm64 / darwin-x64): build + Developer ID sign by hand on a Mac:
@@ -107,22 +107,15 @@ jobs:
           for entry in "${targets[@]}"; do
             target="${entry%%:*}"
             suffix="${entry##*:}"
-            worker="acpbot-${VERSION}-${suffix}"
-            host="acpbot-host-${VERSION}-${suffix}"
-            echo "==> ${worker} / ${host}  (${target})"
+            out="acpbot-${VERSION}-${suffix}"
+            echo "==> ${out}  (${target}) — unified host+worker CLI"
             bun build --compile --target="$target" \
-              --outfile="dist/${worker}" \
+              --outfile="dist/${out}" \
               src/main.ts
-            bun build --compile --target="$target" \
-              --outfile="dist/${host}" \
-              src/acp-host/main.ts
-            chmod +x "dist/${worker}" "dist/${host}"
-            tar -C dist -czf "dist/${worker}.tar.gz" "${worker}"
-            tar -C dist -czf "dist/${host}.tar.gz" "${host}"
+            chmod +x "dist/${out}"
+            tar -C dist -czf "dist/${out}.tar.gz" "${out}"
           done
-          # Convenience copies without version (still in tarballs only for GH)
           ls -la dist/
-          # SHA256SUMS
           (cd dist && shasum -a 256 *.tar.gz > SHA256SUMS)
           cat dist/SHA256SUMS
 
@@ -240,10 +233,15 @@ jobs:
 
             | Asset | Role |
             |-------|------|
-            | `acpbot-${{ needs.meta.outputs.version }}-<platform>.tar.gz` | Telegram worker |
-            | `acpbot-host-${{ needs.meta.outputs.version }}-<platform>.tar.gz` | ACP agent host |
+            | `acpbot-${{ needs.meta.outputs.version }}-<platform>.tar.gz` | Unified CLI: `acpbot host` + `acpbot worker` |
 
             Platforms from CI: `linux-x64`, `linux-arm64`.
+
+            ```bash
+            acpbot host      # agents / schedules / OAuth
+            acpbot worker    # Telegram
+            acpbot help
+            ```
 
             **macOS** binaries are built and Developer ID–signed on a Mac, then
             attached with `./scripts/release-darwin.sh <tag> --upload`
