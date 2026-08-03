@@ -33,7 +33,7 @@ Listener always uses port **8788**. Selecting MagicDNS only switches the scheme 
 
 ```toml
 [oauth]
-callback_base = "https://mac-mini.taile07e4.ts.net:8788"   # phone on the same tailnet
+callback_base = "https://your-node.ts.net:8788"   # phone on the same tailnet
 # listen_port = 8788   # default (same for http and https)
 # tls_cert / tls_key optional — auto-detected from ~/.local/share/tailscale-certs/
 ```
@@ -43,7 +43,7 @@ Issue a cert once (macOS and Linux — same paths):
 ```bash
 mkdir -p ~/.local/share/tailscale-certs
 cd ~/.local/share/tailscale-certs
-tailscale cert mac-mini.taile07e4.ts.net
+tailscale cert your-node.ts.net
 ```
 
 | File | Path |
@@ -56,9 +56,9 @@ You can also set them explicitly:
 
 ```toml
 [oauth]
-callback_base = "https://mac-mini.taile07e4.ts.net:8788"
-tls_cert = "/Users/you/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.crt"
-tls_key  = "/Users/you/.local/share/tailscale-certs/mac-mini.taile07e4.ts.net.key"
+callback_base = "https://your-node.ts.net:8788"
+tls_cert = "~/.local/share/tailscale-certs/your-node.ts.net.crt"
+tls_key  = "~/.local/share/tailscale-certs/your-node.ts.net.key"
 ```
 
 ### Plain HTTP fallback
@@ -77,8 +77,8 @@ callback_base = "http://100.x.y.z:8788"   # Tailscale IP or LAN — no cert need
 
 | Option | Source | Example |
 |--------|--------|---------|
-| **Tailscale HTTPS** | `Self.DNSName` (MagicDNS) + local certs | `https://mac-mini.taile07e4.ts.net:8788` |
-| **Tailscale IP** | Tailscale `100.x` IPv4 | `http://100.114.193.89:8788` |
+| **Tailscale HTTPS** | `Self.DNSName` (MagicDNS) + local certs | `https://your-node.ts.net:8788` |
+| **Tailscale IP** | Tailscale `100.x` IPv4 | `http://100.64.1.2:8788` |
 | **LAN IP** | Private interface addrs (`10.x`, `172.16–31.x`, `192.168.x`) | `http://192.168.1.10:8788` |
 | **Custom URL…** | Manual entry | tunnel / Serve / Funnel |
 | **Skip / clear** | Unset | use `/mcp code` paste fallback |
