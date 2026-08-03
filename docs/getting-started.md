@@ -108,7 +108,7 @@ In a topic:
 | `/mcp` | Per-repo remote MCP registry + OAuth |
 | `/cancel` | Stop current turn **and clear the queue** (session kept) |
 
-While a turn runs you will see a single **`⏳ Working…`** (or **`❓ Waiting…`**) message in the topic. Agents should call MCP **`update`** so that bubble shows progress; the final agent reply appears after it is removed. Forum topic titles stay fixed (`⏸ repo/name`).
+While a turn runs you will see a single **`⏳`** (or **`❓`**) status bubble in the topic. It updates in place as tools run (e.g. subagents, web search, long waits with elapsed time). Agents can also call MCP **`update`**. The final reply appears after the bubble is removed. Forum topic titles stay fixed (`⏸ repo/name`).
 
 **Busy-turn UX:** free-text is queued (non-interrupt) with a **Remove** button on the ack; `/steer …` interrupts. Telegram does not notify message deletes — use Remove or `/unqueue`.
 

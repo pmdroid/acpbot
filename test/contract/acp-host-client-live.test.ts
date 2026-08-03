@@ -46,8 +46,9 @@ type AgentId = (typeof AGENTS)[number];
 
 const SOFT_LAUNCH = new Set<AgentId>(["claude", "codex"]);
 
+// Grok session modes are default/plan/ask (effort is separate: /effort).
 const MODE_MUST: Partial<Record<AgentId, string[]>> = {
-  "grok-build": ["high", "medium", "low"],
+  "grok-build": ["default", "plan", "ask"],
   codex: ["read-only", "agent"],
 };
 
