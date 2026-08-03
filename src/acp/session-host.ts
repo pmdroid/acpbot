@@ -343,12 +343,91 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     return live.get(sessionKey)?.turnAbort?.signal ?? new AbortController().signal;
   }
 
+  /**
+   * Grok (and some agents) run shell/write via client terminal/* and fs/*
+   * without calling session/request_permission. In ask mode we synthesize
+   * a permission prompt so Telegram still gates those host capabilities.
+   */
+  async function requireHostSidePermission(input: {
+    sessionId: string;
+    title: string;
+    kind: string;
+    rawInput?: unknown;
+  }): Promise<void> {
+    const sessionKey = resolveKey(input.sessionId);
+    const entry = live.get(sessionKey);
+    if (!entry || entry.permissionMode === "bypass") return;
+
+    if (!hooks.onPermissionRequest) {
+      throw new Error(
+        `Permission required for ${input.title} but no permission handler is wired`,
+      );
+    }
+
+    const toolCallId = `host-${input.kind}-${Date.now().toString(36)}`;
+    const raw = {
+      sessionId: sessionKey,
+      toolCallId,
+      toolCall: {
+        toolCallId,
+        title: input.title,
+        kind: input.kind,
+        ...(input.rawInput !== undefined ? { rawInput: input.rawInput } : {}),
+      },
+      options: [
+        { optionId: "allow_once", name: "Allow once", kind: "allow_once" },
+        {
+          optionId: "allow_always",
+          name: "Allow always (this session)",
+          kind: "allow_always",
+        },
+        { optionId: "reject_once", name: "Reject", kind: "reject_once" },
+      ],
+    };
+
+    log.info("host-side permission ask", {
+      sessionKey,
+      kind: input.kind,
+      title: input.title.slice(0, 120),
+    });
+
+    const decision = await hooks.onPermissionRequest(
+      { sessionId: sessionKey, toolCallId, raw },
+      { signal: signalFor(sessionKey) },
+    );
+
+    if (
+      !decision ||
+      decision.outcome === "cancel" ||
+      decision.outcome === "reject_once" ||
+      decision.outcome === "reject_always"
+    ) {
+      throw new Error(
+        `Permission denied (${decision?.outcome ?? "none"}) for ${input.title}`,
+      );
+    }
+
+    // Session-scoped allow_always → stop asking for this slot
+    if (decision.outcome === "allow_always") {
+      entry.permissionMode = "bypass";
+      log.info("host-side permission allow_always → session bypass", {
+        sessionKey,
+      });
+    }
+  }
+
   async function handlePermission(
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
     const sessionKey = resolveKey(params.sessionId);
     const toolCallId = params.toolCall?.toolCallId ?? "unknown";
     const signal = signalFor(sessionKey);
+    const entry = live.get(sessionKey);
+    if (entry?.permissionMode === "bypass") {
+      return decisionToPermissionResponse(params.options as never, {
+        outcome: "allow_always",
+      }) as acp.RequestPermissionResponse;
+    }
     if (!hooks.onPermissionRequest) {
       return decisionToPermissionResponse(
         params.options as never,
@@ -360,6 +439,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         { sessionId: sessionKey, toolCallId, raw: params },
         { signal },
       );
+      if (decision?.outcome === "allow_always" && entry) {
+        entry.permissionMode = "bypass";
+      }
       return decisionToPermissionResponse(
         params.options as never,
         decision,
@@ -418,6 +500,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   async function handleReadTextFile(
     params: acp.ReadTextFileRequest,
   ): Promise<acp.ReadTextFileResponse> {
+    // Reads are allowed without a prompt (common for agents). Writes + shell ask.
     const content = await readFile(params.path, "utf8");
     // Optional line range
     if (params.line != null || params.limit != null) {
@@ -433,6 +516,15 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   async function handleWriteTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse> {
+    await requireHostSidePermission({
+      sessionId: params.sessionId,
+      title: `Write file: ${params.path}`,
+      kind: "edit",
+      rawInput: {
+        path: params.path,
+        bytes: Buffer.byteLength(params.content, "utf8"),
+      },
+    });
     await mkdir(dirname(params.path), { recursive: true });
     await writeFile(params.path, params.content, "utf8");
     return {};
@@ -441,6 +533,17 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
   async function handleCreateTerminal(
     params: acp.CreateTerminalRequest,
   ): Promise<acp.CreateTerminalResponse> {
+    const cmd = [params.command, ...(params.args ?? [])].join(" ").trim();
+    await requireHostSidePermission({
+      sessionId: params.sessionId,
+      title: `Run command: ${cmd || params.command}`,
+      kind: "execute",
+      rawInput: {
+        command: params.command,
+        args: params.args,
+        cwd: params.cwd,
+      },
+    });
     return terminals.createTerminal(params);
   }
 
