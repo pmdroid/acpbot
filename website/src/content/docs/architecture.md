@@ -21,7 +21,7 @@ section: reference
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  acpbot worker  (acpbot worker / bun run start)                 │
+│  acpbot worker  (acpbot worker / acpbot worker)                 │
 │  · config.toml (TOML-first)                                 │
 │  · allowlist operator                                       │
 │  · lobby + topic command routing                            │

@@ -45,7 +45,7 @@ export class AcpHostRequiredError extends Error {
           `acp-host is required but is not available.`,
           `  socket: ${sockPath}`,
           `Start it first:`,
-          `  bun run acp-host`,
+          `  acpbot host`,
           `(same absolute ACPBOT_STATE_DIR as the worker)`,
         ].join("\n"),
     );
@@ -85,7 +85,7 @@ export async function assertAcpHostReady(options?: {
         `acp-host is required but the socket file is missing.`,
         `  socket: ${sockPath}`,
         `Start it first (separate terminal):`,
-        `  bun run acp-host`,
+        `  acpbot host`,
         `Use the same absolute ACPBOT_STATE_DIR on both processes.`,
       ].join("\n"),
     );
@@ -155,7 +155,7 @@ export async function assertAcpHostReady(options?: {
         `acp-host is required but did not respond to ping.`,
         `  socket: ${sockPath}`,
         `  detail: ${detail}`,
-        `Is acp-host running? Start: bun run acp-host`,
+        `Is acp-host running? Start: acpbot host`,
       ].join("\n"),
     );
   }
@@ -369,7 +369,7 @@ export function createAcpHostClient(
       s.on("error", (e) => {
         reject(
           new Error(
-            `acp-host connect failed (${sockPath}): ${e.message}. Start: bun run acp-host`,
+            `acp-host connect failed (${sockPath}): ${e.message}. Start: acpbot host`,
           ),
         );
       });

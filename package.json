@@ -15,7 +15,7 @@
     "typecheck": "bunx tsc -p tsconfig.json --noEmit",
     "acp-host": "bun run src/main.ts host",
     "worker": "bun run src/main.ts worker",
-    "skills:install": "bun run src/scripts/install-skills.ts",
+    "skills:install": "bun run src/main.ts skills install",
     "build:compile": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts",
     "build:compile:host": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts",
     "build:compile:worker": "mkdir -p dist && bun build --compile --outfile=dist/acpbot src/main.ts",

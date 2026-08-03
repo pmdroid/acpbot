@@ -5,7 +5,7 @@
  *   acpbot                 → help
  *   acpbot host            → ACP host
  *   acpbot worker          → Telegram worker
- *   acpbot setup | repo | pair | install | …
+ *   acpbot setup | repo | pair | skills | install | …
  *
  * Legacy: if the executable is named `acpbot-host`, defaults to host mode
  * (after service/setup subcommands).
@@ -30,6 +30,10 @@ import {
   isRepoCliCommand,
   runRepoCli,
 } from "./setup/repo-cli";
+import {
+  isSkillsCliCommand,
+  runSkillsCli,
+} from "./setup/skills-cli";
 
 function printHelp(): void {
   console.log(acpbotCliHelp());
@@ -58,6 +62,13 @@ async function main(): Promise<void> {
   // Workspace repos
   if (isRepoCliCommand(process.argv)) {
     const code = await runRepoCli(process.argv);
+    process.exitCode = code;
+    return;
+  }
+
+  // Bundled skills install (global agent dirs)
+  if (isSkillsCliCommand(process.argv)) {
+    const code = await runSkillsCli(process.argv);
     process.exitCode = code;
     return;
   }

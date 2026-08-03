@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Thin entry for `bun run acp-host` and legacy dual-binary builds.
+ * Thin entry for `acpbot host` and legacy dual-binary builds.
  *
  * Prefer the unified CLI: `acpbot host`.
  * If this file is still compiled as `acpbot-host`, basename detection in
