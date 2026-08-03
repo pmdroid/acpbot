@@ -100,19 +100,18 @@ If bind fails (port in use), **acp-host exits** with a clear error when `callbac
 
 ## Operator flow
 
-1. In a session topic: `/mcp add <id> <url>`
+1. In a session topic: `/mcp add <id> <url>`  
+   → acpbot attaches a per-topic **`mcp-proxy`** immediately (empty tool list until auth).
 2. `/mcp auth <id>`
 3. Open the **tappable authorize URL** in Telegram (host does not open a browser)
-4. On callback, PKCE completes; Bearer tokens merge into remote MCP at ensure
-5. Pending PKCE expires after **15 minutes**
-6. **Access tokens auto-refresh** when stale (uses stored `refresh_token` + token endpoint). If refresh fails (`invalid_grant`, no refresh token), run `/mcp auth <id>` again.
-7. Remote gateways are served via **`acpbot mcp-proxy`** (stdio, **per session slot**). The proxy re-reads tokens on every request / 401 — **no agent restart** after reauth. See [MCP](/docs/mcp#remote-oauth-mcp--per-slot-stdio-proxy).
+4. On callback, PKCE completes; token is stored under `state_dir` (not the repo)
+5. The **live proxy** re-reads the store, connects upstream, and advertises tools — **no agent restart**
+6. Pending PKCE expires after **15 minutes**
+7. **Access tokens auto-refresh** when stale (stored `refresh_token` + token endpoint). On 401 the proxy force-refreshes. If refresh fails (`invalid_grant`, no refresh token), run `/mcp auth <id>` again — still **no agent restart**.
 
-When `callback_base` is set, ensure **fail-closes** if a remote MCP has no token:
+Remotes are always served via **`acpbot mcp-proxy`** (stdio, **per session slot**). Details: [MCP](/docs/mcp#remote-oauth-mcp--per-slot-stdio-proxy).
 
-```text
-MCP "<id>" has no OAuth token; run /mcp auth <id>
-```
+Before auth the agent still sees the MCP server name, but with **zero tools**. After auth (or reauth), tools appear without respawning the agent.
 
 ### Paste fallback
 
@@ -148,7 +147,8 @@ The gateway must publish AS metadata with a registration endpoint. There are **n
 | Discovery | `src/mcp/oauth-discovery.ts` |
 | PKCE / flow | `src/mcp/oauth-pkce.ts`, `oauth-flow.ts` |
 | Token store | `src/mcp/oauth-store.ts` |
+| Per-slot stdio proxy | `src/mcp/proxy.ts`, `proxy-rewrite.ts` |
 | HTTP callback | `src/acp-host/oauth-http.ts` |
-| Tests | `test/mcp-oauth.test.ts` |
+| Tests | `test/mcp-oauth.test.ts`, `test/mcp-proxy-rewrite.test.ts` |
 
 Env overrides (`ACPBOT_OAUTH_CALLBACK_BASE`, `ACPBOT_OAUTH_*`) work when set; prefer TOML for day-to-day use.

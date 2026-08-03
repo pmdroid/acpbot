@@ -62,6 +62,8 @@ Thin client over `@agentclientprotocol/sdk`:
 - `prompt`, permissions, elicitation, `_x.ai/ask_user_question`
 - Client `fs/*` + `terminal/*` (process-group aware terminal manager)
 - Injects MCP servers (repo + built-in `acpbot`)
+- Rewrites remote http/sse MCP to per-slot **`acpbot mcp-proxy`** (empty tools until OAuth; no agent restart on reauth)
+- Host-side permission gates for `fs/*` + `terminal/*` (coalesced; prompts deleted after settle)
 - Model / config options for `/model`
 
 ### acp-host (`src/acp-host/`, required)

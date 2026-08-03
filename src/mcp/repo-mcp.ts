@@ -766,21 +766,13 @@ export async function buildSessionMcpServers(
     ...acpbot.map((s) => injectSessionEnv(s, injectCtx)),
   ];
 
-  // OAuth: merge Bearer from host store (never from repo mcp.json).
+  // Remotes always become per-slot stdio proxies (agent never sees type:http).
+  // Tokens are loaded inside mcp-proxy — missing/unauthed gateways still get a
+  // proxy process that advertises an empty tool list until /mcp auth.
   const oauthStateDir = resolveOAuthStateDir(
     options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
   );
   const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
-  const failClosed = oauthFailClosedDefault(options.oauthFailClosed);
-  merged = await applyOAuthTokensToServers(merged, {
-    stateDir: oauthStateDir,
-    repoKey,
-    failClosed,
-    log,
-  });
-
-  // Always rewrite remotes → per-slot stdio proxies (acpbot owns OAuth).
-  // One mcp-proxy child per remote per sessionKey; agent never sees type:http.
   const { rewriteRemotesAsStdioProxies } = await import("./proxy-rewrite");
   const remoteCount = merged.filter(
     (s) =>

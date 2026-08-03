@@ -1,22 +1,12 @@
 /**
- * Stdio MCP proxy for a remote HTTP/SSE MCP gateway.
+ * Stdio MCP proxy for a remote HTTP/SSE MCP gateway (one process per slot).
  *
- * Why: agents (especially Grok) mishandle remote OAuth MCP. Restarting the
- * agent on every reauth is a bad UX. Instead:
+ *   Agent  ──stdio──►  acpbot mcp-proxy  ──HTTP + Bearer──►  remote
  *
- *   Agent  ──stdio──►  acpbot mcp-proxy  ──HTTP + Bearer──►  remote gateway
- *
- * Auth lives entirely in acpbot:
- *  - token() re-reads the host store every request (picks up /mcp auth)
- *  - 401 → force-refresh and retry (no agent process kill)
- *
- * Env (set per session slot when rewriting remotes):
- *   ACPBOT_MCP_PROXY_ID      gateway id (token store key)
- *   ACPBOT_MCP_PROXY_URL     remote MCP URL
- *   ACPBOT_STATE_DIR         token store root
- *   ACPBOT_REPO_KEY          repo key for token path
- *   ACPBOT_SESSION_KEY       session slot (repo/name) — one proxy tree per slot
- *   ACPBOT_MCP_PROXY_TYPE    "http" | "sse" (default http / streamable)
+ * - Starts even with **no OAuth token** (empty tool list) so the agent always
+ *   has the proxy attached; when `/mcp auth` completes, we connect and
+ *   re-advertise tools via list_changed (no agent restart).
+ * - token() re-reads the store every request; 401 force-refreshes.
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -35,7 +25,8 @@ import { createLogger } from "../env/logger";
 
 const log = createLogger({ level: "info", name: "acpbot-mcp-proxy" });
 
-/** Strip "Bearer " if present — AuthProvider wants the raw token. */
+const TOKEN_POLL_MS = 5_000;
+
 function rawToken(bearerHeader: string): string {
   const t = bearerHeader.trim();
   if (/^bearer\s+/i.test(t)) return t.replace(/^bearer\s+/i, "").trim();
@@ -53,6 +44,12 @@ type RemoteConn = {
   transport: StreamableHTTPClientTransport;
 };
 
+type RemoteTool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+};
+
 async function connectRemote(
   url: string,
   stateDir: string,
@@ -60,22 +57,15 @@ async function connectRemote(
   id: string,
 ): Promise<RemoteConn> {
   const authProvider: AuthProvider = {
-    // Always re-read store so a mid-session /mcp auth is visible without
-    // restarting the agent (or this proxy process).
     async token() {
       const auth = await ensureFreshBearerForMcp(stateDir, repoKey, id, {
         log,
       });
-      if (!auth) {
-        log.warn("mcp-proxy: no OAuth token", { id, repoKey });
-        return undefined;
-      }
+      if (!auth) return undefined;
       return rawToken(auth.value);
     },
     async onUnauthorized() {
-      log.info("mcp-proxy: 401 — force-refreshing token (agent stays up)", {
-        id,
-      });
+      log.info("mcp-proxy: 401 — force-refresh (agent stays up)", { id });
       await refreshStoredOAuthToken(stateDir, repoKey, id, {
         force: true,
         log,
@@ -132,7 +122,6 @@ function looksLikeAuthFailure(msg: string): boolean {
 
 /**
  * Entry for `acpbot mcp-proxy`. Blocks on stdio until the agent disconnects.
- * Never requires the agent process to restart for token refresh.
  */
 export async function runMcpProxyMain(): Promise<void> {
   const id = envRequired("ACPBOT_MCP_PROXY_ID");
@@ -149,128 +138,170 @@ export async function runMcpProxyMain(): Promise<void> {
     sessionKey,
   });
 
-  const initial = await ensureFreshBearerForMcp(stateDir, repoKey, id, { log });
-  if (!initial) {
-    throw new Error(
-      `mcp-proxy: no OAuth token for "${id}" (repo ${repoKey}). ` +
-        `Run /mcp auth ${id} in Telegram first.`,
-    );
-  }
+  const server = new FastMCP({
+    name: id,
+    version: "0.1.0",
+  });
 
-  // Mutable remote connection — reconnected in-process on auth failures.
-  let remote: RemoteConn = await connectRemote(url, stateDir, repoKey, id);
+  // Mutable remote connection — may be null until first successful auth.
+  let remote: RemoteConn | null = null;
   let connectLock: Promise<void> | null = null;
+  const registeredTools = new Set<string>();
 
-  async function ensureRemote(): Promise<RemoteConn> {
-    if (connectLock) {
-      await connectLock;
-      return remote;
+  async function registerTools(tools: RemoteTool[]): Promise<void> {
+    for (const t of tools) {
+      if (registeredTools.has(t.name)) continue;
+      const toolName = t.name;
+      const description =
+        typeof t.description === "string" && t.description.trim()
+          ? t.description
+          : `Proxied tool ${toolName} (via acpbot → ${id})`;
+      const inputSchema =
+        t.inputSchema && typeof t.inputSchema === "object"
+          ? t.inputSchema
+          : { type: "object", properties: {} };
+
+      server.tool(
+        {
+          name: toolName,
+          description,
+          inputSchema,
+          input: z.record(z.string(), z.unknown()).optional(),
+        },
+        async (args) => callProxiedTool(toolName, args),
+      );
+      registeredTools.add(toolName);
     }
-    return remote;
+    // Notify agent that tools/list changed (when supported).
+    try {
+      const notify = (
+        server as unknown as { _notifyToolListChanged?: () => void }
+      )._notifyToolListChanged;
+      notify?.call(server);
+    } catch {
+      /* best-effort */
+    }
   }
 
   async function reconnectRemote(reason: string): Promise<RemoteConn> {
     if (connectLock) {
       await connectLock;
+      if (!remote) throw new Error("mcp-proxy: not connected");
       return remote;
     }
     connectLock = (async () => {
-      log.info("mcp-proxy reconnecting remote (agent still up)", {
-        id,
-        reason,
-      });
+      log.info("mcp-proxy connecting/reconnecting remote", { id, reason });
       await closeRemote(remote);
+      remote = null;
       try {
         await refreshStoredOAuthToken(stateDir, repoKey, id, {
-          force: true,
+          force: reason.includes("401"),
           log,
         });
-      } catch (err) {
-        // Token may already be fresh from /mcp auth — still reconnect.
-        log.warn("mcp-proxy force-refresh skipped", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      } catch {
+        /* may already be fresh or missing */
       }
       remote = await connectRemote(url, stateDir, repoKey, id);
+      const list = await remote.client.listTools();
+      const tools = (list.tools ?? []) as RemoteTool[];
+      log.info("mcp-proxy remote tools", {
+        id,
+        count: tools.length,
+        names: tools.map((t) => t.name).slice(0, 40),
+      });
+      await registerTools(tools);
     })();
     try {
       await connectLock;
     } finally {
       connectLock = null;
     }
+    if (!remote) throw new Error("mcp-proxy: connect failed");
     return remote;
   }
 
-  const list = await remote.client.listTools();
-  const tools = list.tools ?? [];
-  log.info("mcp-proxy remote tools", {
-    id,
-    count: tools.length,
-    names: tools.map((t) => t.name).slice(0, 40),
-  });
+  async function callProxiedTool(
+    toolName: string,
+    args: unknown,
+  ): Promise<string> {
+    const payload =
+      args && typeof args === "object"
+        ? (args as Record<string, unknown>)
+        : {};
 
-  const server = new FastMCP({
-    name: id,
-    version: "0.1.0",
-  });
-
-  for (const t of tools) {
-    const toolName = t.name;
-    const description =
-      typeof t.description === "string" && t.description.trim()
-        ? t.description
-        : `Proxied tool ${toolName} (via acpbot MCP proxy → ${id})`;
-    const inputSchema =
-      t.inputSchema && typeof t.inputSchema === "object"
-        ? (t.inputSchema as Record<string, unknown>)
-        : { type: "object", properties: {} };
-
-    server.tool(
-      {
+    const callOnce = async (conn: RemoteConn) => {
+      const result = await conn.client.callTool({
         name: toolName,
-        description,
-        inputSchema,
-        input: z.record(z.string(), z.unknown()).optional(),
-      },
-      async (args) => {
-        const payload =
-          args && typeof args === "object"
-            ? (args as Record<string, unknown>)
-            : {};
+        arguments: payload,
+      });
+      return toolResultToText(result);
+    };
 
-        const callOnce = async (conn: RemoteConn) => {
-          const result = await conn.client.callTool({
-            name: toolName,
-            arguments: payload,
-          });
-          return toolResultToText(result);
-        };
+    try {
+      if (!remote) {
+        await reconnectRemote("lazy-connect");
+      }
+      return await callOnce(remote!);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!looksLikeAuthFailure(msg) && remote) {
+        return `Proxy tool ${toolName} failed: ${msg}`;
+      }
+      try {
+        const conn = await reconnectRemote(msg);
+        return await callOnce(conn);
+      } catch (err2) {
+        const m2 = err2 instanceof Error ? err2.message : String(err2);
+        return (
+          `Proxy tool ${toolName} failed: ${m2}. ` +
+          `Run /mcp auth ${id} if unauthorized (no agent restart required).`
+        );
+      }
+    }
+  }
 
-        try {
-          const conn = await ensureRemote();
-          return await callOnce(conn);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (!looksLikeAuthFailure(msg)) {
-            return `Proxy tool ${toolName} failed: ${msg}`;
-          }
-          // Auth failure: refresh + reconnect proxy→remote only. Agent stays.
-          try {
-            const conn = await reconnectRemote(msg);
-            return await callOnce(conn);
-          } catch (err2) {
-            const m2 = err2 instanceof Error ? err2.message : String(err2);
-            return (
-              `Proxy tool ${toolName} failed after token refresh: ${m2}. ` +
-              `Run /mcp auth ${id} in Telegram if this persists ` +
-              `(no agent restart required once authorized).`
-            );
-          }
-        }
-      },
+  // Prefer connect now if token exists; otherwise serve empty tools and poll.
+  const initial = await ensureFreshBearerForMcp(stateDir, repoKey, id, {
+    log,
+  }).catch(() => undefined);
+
+  if (initial) {
+    try {
+      await reconnectRemote("boot");
+    } catch (err) {
+      log.warn("mcp-proxy boot connect failed; serving empty tools", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    log.info(
+      "mcp-proxy: no token yet — empty tools until /mcp auth (agent stays attached)",
+      { id, repoKey },
     );
   }
 
+  // Background: when unauthed at start, pick up token without agent restart.
+  const poll = setInterval(() => {
+    void (async () => {
+      if (remote || connectLock) return;
+      const auth = await ensureFreshBearerForMcp(stateDir, repoKey, id, {
+        log,
+      }).catch(() => undefined);
+      if (!auth) return;
+      try {
+        await reconnectRemote("token-appeared");
+      } catch (err) {
+        log.warn("mcp-proxy poll connect failed", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+  }, TOKEN_POLL_MS);
+  poll.unref?.();
+
   await server.run();
+  clearInterval(poll);
+  await closeRemote(remote);
 }

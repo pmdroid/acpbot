@@ -691,6 +691,47 @@ describe("merge OAuth headers into remote MCP", () => {
       expect(mcpRaw).not.toContain("Authorization");
     });
   });
+
+  test("buildSessionMcpServers rewrites remote as proxy without OAuth token", async () => {
+    await withTempDirs(async ({ state, repo }) => {
+      await mkdir(join(repo, ".acpbot"), { recursive: true });
+      await writeFile(
+        join(repo, ".acpbot", "mcp.json"),
+        JSON.stringify({
+          mcpServers: [
+            {
+              name: "linear",
+              type: "http",
+              url: "https://mcp.example/linear",
+            },
+          ],
+        }),
+        "utf8",
+      );
+
+      // No token on disk — still spawn mcp-proxy (empty tools until /mcp auth).
+      const servers = await buildSessionMcpServers({
+        cwd: repo,
+        enabled: true,
+        sessionKey: "demo/main",
+        repoKey: "demo",
+        stateDir: state,
+        oauthStateDir: state,
+        oauthFailClosed: true,
+      });
+
+      const linear = servers.find((s) => s.name === "linear") as {
+        args: string[];
+        env: Array<{ name: string; value: string }>;
+      };
+      expect(linear).toBeDefined();
+      expect(linear.args).toContain("mcp-proxy");
+      const env = Object.fromEntries(linear.env.map((e) => [e.name, e.value]));
+      expect(env.ACPBOT_MCP_PROXY_ID).toBe("linear");
+      // Must not be raw http type
+      expect((linear as { type?: string }).type).toBeUndefined();
+    });
+  });
 });
 
 /** Mock fetch: protected-resource + AS metadata + DCR for a fake gateway. */

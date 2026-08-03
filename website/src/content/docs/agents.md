@@ -80,8 +80,10 @@ Separate from session **mode** (plan/build). Controls whether tool calls show Te
 
 | Setting | Effect |
 |---|---|
-| `ask` (default) | Each tool permission → Telegram keyboard |
+| `ask` (default) | Each tool permission → Telegram keyboard (message **deleted** after you answer) |
 | `bypass` | Auto-allow tools (Grok: `--always-approve` + `yoloMode`; all agents: host auto-allow) |
+
+Duplicate concurrent prompts for the same action are coalesced (one keyboard).
 
 **Config** (`config.toml`):
 

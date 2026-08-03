@@ -52,6 +52,12 @@ export async function awaitInlineDecision<T>(
     onAbortResult: T;
     /** Body of the confirm edit after settle (keyboard cleared). */
     formatSettled: (result: T) => SettledEdit;
+    /**
+     * After the operator answers:
+     * - `edit` (default) — replace prompt with settled text
+     * - `delete` — remove the prompt message (cleaner chat for permissions)
+     */
+    settledAction?: "edit" | "delete";
     logContext?: Record<string, unknown>;
   },
 ): Promise<T> {
@@ -102,20 +108,35 @@ export async function awaitInlineDecision<T>(
     });
   }).catch(() => opts.onAbortResult);
 
-  const settled = opts.formatSettled(result);
-  try {
-    await deps.telegram.editMessageText({
-      chatId: session.chatId,
-      messageId: sent.message_id,
-      text: settled.text,
-      ...(settled.parseMode ? { parseMode: settled.parseMode } : {}),
-      replyMarkup: { inline_keyboard: [] },
-    });
-  } catch (err) {
-    deps.log.warn("inline decision confirm edit failed", {
-      sessionKey,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  const action = opts.settledAction ?? "edit";
+  if (action === "delete") {
+    try {
+      await deps.telegram.deleteMessage({
+        chatId: session.chatId,
+        messageId: sent.message_id,
+      });
+    } catch (err) {
+      deps.log.warn("inline decision delete failed", {
+        sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    const settled = opts.formatSettled(result);
+    try {
+      await deps.telegram.editMessageText({
+        chatId: session.chatId,
+        messageId: sent.message_id,
+        text: settled.text,
+        ...(settled.parseMode ? { parseMode: settled.parseMode } : {}),
+        replyMarkup: { inline_keyboard: [] },
+      });
+    } catch (err) {
+      deps.log.warn("inline decision confirm edit failed", {
+        sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   await deps.setSessionStatus(session, "running");
