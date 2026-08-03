@@ -50,8 +50,8 @@ callback_base = "http://mac-mini.taile07e4.ts.net:8788"   # phone browser must r
 Run:
 
 ```bash
-acpbot-host    # serves GET /oauth/callback when callback_base is set
-acpbot         # worker — same config.toml / state_dir
+acpbot host      # serves GET /oauth/callback when callback_base is set
+acpbot worker    # same config.toml / state_dir
 # from source: bun run acp-host · bun run start
 ```
 

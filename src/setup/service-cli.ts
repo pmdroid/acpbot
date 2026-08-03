@@ -1,9 +1,8 @@
 /**
  * CLI: install | start | stop | restart | status | uninstall
- * for background host + worker services.
+ * for background host + worker services (same `acpbot` binary).
  *
  *   acpbot install|start|stop|restart|status
- *   acpbot-host install|start|stop|restart|status
  *   acpbot start --host     # host only
  *   acpbot start --worker   # worker only
  */
@@ -127,10 +126,10 @@ export async function runServiceCli(
 }
 
 export function serviceCliHelp(): string {
-  return `acpbot service commands (also on acpbot-host):
+  return `acpbot service commands:
 
   install     Write + enable LaunchAgents (macOS) or systemd user units (Linux)
-              Installs BOTH host (acpbot-host) and worker (acpbot)
+              Installs BOTH: \`acpbot host\` and \`acpbot worker\`
   start       Start services
   stop        Stop services
   restart     Stop then start
@@ -138,15 +137,15 @@ export function serviceCliHelp(): string {
   uninstall   Stop and remove unit files
 
 Flags:
-  --host / --host-only      Only acpbot-host
-  --worker / --worker-only  Only acpbot worker
+  --host / --host-only      Only host service
+  --worker / --worker-only  Only worker service
   --config PATH             Config file (default ~/.config/acpbot/config.toml)
 
 Examples:
-  acpbot-host install
-  acpbot-host start
-  acpbot-host stop
-  acpbot-host restart
+  acpbot install
+  acpbot start
+  acpbot stop
+  acpbot restart
   acpbot start --worker
   acpbot status
 `;

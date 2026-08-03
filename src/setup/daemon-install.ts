@@ -1,5 +1,6 @@
 /**
- * Install acpbot + acpbot-host as a user-level background service.
+ * Install acpbot host + worker as a user-level background service.
+ * Both use the same `acpbot` binary: `acpbot host` and `acpbot worker`.
  * - macOS: LaunchAgent plists (~/Library/LaunchAgents)
  * - Linux: systemd --user units (~/.config/systemd/user)
  */
@@ -117,7 +118,14 @@ export function resolveExecutable(
 
 export type InstallDaemonOptions = {
   configPath: string;
+  /**
+   * Unified `acpbot` binary (preferred). Host and worker both use this path
+   * with `host` / `worker` subcommands.
+   */
+  bin?: string;
+  /** @deprecated Use `bin`. Same as bin for worker process. */
   workerBin?: string;
+  /** @deprecated Use `bin`. Ignored when `bin` is set. */
   hostBin?: string;
   /** Label / unit prefix */
   label?: string;
@@ -270,22 +278,22 @@ export function installUserDaemons(
   const label = options.label ?? "app.acpbot";
   const home = env.HOME ?? homedir();
   const configPath = resolve(options.configPath);
-  const worker =
+  // One binary: acpbot host / acpbot worker (legacy acpbot-host still accepted)
+  const bin =
+    options.bin ??
     options.workerBin ??
     resolveExecutable("acpbot", env) ??
-    resolveExecutable("acpbot", env);
-  const host =
     options.hostBin ??
     resolveExecutable("acpbot-host", env);
 
-  if (!worker || !host) {
+  if (!bin) {
     return {
       platform,
       files: [],
       messages: [
-        "Could not find acpbot and/or acpbot-host on PATH.",
-        "Install release binaries first, then re-run setup.",
-        "  PATH should include e.g. /usr/local/bin",
+        "Could not find `acpbot` on PATH.",
+        "Install the release binary first, then re-run setup.",
+        "  PATH should include e.g. ~/.local/bin or /usr/local/bin",
       ],
       started: false,
     };
@@ -310,7 +318,7 @@ export function installUserDaemons(
       hostPlist,
       launchAgentPlist({
         label: hostLabel,
-        programArgs: [host, "--config", configPath],
+        programArgs: [bin, "host", "--config", configPath],
         workingDirectory: workDir,
         logOut: join(logDir, "host.out.log"),
         logErr: join(logDir, "host.err.log"),
@@ -322,7 +330,7 @@ export function installUserDaemons(
       workerPlist,
       launchAgentPlist({
         label: workerLabel,
-        programArgs: [worker, "--config", configPath],
+        programArgs: [bin, "worker", "--config", configPath],
         workingDirectory: workDir,
         logOut: join(logDir, "worker.out.log"),
         logErr: join(logDir, "worker.err.log"),
@@ -384,7 +392,7 @@ export function installUserDaemons(
       hostUnit,
       systemdUserUnit({
         description: "acpbot host (agent owner)",
-        execStart: `${host} --config ${configPath}`,
+        execStart: `${bin} host --config ${configPath}`,
         workingDirectory: workDir,
         environment: serviceEnv,
       }),
@@ -394,7 +402,7 @@ export function installUserDaemons(
       workerUnit,
       systemdUserUnit({
         description: "acpbot worker (Telegram)",
-        execStart: `${worker} --config ${configPath}`,
+        execStart: `${bin} worker --config ${configPath}`,
         workingDirectory: workDir,
         environment: serviceEnv,
       }),
@@ -434,7 +442,7 @@ export function installUserDaemons(
     files: [],
     messages: [
       `Automatic daemon install is not supported on ${process.platform}.`,
-      "Run acpbot-host and acpbot manually, or add your own service unit.",
+      "Run `acpbot host` and `acpbot worker` manually, or add your own service unit.",
     ],
     started: false,
   };
@@ -459,7 +467,7 @@ export function startUserDaemons(
     for (const t of list) {
       if (!existsSync(t.darwinPlist)) {
         messages.push(
-          `Missing ${t.darwinPlist} — run: acpbot-host install  (or acpbot setup)`,
+          `Missing ${t.darwinPlist} — run: acpbot install  (or acpbot setup)`,
         );
         ok = false;
         continue;
@@ -492,7 +500,7 @@ export function startUserDaemons(
     for (const t of list) {
       if (!existsSync(t.linuxUnit)) {
         messages.push(
-          `Missing ${t.linuxUnit} — run: acpbot-host install  (or acpbot setup)`,
+          `Missing ${t.linuxUnit} — run: acpbot install  (or acpbot setup)`,
         );
         ok = false;
         continue;

@@ -12,7 +12,7 @@ launchd / systemd installs. You do **not** need a wall of environment variables.
 | 3 | `~/.config/acpbot/config.toml` (or `$XDG_CONFIG_HOME/acpbot/config.toml`) |
 | 4 | `./config.toml` (cwd) if present |
 
-**First run (no manual mkdir/cp):** starting `acpbot-host` or `acpbot` creates:
+**First run (no manual mkdir/cp):** starting `acpbot host`, `acpbot worker`, or `acpbot setup` creates:
 
 - `~/.config/acpbot/config.toml` (mode `600`) if missing  
 - `~/.local/share/acpbot/` (store + state)
@@ -37,22 +37,37 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Log level | Optional `log_level` (`info` default) |
 | Daemon | Installs **both** host and worker as background services (see below) |
 
-First plain `acpbot` start also opens the TUI if `bot_token` is still a placeholder.  
-Non-interactive boots need a real `bot_token` already in the file.
+Bare `acpbot` prints CLI help. Use `acpbot setup` for the TUI; `acpbot worker` needs a real `bot_token`.
 
 Operator allowlist is **not** in TOML — pair with `acpbot pair approve` after a Telegram DM. See [pairing.md](pairing.md).
 
-Worker and **acp-host must use the same file** (or the same `state_dir`).
+Host and worker **must use the same file** (or the same `state_dir`).
+
+### Hot reload
+
+While `acpbot host` / `acpbot worker` are running, changes to `config.toml` are
+watched and applied without restart for:
+
+| Field | Effect |
+|---|---|
+| `[repos]` | `/new` picker + schedule catalog |
+| `default_agent` | Default agent for new sessions |
+| `permission_mode` | Default for **new** topics |
+| `tts_mode` / MCP feature flags | Runtime toggles |
+| skill roots | Extra skill scan paths |
+
+**Not** hot-reloaded (restart required): `bot_token`, `store_path`, `state_dir`,
+OAuth listen host/port. Logs print `acpbot config reloaded (repos, …)`.
 
 ## Background services (host + worker)
 
-acpbot is **two processes**. Setup installs **both** when you accept the daemon step
-(requires `acpbot` and `acpbot-host` on `PATH`):
+acpbot is **two processes**, **one binary**. Setup installs **both** when you accept the daemon step
+(requires `acpbot` on `PATH`):
 
-| Service | Binary | Role |
+| Service | Command | Role |
 |---|---|---|
-| **Host** | `acpbot-host` | Agent stdio owner, schedule ticker, OAuth HTTP |
-| **Worker** | `acpbot` | Telegram long-poll, worker API, topics |
+| **Host** | `acpbot host` | Agent stdio owner, schedule ticker, OAuth HTTP |
+| **Worker** | `acpbot worker` | Telegram long-poll, worker API, topics |
 
 They share the same `config.toml` / `state_dir`. The worker fails boot if the host
 socket is missing; with restart policies both recover if one starts slightly late.
@@ -63,11 +78,24 @@ Written under `~/Library/LaunchAgents/` (user session, no root):
 
 | Plist | Process |
 |---|---|
-| `app.acpbot.host.plist` | `acpbot-host --config …` |
-| `app.acpbot.worker.plist` | `acpbot --config …` |
+| `app.acpbot.host.plist` | `acpbot host --config …` |
+| `app.acpbot.worker.plist` | `acpbot worker --config …` |
 
 Both use `RunAtLoad` + `KeepAlive`. Logs: `~/.local/share/acpbot/logs/`  
 (`host.out.log` / `host.err.log` / `worker.out.log` / `worker.err.log`).
+
+#### Full Disk Access
+
+`acpbot setup` on macOS offers to open **System Settings → Privacy & Security → Full Disk Access**.
+
+Add and enable the **`acpbot` binary** (e.g. `~/.local/bin/acpbot`), not only Terminal.  
+LaunchAgents run that binary path; without FDA, agents often get *Operation not permitted* on Desktop / Documents / Downloads / iCloud.
+
+After toggling FDA:
+
+```bash
+acpbot restart
+```
 
 ```bash
 # status
@@ -85,8 +113,8 @@ Written under `~/.config/systemd/user/`:
 
 | Unit | Process |
 |---|---|
-| `acpbot-host.service` | `acpbot-host --config …` |
-| `acpbot.service` | `acpbot --config …` |
+| `acpbot-host.service` | `acpbot host --config …` |
+| `acpbot.service` | `acpbot worker --config …` |
 
 ```bash
 systemctl --user enable --now acpbot-host acpbot
@@ -99,35 +127,31 @@ loginctl enable-linger $USER
 
 ### Service CLI (`install` / `start` / `stop` / `restart`)
 
-Works on **both** `acpbot` and `acpbot-host` (same commands). By default each
-action applies to **host and worker**.
+Default actions apply to **host and worker**.
 
 ```bash
-acpbot-host install     # write units + enable/start both services
-acpbot-host start       # start both
-acpbot-host stop        # stop both (worker first)
-acpbot-host restart     # stop then start
-acpbot-host status      # show running state
-acpbot-host uninstall   # stop + remove unit files
-
-# same on the worker binary:
-acpbot install | start | stop | restart | status | uninstall
+acpbot install     # write units + enable/start both services
+acpbot start       # start both
+acpbot stop        # stop both (worker first)
+acpbot restart     # stop then start
+acpbot status      # show running state
+acpbot uninstall   # stop + remove unit files
 
 # host or worker only:
 acpbot start --host
 acpbot stop --worker
 ```
 
-Requires binaries on `PATH` for `install`. Prefer `acpbot setup` the first time
+Requires `acpbot` on `PATH` for `install`. Prefer `acpbot setup` the first time
 (config + optional install), then use `start` / `stop` / `restart` day-to-day.
 
 ### Manual (foreground, no daemon)
 
 ```bash
 # terminal 1
-acpbot-host --config ~/.config/acpbot/config.toml
+acpbot host --config ~/.config/acpbot/config.toml
 # terminal 2
-acpbot --config ~/.config/acpbot/config.toml
+acpbot worker --config ~/.config/acpbot/config.toml
 ```
 
 ## Defaults (no config keys required for paths)
@@ -167,7 +191,7 @@ default_agent = "grok-build"
 log_level = "info"
 
 [repos]
-demo = "/Users/you/code/demo"
+demo = "/Users/you/code/demo"   # or: acpbot repo add / list / browse
 
 [features]
 mcp = true

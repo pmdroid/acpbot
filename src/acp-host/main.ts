@@ -1,32 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Long-lived ACP host — owns agent stdio processes (any agent command).
+ * Thin entry for `bun run acp-host` and legacy dual-binary builds.
  *
- *   acpbot-host                 # foreground host
- *   acpbot-host --config PATH
- *   acpbot-host install|start|stop|restart|status
- *
- * Worker restart detaches; agent processes stay. Next ensure reattaches.
- * Scans [repos] for schedules under each repo’s `.acpbot/schedules/`.
- * When oauth.callback_base is set, also listens for GET /oauth/callback.
- *
- * Worker and acp-host must share the same state_dir from config.
+ * Prefer the unified CLI: `acpbot host`.
+ * If this file is still compiled as `acpbot-host`, basename detection in
+ * `src/main.ts` is not used — we just run the host.
  */
-import { applyConfigToEnv } from "../config";
-import { ensureAcpbotLayout, loadConfigWithSetup } from "../config-setup";
-import { createLogger } from "../env/logger";
 import {
   isServiceCliCommand,
   runServiceCli,
   serviceCliHelp,
 } from "../setup/service-cli";
-import { startAcpHostServer } from "./server";
-import { defaultAcpHostSock } from "./protocol";
-import { maybeStartOauthHttpServer } from "./oauth-http";
-import { parseReposFromEnv, scheduleTickMs } from "./scheduler";
+import { runHostMain } from "../host-run";
 
 async function main(): Promise<void> {
-  // Service control (same as acpbot): install both host + worker by default
   if (isServiceCliCommand(process.argv)) {
     const code = await runServiceCli(process.argv);
     process.exitCode = code;
@@ -35,110 +22,17 @@ async function main(): Promise<void> {
 
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h") || args[0] === "help") {
-    console.error(`acpbot-host — long-lived agent owner
+    console.log(`acpbot host — long-lived agent owner
 
-  acpbot-host              Run host (foreground)
-  acpbot-host install      Install host + worker background services
-  acpbot-host start|stop|restart|status|uninstall
+  acpbot host                 Run host (preferred)
+  acpbot-host                 Legacy binary name (same as acpbot host)
+  acpbot install|start|…      Background services
 
 ${serviceCliHelp()}`);
     return;
   }
 
-  // Create config/data/state dirs (and default config.toml if missing).
-  // Host does not require bot token — worker first-run wizard fills that in.
-  const layout = ensureAcpbotLayout();
-  const { cfg } = await loadConfigWithSetup({
-    requireTelegram: false,
-    interactive: false,
-    configPath: layout.configPath,
-  });
-  applyConfigToEnv(cfg);
-
-  const log = createLogger({
-    level: cfg.logLevel === "debug" || cfg.verbose ? "debug" : cfg.logLevel,
-    name: "acp-host",
-  });
-  if (layout.createdConfig) {
-    console.error(
-      `acpbot acp-host created config: ${layout.configPath}\n` +
-        `  Run \`acpbot\` once in a terminal to set bot_token, then: acpbot pair approve.`,
-    );
-  }
-
-  const stateDir = cfg.stateDir;
-  const repos = cfg.repos ?? parseReposFromEnv(process.env);
-  const tickMs = cfg.scheduleTickMs ?? scheduleTickMs(process.env);
-
-  const { sockPath, close } = await startAcpHostServer({
-    stateDir,
-    sockPath: defaultAcpHostSock(stateDir),
-    log,
-    repos,
-    scheduleTickMs: tickMs,
-    defaultAgent: cfg.defaultAgent ?? "grok-build",
-  });
-  console.error(`acpbot acp-host listening on ${sockPath}`);
-  if (cfg.configPath) console.error(`acpbot acp-host config: ${cfg.configPath}`);
-  console.error(`acpbot acp-host state dir: ${stateDir}`);
-  console.error(
-    "Slots keyed by sessionKey (repo/name). Worker requires this process (fail-fast at boot).",
-  );
-  if (Object.keys(repos).length > 0) {
-    console.error(
-      `Scheduler: ${Object.keys(repos).length} repo(s), tick ${tickMs}ms`,
-    );
-  } else {
-    console.error(
-      "Scheduler: idle — add [repos] in config.toml to scan schedules",
-    );
-  }
-
-  let oauthClose: (() => Promise<void>) | undefined;
-  const oauthBase = cfg.oauthCallbackBase?.trim();
-  if (oauthBase) {
-    console.error(
-      `acpbot oauth: callback base ${oauthBase} → state ${stateDir}/mcp-oauth ` +
-        `(worker must use the same state_dir)`,
-    );
-    try {
-      const oauth = await maybeStartOauthHttpServer({ stateDir, log });
-      if (oauth) {
-        oauthClose = oauth.close;
-        console.error(
-          `acpbot oauth callback listening on ${oauth.url} ` +
-            `(GET /oauth/callback; bind ${oauth.host}:${oauth.port})`,
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(
-        `acpbot oauth http FAILED to start: ${msg}\n` +
-          `  oauth.callback_base is set but the callback listener could not bind.\n` +
-          `  Primary /mcp auth redirect will not complete. Options:\n` +
-          `  - free the port / set oauth.listen_port in config.toml\n` +
-          `  - use paste fallback: /mcp code <full-callback-url>\n` +
-          `  - remove oauth.callback_base if OAuth is not needed`,
-      );
-      await close().catch(() => {});
-      process.exit(1);
-    }
-  }
-
-  const shutdown = async () => {
-    console.error("acpbot acp-host shutting down…");
-    if (oauthClose) {
-      try {
-        await oauthClose();
-      } catch {
-        /* */
-      }
-    }
-    await close();
-    process.exit(0);
-  };
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
+  await runHostMain();
 }
 
 main().catch((err) => {

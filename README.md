@@ -49,20 +49,18 @@ No Bun or source checkout required for normal use.
 
 In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, or `opencode`).
 
-### 2. Download host + worker
+### 2. Download the binary
 
-From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **both** binaries for your platform (`linux-x64`, `linux-arm64`, or signed `darwin-arm64` / `darwin-x64`):
+From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **one** binary for your platform (`linux-x64`, `linux-arm64`, or signed `darwin-arm64` / `darwin-x64`):
 
 ```bash
 # example: v0.1.0 on Apple Silicon — use the latest tag from Releases
 curl -sL -o acpbot.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
-curl -sL -o acpbot-host.tar.gz \
-  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-host-v0.1.0-darwin-arm64.tar.gz"
-tar -xzf acpbot.tar.gz && tar -xzf acpbot-host.tar.gz
-chmod +x acpbot-v0.1.0-darwin-arm64 acpbot-host-v0.1.0-darwin-arm64
+tar -xzf acpbot.tar.gz
+chmod +x acpbot-v0.1.0-darwin-arm64
 sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
-sudo mv acpbot-host-v0.1.0-darwin-arm64 /usr/local/bin/acpbot-host
+acpbot help    # host, worker, setup, services, …
 ```
 
 ### 3. Guided setup TUI
@@ -73,12 +71,12 @@ acpbot setup          # re-run anytime
 acpbot pair approve ABCD-1234
 ```
 
-Walks through bot token, operator, agent, workspace, speech keys, OAuth, then optionally installs **both** background services:
+Walks through bot token, agent, workspace, speech keys, OAuth, then optionally installs **both** background services (same binary, two processes):
 
-| Service | Binary | Role |
+| Service | Command | Role |
 |---|---|---|
-| Host | `acpbot-host` | Agents, schedules, OAuth |
-| Worker | `acpbot` | Telegram |
+| Host | `acpbot host` | Agents, schedules, OAuth |
+| Worker | `acpbot worker` | Telegram |
 
 - **macOS:** `app.acpbot.host` + `app.acpbot.worker` LaunchAgents (`KeepAlive`)  
 - **Linux:** `acpbot-host.service` + `acpbot.service` (systemd user)
@@ -86,26 +84,25 @@ Walks through bot token, operator, agent, workspace, speech keys, OAuth, then op
 Same `config.toml` for both. Logs: `~/.local/share/acpbot/logs/` (macOS) or `journalctl --user -u acpbot-host -u acpbot` (Linux).  
 Details: [docs/configuration.md](docs/configuration.md#background-services-host--worker).
 
-Day-to-day service control (on **either** binary; default = **both** host + worker):
+Day-to-day service control (default = **both** host + worker):
 
 ```bash
-acpbot-host install    # write + enable LaunchAgents / systemd units
-acpbot-host start
-acpbot-host stop
-acpbot-host restart
-acpbot-host status
-# same: acpbot start|stop|restart|status
+acpbot install    # write + enable LaunchAgents / systemd units
+acpbot start
+acpbot stop
+acpbot restart
+acpbot status
 # one side only: acpbot start --host   ·   acpbot stop --worker
 ```
 
 Foreground (no service):
 
 ```bash
-acpbot-host    # terminal 1 — required first
-acpbot         # terminal 2
+acpbot host      # terminal 1 — required first
+acpbot worker    # terminal 2
 ```
 
-First plain `acpbot` start also opens the TUI when no bot token is set.
+Bare `acpbot` prints help. Use `acpbot setup` for the TUI when config is missing.
 
 ### 4. Telegram
 

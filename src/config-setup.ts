@@ -339,8 +339,8 @@ export async function runFirstRunSetup(
       );
       stdout.write(
         `\nNext:\n` +
-          `  terminal 1:  acpbot-host\n` +
-          `  terminal 2:  acpbot\n` +
+          `  terminal 1:  acpbot host\n` +
+          `  terminal 2:  acpbot worker\n` +
           `  telegram:    /ping  then  /new\n` +
           `  re-run:      acpbot setup\n\n`,
       );

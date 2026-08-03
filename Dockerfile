@@ -1,4 +1,4 @@
-# acpbot — multi-stage image with compiled worker + host binaries.
+# acpbot — multi-stage image with one compiled binary (host + worker subcommands).
 # Agents (grok/claude/codex/opencode) are NOT baked in; mount them or install
 # in a derived image. State and repos are expected via volumes.
 #
@@ -22,8 +22,7 @@ RUN printf 'export const ACPBOT_VERSION = "%s";\n' "$ACPBOT_VERSION" > src/versi
 # Linux target matches this image arch (x64 or arm64 host / buildx platform).
 RUN mkdir -p /out \
   && bun build --compile --outfile=/out/acpbot src/main.ts \
-  && bun build --compile --outfile=/out/acpbot-host src/acp-host/main.ts \
-  && chmod +x /out/acpbot /out/acpbot-host
+  && chmod +x /out/acpbot
 
 # ── runtime ────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -48,7 +47,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=build /out/acpbot /out/acpbot-host /usr/local/bin/
+COPY --from=build /out/acpbot /usr/local/bin/
 COPY skills /app/skills
 COPY docker/entrypoint.sh /usr/local/bin/acpbot-entrypoint
 RUN chmod +x /usr/local/bin/acpbot-entrypoint
