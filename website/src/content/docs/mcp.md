@@ -1,4 +1,9 @@
-# MCP in acpbot
+---
+title: MCP
+description: Built-in acpbot tools, per-repo servers, profiles.
+order: 12
+section: reference
+---
 
 acpbot injects MCP servers into each ACP session on ensure / `session/new`:
 
@@ -31,9 +36,9 @@ The name `acpbot` is reserved.
 
 Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegram/SKILL.md`).
 
-Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [worker-api.md](worker-api.md).
+Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [Worker API](/docs/worker-api).
 
-Agent guidance for these tools is in bundled skills **telegram** and **schedules** ([skills.md](skills.md)).
+Agent guidance for these tools is in bundled skills **telegram** and **schedules** ([Skills](/docs/skills)).
 
 Disable host MCP entirely:
 
@@ -83,7 +88,7 @@ Register via topic commands (persisted in the repo registry, **not** tokens):
 /mcp auth linear
 ```
 
-OAuth: [oauth.md](oauth.md).
+OAuth: [OAuth](/docs/oauth).
 
 ## MCP profiles
 
@@ -127,6 +132,6 @@ Rules:
 
 ## Related
 
-- [schedules.md](schedules.md) — schedule tools + host fire
-- [worker-api.md](worker-api.md) — Telegram outbound
-- [oauth.md](oauth.md) — remote auth
+- [Schedules](/docs/schedules) — schedule tools + host fire
+- [Worker API](/docs/worker-api) — Telegram outbound
+- [OAuth](/docs/oauth) — remote auth

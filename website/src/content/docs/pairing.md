@@ -1,4 +1,9 @@
-# Operator pairing (CLI approve)
+---
+title: Pairing
+description: CLI operator approve flow for Telegram control.
+order: 2
+section: start
+---
 
 acpbot does **not** put an operator id in `config.toml`. Pairing is always:
 

@@ -1,0 +1,197 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<BaseLayout
+  title="acpbot — Telegram control for ACP coding agents"
+  description="acpbot turns Telegram into a cockpit for Grok, Claude, Codex, and OpenCode. Forum topics become agent sessions. Permissions, media, MCP, and schedules — on your machine."
+  canonicalPath="/"
+>
+  <Nav active="home" />
+
+  <main id="top">
+    <section class="hero">
+      <div class="speed-lines" aria-hidden="true">
+        <span class="line line-cyan"></span>
+        <span class="line line-purple"></span>
+        <span class="line line-red"></span>
+      </div>
+
+      <div class="hero-logo-wrap">
+        <img
+          class="hero-logo"
+          src="/assets/acpbot-logo.png"
+          alt="acpbot — paper plane mark with metallic wordmark"
+          width="720"
+          height="400"
+        />
+      </div>
+
+      <p class="eyebrow">Agent Client Protocol · Telegram · Local-first</p>
+      <h1>
+        Your agents.
+        <span class="gold">In chat.</span>
+      </h1>
+      <p class="lede">
+        <strong>acpbot</strong> is the Telegram control surface for ACP coding agents. Each
+        forum topic is a live session with Grok, Claude, Codex, or OpenCode — permissions,
+        media, MCP tools, and schedules on <em>your</em> machine.
+      </p>
+
+      <div class="hero-cta">
+        <a class="btn btn-gold" href="/docs/getting-started">Get started</a>
+        <a class="btn btn-ghost" href="#how">See the architecture</a>
+      </div>
+
+      <div class="hero-chips" aria-label="Supported agents">
+        <span class="chip">Grok Build</span>
+        <span class="chip">Claude</span>
+        <span class="chip">Codex</span>
+        <span class="chip">OpenCode</span>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="section-head">
+        <p class="eyebrow">Capabilities</p>
+        <h2>Built for real operator work</h2>
+        <p class="section-sub">
+          Not a toy chat wrapper — a durable bridge between Telegram and the Agent Client
+          Protocol.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">✈</div>
+          <h3>Topic = session</h3>
+          <p>
+            <code>/new</code> opens a private forum topic bound to a repo and agent. History,
+            mode, and model stay with that thread.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">⚡</div>
+          <h3>acp-host required</h3>
+          <p>
+            Agent stdio lives in a long-lived host process. Restart the Telegram worker without
+            killing agent context.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">◎</div>
+          <h3>Permissions in-line</h3>
+          <p>
+            ACP permission requests, elicitation, and ask-user flows become Telegram keyboards —
+            approve, reject, or cancel where you already are.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">▣</div>
+          <h3>Models &amp; modes</h3>
+          <p>
+            <code>/model</code>, <code>/effort</code>, and <code>/mode</code> read live agent
+            catalogs over ACP — reasoning effort and permission modes when advertised.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">◈</div>
+          <h3>Media &amp; speech</h3>
+          <p>
+            Photos, files, voice STT in; agent TTS out. OpenAI and ElevenLabs are selectable per
+            TTS/STT via <code>config.toml</code>.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">◷</div>
+          <h3>Schedules</h3>
+          <p>
+            Durable in-repo jobs. The host can fire them even when the worker is offline.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section id="how" class="section section-alt">
+      <div class="section-head">
+        <p class="eyebrow">Architecture</p>
+        <h2>Local daemon. Real agents.</h2>
+      </div>
+
+      <div class="arch">
+        <pre class="arch-diagram" aria-label="Architecture diagram"><code
+          >You (Telegram)
+    │  forum topic
+    ▼
+acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claude / codex / opencode
+    │                        │
+    ├── worker-api.sock      └── sessions · OAuth · schedules
+    └── single operator (CLI pair approve)</code
+        ></pre>
+        <ul class="arch-points">
+          <li>
+            <strong>Single operator</strong> — private chat; pair with a Telegram code +
+            <code>acpbot pair approve</code> on the host.
+          </li>
+          <li>
+            <strong>Local-first</strong> — tokens and agent processes stay on your box (or your
+            tailnet).
+          </li>
+          <li>
+            <strong>ACP native</strong> — session/new|load, prompt, cancel, set_mode, models,
+            MCP.
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="agents" class="section">
+      <div class="section-head">
+        <p class="eyebrow">Agents</p>
+        <h2>Pick the process. Keep the topic.</h2>
+        <p class="section-sub">
+          Switch agent mid-session with <code>/agent</code>. PATH-gated picker — only installed
+          CLIs appear.
+        </p>
+      </div>
+      <div class="agent-row">
+        <div class="agent-card">
+          <h3>Grok Build</h3>
+          <p><code>grok agent stdio</code></p>
+          <span class="tag">effort modes · session load</span>
+        </div>
+        <div class="agent-card">
+          <h3>Claude</h3>
+          <p>via <code>claude-agent-acp</code></p>
+          <span class="tag">official ACP adapter</span>
+        </div>
+        <div class="agent-card">
+          <h3>Codex</h3>
+          <p>via <code>codex-acp</code></p>
+          <span class="tag">read-only · agent modes</span>
+        </div>
+        <div class="agent-card">
+          <h3>OpenCode</h3>
+          <p><code>opencode acp</code></p>
+          <span class="tag">native ACP · rich models</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section cta-final">
+      <div class="cta-panel">
+        <img src="/assets/acpbot-logo.png" alt="" width="200" class="cta-logo" />
+        <h2>Ship from the chat you already live in.</h2>
+        <p>
+          Open source. Local agents. Binary install in minutes —
+          <a href="/docs/getting-started">quick start docs</a>.
+        </p>
+        <a class="btn btn-gold" href="/docs/getting-started">Get started</a>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</BaseLayout>

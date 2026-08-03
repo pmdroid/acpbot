@@ -1,4 +1,9 @@
-# Agents, models, and modes
+---
+title: Agents
+description: Built-in agents, /model, /agent, modes and effort.
+order: 11
+section: reference
+---
 
 ## Built-in agent registry
 
@@ -159,7 +164,7 @@ bun run skills:install   # once — not on every worker start
 - `[skills].roots` / `ACPBOT_SKILL_ROOTS` (extra dirs)
 - Defaults under `$HOME`: `.grok/skills`, `.grok/bundled/skills`, `.agents/skills`, `.claude/skills`
 
-Pick a skill, then send a prompt that includes it for the agent. Full write-up: [skills.md](skills.md).
+Pick a skill, then send a prompt that includes it for the agent. Full write-up: [Skills](/docs/skills).
 
 ## acp-host notes
 
@@ -170,4 +175,4 @@ acp-host is **required** (worker fails boot without a live host socket):
 - Host SIGTERM disposes all agent processes
 - `/agent` changes go through host ensure + optional respawn RPCs
 
-See [architecture.md](architecture.md).
+See [Architecture](/docs/architecture).

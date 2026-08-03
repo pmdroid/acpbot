@@ -1,0 +1,40 @@
+---
+interface Props {
+  active?: "home" | "docs";
+}
+
+const { active } = Astro.props;
+---
+
+<header class="nav">
+  <a class="nav-brand" href="/">
+    <img src="/assets/acpbot-logo.png" alt="" width="36" height="36" />
+    <span>acpbot</span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    {
+      active === "docs" ? (
+        <>
+          <a href="/">Home</a>
+          <a class="nav-current" href="/docs" aria-current="page">
+            Docs
+          </a>
+          <a href="https://github.com/pmdroid/acpbot/releases">Releases</a>
+          <a class="btn btn-sm btn-gold" href="https://github.com/pmdroid/acpbot/releases">
+            Download
+          </a>
+        </>
+      ) : (
+        <>
+          <a href="/#features">Features</a>
+          <a href="/#how">How it works</a>
+          <a href="/#agents">Agents</a>
+          <a href="/docs">Docs</a>
+          <a class="btn btn-sm btn-gold" href="/docs/getting-started">
+            Get started
+          </a>
+        </>
+      )
+    }
+  </nav>
+</header>

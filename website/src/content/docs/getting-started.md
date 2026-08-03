@@ -1,4 +1,9 @@
-# Getting started
+---
+title: Getting started
+description: Bot, config, pair, first topic — full operator path.
+order: 1
+section: start
+---
 
 ## Requirements
 
@@ -18,7 +23,7 @@
 2. Enable **topics in private chats** for that bot
 3. Note your Telegram **user id** (e.g. `@userinfobot`)
 
-Pair as operator after start: DM the bot for a code, then run `acpbot pair approve <code>` on the host. See [pairing.md](pairing.md).
+Pair as operator after start: DM the bot for a code, then run `acpbot pair approve <code>` on the host. See [Pairing](/docs/pairing).
 
 
 
@@ -35,7 +40,7 @@ bun run skills:install   # once — global agent skills
 `~/.grok/skills`, and `~/.claude/skills`. The worker does **not** install skills on boot.
 
 **Config is created automatically** on first start (no manual `mkdir` / `cp`).  
-Full reference: [configuration.md](configuration.md).
+Full reference: [Configuration](/docs/configuration).
 
 ## 3. Setup + start host and worker
 
@@ -89,7 +94,7 @@ In the private chat with the bot:
 
 On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash menu from the command registry. Slash commands never go to the agent.
 
-Background service paths and logs: [configuration.md](configuration.md#background-services-host--worker).
+Background service paths and logs: [Configuration](/docs/configuration#background-services-host--worker).
 
 In a topic:
 
@@ -112,7 +117,7 @@ While a turn runs you will see a single **`⏳`** (or **`❓`**) status bubble i
 
 **Busy-turn UX:** free-text is queued (non-interrupt) with a **Remove** button on the ack; `/steer …` interrupts. Telegram does not notify message deletes — use Remove or `/unqueue`.
 
-Details: [commands.md](commands.md), [agents.md](agents.md), [architecture.md](architecture.md#turn-ux-working-bubble).
+Details: [Commands](/docs/commands), [Agents](/docs/agents), [Architecture](/docs/architecture#turn-ux-working-bubble).
 
 ## 4. Media & speech (optional)
 
@@ -135,7 +140,7 @@ api_key = "sk-…"
 tts_voice = "alloy"
 ```
 
-Full provider options: [configuration.md](configuration.md#speech-tts--stt-providers). Outbound path: [worker-api.md](worker-api.md).
+Full provider options: [Configuration](/docs/configuration#speech-tts--stt-providers). Outbound path: [Worker API](/docs/worker-api).
 
 ## Common failures
 
@@ -159,7 +164,7 @@ bun run typecheck
 
 ## Next
 
-- [Architecture](architecture.md)
-- [MCP](mcp.md) — per-repo tools & host `acpbot` tools  
-- [Skills](skills.md) — bundled telegram + schedules, global install
-- [OAuth](oauth.md) — remote gateways
+- [Architecture](/docs/architecture)
+- [MCP](/docs/mcp) — per-repo tools & host `acpbot` tools  
+- [Skills](/docs/skills) — bundled telegram + schedules, global install
+- [OAuth](/docs/oauth) — remote gateways

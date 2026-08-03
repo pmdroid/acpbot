@@ -21,3 +21,8 @@ data/
 
 # Optional local sample workspace (not shipped)
 demo/
+
+# Website (Astro)
+website/node_modules/
+website/dist/
+website/.astro/

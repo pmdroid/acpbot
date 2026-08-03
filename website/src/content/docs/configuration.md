@@ -1,4 +1,9 @@
-# Configuration
+---
+title: Configuration
+description: config.toml reference — paths, speech, OAuth, services.
+order: 4
+section: start
+---
 
 acpbot is configured with a **TOML file** and sensible defaults for binary /
 launchd / systemd installs. You do **not** need a wall of environment variables.
@@ -30,7 +35,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 |---|---|
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
 | Agent | grok-build · claude · codex · opencode |
-| Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [commands.md](commands.md) `/permissions` |
+| Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [Commands](/docs/commands) `/permissions` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |
@@ -39,7 +44,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 
 Bare `acpbot` prints CLI help. Use `acpbot setup` for the TUI; `acpbot worker` needs a real `bot_token`.
 
-Operator allowlist is **not** in TOML — pair with `acpbot pair approve` after a Telegram DM. See [pairing.md](pairing.md).
+Operator allowlist is **not** in TOML — pair with `acpbot pair approve` after a Telegram DM. See [Pairing](/docs/pairing).
 
 Host and worker **must use the same file** (or the same `state_dir`).
 
@@ -199,7 +204,7 @@ tts_mode = "agent"           # when the agent may speak: agent | always | off
 
 [oauth]
 # callback_base = "https://your-host.ts.net:8788"  # MagicDNS HTTPS on :8788
-# # or http://100.x.y.z:8788  · see docs/oauth.md
+# # or http://100.x.y.z:8788  · see /docs/oauth
 # listen_port = 8788
 # tls_cert / tls_key auto-detected from ~/.local/share/tailscale-certs/
 
@@ -322,6 +327,6 @@ Optional **overrides** for CI, Docker, or scripts. Day-to-day use prefers TOML (
 
 ## Related
 
-- [Getting started](getting-started.md)
-- [Architecture](architecture.md) — state dir layout
-- [OAuth](oauth.md)
+- [Getting started](/docs/getting-started)
+- [Architecture](/docs/architecture) — state dir layout
+- [OAuth](/docs/oauth)
