@@ -88,7 +88,7 @@ tick_ms = 15000
     expect(cfg.logLevel).toBe("warn");
     expect(cfg.mcpEnabled).toBe(false);
     expect(cfg.ttsMode).toBe("off");
-    expect(cfg.oauthCallbackBase).toBe("https://ex.ts.net");
+    expect(cfg.oauthCallbackBase).toBe("https://ex.ts.net:8788");
     expect(cfg.oauthListenPort).toBe(9999);
     expect(cfg.scheduleTickMs).toBe(15000);
     expect(cfg.configPath).toBe(path);

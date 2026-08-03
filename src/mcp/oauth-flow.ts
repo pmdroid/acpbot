@@ -44,7 +44,7 @@ export type StartMcpAuthInput = {
   repoKey?: string;
   stateDir?: string;
   /**
-   * Public base for redirects, e.g. https://host.ts.net or http://100.x.y.z:8788
+   * Public base for redirects, e.g. https://host.ts.net:8788 or http://100.x.y.z:8788
    * Callback is `${base}/oauth/callback`.
    */
   callbackBase?: string;
@@ -73,6 +73,26 @@ export type CompleteMcpAuthResult = {
   record: McpOAuthTokenRecord;
 };
 
+/**
+ * Normalize callback base: always include an explicit port for acpbot.
+ * Bare `https://host` would otherwise redirect to :443 while we listen on :8788.
+ */
+export function normalizeOauthCallbackBase(base: string): string {
+  const trimmed = base.trim().replace(/\/+$/, "");
+  if (!trimmed) return trimmed;
+  try {
+    const withScheme = trimmed.includes("://") ? trimmed : `http://${trimmed}`;
+    const u = new URL(withScheme);
+    if (!u.port) {
+      u.port = "8788";
+    }
+    // URL serializes https://host:8788 correctly; strip trailing slash
+    return u.origin.replace(/\/+$/, "");
+  } catch {
+    return trimmed;
+  }
+}
+
 export function oauthCallbackBase(
   env: NodeJS.ProcessEnv = process.env,
   override?: string,
@@ -80,18 +100,22 @@ export function oauthCallbackBase(
   const base = (override ?? env.ACPBOT_OAUTH_CALLBACK_BASE ?? "").trim();
   if (!base) {
     throw new Error(
-      "ACPBOT_OAUTH_CALLBACK_BASE is not set (e.g. https://host.ts.net or http://100.x.y.z:8788). " +
-        "Use Tailscale Serve / Funnel or a reachable host IP so the provider can redirect.",
+      "ACPBOT_OAUTH_CALLBACK_BASE is not set (e.g. https://host.ts.net:8788 or http://100.x.y.z:8788). " +
+        "Use Tailscale MagicDNS HTTPS or a reachable host IP so the provider can redirect.",
     );
   }
-  return base.replace(/\/+$/, "");
+  return normalizeOauthCallbackBase(base);
 }
 
 export function oauthRedirectUri(callbackBase: string): string {
   return `${callbackBase.replace(/\/+$/, "")}/oauth/callback`;
 }
 
-/** Parse listen port from ACPBOT_OAUTH_CALLBACK_BASE (default 8788). */
+/**
+ * Listen port for the OAuth callback server.
+ * Prefers ACPBOT_OAUTH_LISTEN_PORT, else the port in callback_base, else 8788.
+ * (HTTPS MagicDNS still uses 8788 — not 443.)
+ */
 export function oauthListenPort(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
@@ -104,8 +128,10 @@ export function oauthListenPort(
   if (base) {
     try {
       const u = new URL(base.includes("://") ? base : `http://${base}`);
-      if (u.port) return Number(u.port);
-      return u.protocol === "https:" ? 443 : 80;
+      if (u.port) {
+        const n = Number(u.port);
+        if (Number.isFinite(n) && n > 0 && n < 65536) return Math.floor(n);
+      }
     } catch {
       /* fall through */
     }
@@ -117,6 +143,28 @@ export function oauthListenHost(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   return env.ACPBOT_OAUTH_LISTEN_HOST?.trim() || "0.0.0.0";
+}
+
+/** Optional TLS material for HTTPS OAuth callback (Tailscale cert, etc.). */
+export function oauthTlsPaths(
+  env: NodeJS.ProcessEnv = process.env,
+): { cert: string; key: string } | null {
+  const cert = env.ACPBOT_OAUTH_TLS_CERT?.trim() || env.TACP_OAUTH_TLS_CERT?.trim();
+  const key = env.ACPBOT_OAUTH_TLS_KEY?.trim() || env.TACP_OAUTH_TLS_KEY?.trim();
+  if (cert && key) return { cert, key };
+  return null;
+}
+
+export function oauthCallbackIsHttps(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const base = env.ACPBOT_OAUTH_CALLBACK_BASE?.trim() ?? "";
+  try {
+    const u = new URL(base.includes("://") ? base : `http://${base}`);
+    return u.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 /**
