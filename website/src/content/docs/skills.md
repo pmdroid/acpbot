@@ -12,15 +12,18 @@ acpbot ships two **operator skills** for coding agents (Grok, Claude, Codex, …
 | **telegram** | [`skills/telegram/SKILL.md`](https://github.com/pmdroid/acpbot/blob/main/skills/telegram/SKILL.md) | Progress pings, mid-turn text, photos, files, voice via host MCP `acpbot` |
 | **schedules** | [`skills/schedules/SKILL.md`](https://github.com/pmdroid/acpbot/blob/main/skills/schedules/SKILL.md) | Create / list / cancel / fire delayed or recurring jobs |
 
-The package tree is the source of truth; install puts them in global agent skill dirs so every workspace sees them.
+The package tree is the source of truth. Telegram **`/skills`** always discovers the bundled collection when present; you do **not** need a source checkout for that.
 
-## Install (onboarding)
+## Global install (from source / optional)
+
+So agent CLIs (Grok, Claude, …) also see the skills in every workspace, install them into global skill dirs **once** after cloning the repo (or upgrading skills):
 
 ```bash
+# from a git checkout — not required for binary operators
 bun run skills:install
 ```
 
-Run after clone or skill upgrades. The **worker does not** install skills on boot.
+The **worker does not** install skills on boot.
 
 Install targets (symlink preferred, copy fallback). Never overwrites a real directory that is not already an acpbot skill symlink:
 

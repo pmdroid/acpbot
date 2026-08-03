@@ -151,7 +151,9 @@ Setting uses ACP `session/set_mode` or `session/set_config_option` as appropriat
 
 ## Skills
 
-acpbot ships **telegram** and **schedules** under package [`skills/`](../skills/). Install globally so every agent CLI sees them:
+acpbot ships **telegram** and **schedules** under package [`skills/`](https://github.com/pmdroid/acpbot/tree/main/skills). Binary installs use Telegram **`/skills`** in a topic; no Bun step required.
+
+From a source checkout only, optionally install into global agent dirs so CLIs see them outside Telegram:
 
 ```bash
 bun run skills:install   # once — not on every worker start

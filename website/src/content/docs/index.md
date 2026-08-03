@@ -9,7 +9,7 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 
 ## Start here
 
-1. [Getting started](/docs/getting-started) — bot, config, pair, first topic
+1. [Getting started](/docs/getting-started) — release binary, setup, pair, first topic
 2. [Pairing](/docs/pairing) — CLI operator approve flow
 3. [Repos](/docs/repos) — `acpbot repo` manager + folder browser
 4. [Configuration](/docs/configuration) — `config.toml` reference (paths, speech, OAuth)
