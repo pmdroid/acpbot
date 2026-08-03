@@ -163,22 +163,36 @@ a = "/b"
 });
 
 describe("main entry wiring (structural + import)", () => {
-  test("main.ts wires telegram, real agents, store, clock from config", () => {
+  test("unified CLI routes host/worker; worker wires real stack", () => {
     const mainPath = join(import.meta.dir, "../src/main.ts");
-    const src = readFileSync(mainPath, "utf8");
-    expect(src).toContain("loadConfig");
-    expect(src).toContain("applyConfigToEnv");
-    expect(src).toContain("realTelegram");
-    expect(src).toContain("realAgents");
-    expect(src).not.toContain("echoAgents");
-    expect(src).toContain("createJsonFileStore");
-    expect(src).toContain("systemClock");
-    expect(src).toContain("createDaemon");
-    expect(src).not.toMatch(/[0-9]{8,}:[A-Za-z0-9_-]{20,}/);
-    expect(src).not.toMatch(/\/Users\//);
+    const workerPath = join(import.meta.dir, "../src/worker-run.ts");
+    const hostPath = join(import.meta.dir, "../src/host-run.ts");
+    const mainSrc = readFileSync(mainPath, "utf8");
+    const workerSrc = readFileSync(workerPath, "utf8");
+    const hostSrc = readFileSync(hostPath, "utf8");
+
+    // Router (bare acpbot → help; host/worker subcommands)
+    expect(mainSrc).toContain("runWorkerMain");
+    expect(mainSrc).toContain("runHostMain");
+    expect(mainSrc).toContain("acpbotCliHelp");
+    expect(mainSrc).not.toContain("echoAgents");
+    expect(mainSrc).not.toMatch(/[0-9]{8,}:[A-Za-z0-9_-]{20,}/);
+    expect(mainSrc).not.toMatch(/\/Users\//);
+
+    // Worker process still wires the real stack
+    expect(workerSrc).toContain("loadConfigWithSetup");
+    expect(workerSrc).toContain("applyConfigToEnv");
+    expect(workerSrc).toContain("realTelegram");
+    expect(workerSrc).toContain("realAgents");
+    expect(workerSrc).toContain("createJsonFileStore");
+    expect(workerSrc).toContain("systemClock");
+    expect(workerSrc).toContain("createDaemon");
+    expect(workerSrc).not.toContain("echoAgents");
+
+    expect(hostSrc).toContain("startAcpHostServer");
   });
 
-  test("main entry fails clearly when required config is missing", async () => {
+  test("bare main prints help; worker fails clearly when config missing", async () => {
     const env = { ...process.env };
     for (const k of [
       "ACPBOT_BOT_TOKEN",
@@ -198,14 +212,35 @@ describe("main entry wiring (structural + import)", () => {
     env.XDG_DATA_HOME = join(home, ".local", "share");
 
     const emptyEnv = join(import.meta.dir, "fixtures/empty.env");
-    const proc = Bun.spawn(
+    const root = join(import.meta.dir, "..");
+
+    // Bare CLI → help (exit 0)
+    const helpProc = Bun.spawn(
       ["bun", `--env-file=${emptyEnv}`, "run", "src/main.ts"],
       {
-        cwd: join(import.meta.dir, ".."),
+        cwd: root,
         env,
         stdout: "pipe",
         stderr: "pipe",
-        // non-TTY → no interactive wizard
+        stdin: "ignore",
+      },
+    );
+    const [helpOut, helpErr, helpCode] = await Promise.all([
+      new Response(helpProc.stdout).text(),
+      new Response(helpProc.stderr).text(),
+      helpProc.exited,
+    ]);
+    expect(helpCode).toBe(0);
+    expect(`${helpOut}\n${helpErr}`).toMatch(/acpbot host|acpbot worker/i);
+
+    // Worker without bot token → clear setup error (non-TTY)
+    const proc = Bun.spawn(
+      ["bun", `--env-file=${emptyEnv}`, "run", "src/main.ts", "worker"],
+      {
+        cwd: root,
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
         stdin: "ignore",
       },
     );
@@ -216,7 +251,9 @@ describe("main entry wiring (structural + import)", () => {
     ]);
     expect(exitCode).not.toBe(0);
     const out = `${stdout}\n${stderr}`;
-    expect(out).toMatch(/bot_token|operator|Config needs setup|first-run|Missing/i);
+    expect(out).toMatch(
+      /bot_token|operator|Config needs setup|first-run|Missing|setup|REPLACE_ME/i,
+    );
     expect(out).not.toMatch(/Cannot find module/i);
   });
 });
