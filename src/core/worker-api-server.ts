@@ -54,6 +54,7 @@ export type WorkerApiHandlers = {
     childSessionKey?: string;
     id?: string;
     dispose?: boolean;
+    removeWorktree?: boolean;
   }): Promise<{ message?: string }>;
   agentSend?(input: {
     sessionKey: string;
@@ -289,6 +290,11 @@ export function createWorkerApiServer(options: {
             : {}),
           ...(typeof body.id === "string" ? { id: body.id } : {}),
           ...(typeof body.dispose === "boolean" ? { dispose: body.dispose } : {}),
+          ...(typeof body.remove_worktree === "boolean"
+            ? { removeWorktree: body.remove_worktree }
+            : typeof body.removeWorktree === "boolean"
+              ? { removeWorktree: body.removeWorktree }
+              : {}),
         });
         sendJson(res, 200, { ok: true, ...out });
         return;

@@ -190,6 +190,8 @@ export type WorkerAgentKillBody = {
   childSessionKey?: string;
   id?: string;
   dispose?: boolean;
+  /** Hard kill only: delete git worktree (default false — keep on disk). */
+  remove_worktree?: boolean;
 };
 export type WorkerAgentSendBody = {
   sessionKey: string;
