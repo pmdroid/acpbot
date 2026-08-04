@@ -417,6 +417,7 @@ export type StatusChildLine = {
   agent?: string;
   role?: string;
   closed?: boolean;
+  headless?: boolean;
 };
 
 /** Session /status dump for the operator. */
@@ -532,6 +533,7 @@ export function formatSessionStatus(input: {
     lines.push("", `**Children** (${input.children.length}${input.childrenTruncated ? `+` : ""})`);
     for (const c of input.children) {
       const extra = [
+        c.headless ? "headless" : null,
         c.agent ? c.agent : null,
         c.role ? c.role : null,
         c.closed ? "restore on next msg" : null,

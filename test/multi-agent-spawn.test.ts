@@ -392,6 +392,53 @@ describe("agentSpawn orchestration", () => {
   });
 });
 
+describe("headless spawn flag", () => {
+  test("agentSpawn records headless true by default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acpbot-headless-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-headless-st-"));
+    try {
+      await initGitRepo(root);
+      let sawHeadless: boolean | undefined;
+      const rec = await agentSpawn(
+        {
+          stateDir: state,
+          parentRepoRoot: root,
+          parentSessionKey: "demo/plan",
+          repoKey: "demo",
+          createChildSession: async (input) => {
+            sawHeadless = input.headless;
+            return { sessionKey: input.sessionKey };
+          },
+          ensureAndMaybePrompt: async () => ({}),
+        },
+        { name: "impl", agent: "codex" },
+      );
+      expect(sawHeadless).toBe(true);
+      expect(rec.headless).toBe(true);
+
+      const recTopic = await agentSpawn(
+        {
+          stateDir: state,
+          parentRepoRoot: root,
+          parentSessionKey: "demo/plan",
+          repoKey: "demo",
+          createChildSession: async (input) => {
+            sawHeadless = input.headless;
+            return { sessionKey: input.sessionKey };
+          },
+          ensureAndMaybePrompt: async () => ({}),
+        },
+        { name: "topic", agent: "codex", headless: false },
+      );
+      expect(sawHeadless).toBe(false);
+      expect(recTopic.headless).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("idle close eligibility", () => {
   test("isSpawnIdleCloseable and listIdleCloseableChildren", async () => {
     const now = 1_000_000;

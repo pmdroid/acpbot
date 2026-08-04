@@ -181,7 +181,7 @@ Host MCP server: **\`acpbot\`**. Tools (no CLI in v1):
 
 | Tool | Purpose |
 |---|---|
-| \`agent_spawn\` | Create child session + **new git worktree** + optional kickoff prompt |
+| \`agent_spawn\` | Create child + **new git worktree** + optional kickoff (\`headless\` default true — permissions on parent topic) |
 | \`agent_list\` | List children of **this** session |
 | \`agent_send\` | Message a child (slug) or \`parent\` |
 | \`agent_wait\` | Wait until child idle/done/failed (returns summary) |

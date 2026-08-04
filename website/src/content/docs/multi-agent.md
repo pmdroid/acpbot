@@ -8,6 +8,8 @@ section: advanced
 
 A **parent** agent (already in a Telegram topic) can spawn **child** ACP agents through the built-in **`acpbot` MCP server**. acpbot owns lifecycle, links every child to its parent, runs each child in a **new git worktree** (never the parent cwd), and provides a simple **agent-to-agent (A2A)** bridge so you can plan in one topic and implement in others.
 
+**Default: headless children** — no new Telegram topic. The child inherits the parent’s permission mode; permission asks and operator prompts surface **on the parent topic** (labeled with the child slug). Set `headless: false` if you want a dedicated child topic.
+
 There is **no CLI** for spawn in v1 — only MCP tools (+ a bundled skill).
 
 Design background: [multi-agent design note](https://github.com/pmdroid/acpbot/blob/main/docs/ideas/multi-agent-spawn.md) (repo).
@@ -111,10 +113,10 @@ Also listed under [Skills](/docs/skills).
 
 ## Operator UX
 
-- Spawn posts a short notice in the **parent** topic (child session key, worktree path, thread).  
-- Close / kill posts a notice in the **parent** and **child** topics.  
-- **`/status`** on the parent lists children (status + age); on a child shows the parent link.  
-- Child is a normal forum topic: permissions, free-text, etc.  
+- Spawn posts a short notice in the **parent** topic (session key, worktree; headless by default).  
+- **Permissions / elicitation / questions** from headless children appear **in the parent topic** with a `[slug]` label.  
+- Close / kill / restore notices go to the **parent** topic (and the child topic only when `headless: false`).  
+- **`/status`** on the parent lists children (status + age + headless).  
 - Registry is durable under `$state_dir/agent-spawns.json`.
 
 ### Soft-close vs hard cleanup
@@ -134,7 +136,7 @@ idle_close_hours = 24   # 0 = disable
 ## Limits (v1)
 
 - MCP tools only (no `acpbot agent …` CLI)  
-- No headless children (always a Telegram topic)  
+- Headless is the default; `headless: false` for a dedicated child topic  
 - No sibling-to-sibling messaging without the parent  
 - No `base_ref` / review-on-sibling-branch yet  
 - Multi-host: children follow the **parent repo’s host** binding when multi-host is configured — see [Multi-host](/docs/multi-host) if that page is in your build

@@ -61,6 +61,8 @@ export type SpawnDeps = {
     agent: string;
     spawnRunId: string;
     role?: string;
+    /** Default true — no Telegram topic. */
+    headless?: boolean;
   }) => Promise<{ sessionKey: string; messageThreadId?: number }>;
   /**
    * Ensure host slot + optional first prompt.
@@ -100,6 +102,8 @@ export async function agentSpawn(
     agent: string;
     role?: string;
     prompt?: string;
+    /** Default true — no Telegram topic; permissions on parent. */
+    headless?: boolean;
   },
 ): Promise<SpawnRecord> {
   const cfg = { ...DEFAULTS, ...deps.config };
@@ -149,6 +153,7 @@ export async function agentSpawn(
 
   const now = deps.now?.() ?? Date.now();
   const runId = randomUUID();
+  const headless = input.headless !== false;
   const record: SpawnRecord = {
     runId,
     childSessionKey: childKey,
@@ -162,6 +167,7 @@ export async function agentSpawn(
     depth: parentDepth + 1,
     createdAt: now,
     updatedAt: now,
+    headless,
   };
 
   try {
@@ -171,6 +177,7 @@ export async function agentSpawn(
       cwd: wt.worktreePath,
       agent: record.agent,
       spawnRunId: runId,
+      headless,
       ...(input.role ? { role: input.role } : {}),
     });
     // Register before kickoff so markChildResult / wait can see the child.

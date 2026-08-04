@@ -44,6 +44,7 @@ export type WorkerApiHandlers = {
     agent?: string;
     role?: string;
     prompt?: string;
+    headless?: boolean;
   }): Promise<{ message?: string; record?: unknown }>;
   agentList?(input: {
     sessionKey: string;
@@ -260,6 +261,9 @@ export function createWorkerApiServer(options: {
           ...(typeof body.agent === "string" ? { agent: body.agent } : {}),
           ...(typeof body.role === "string" ? { role: body.role } : {}),
           ...(typeof body.prompt === "string" ? { prompt: body.prompt } : {}),
+          ...(typeof body.headless === "boolean"
+            ? { headless: body.headless }
+            : {}),
         });
         sendJson(res, 200, { ok: true, ...out });
         return;

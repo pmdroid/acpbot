@@ -34,6 +34,8 @@ export type SpawnRecord = {
   closedAt?: number;
   /** Why the child was soft-closed (operator / auto-idle / …). */
   closeReason?: string;
+  /** No dedicated Telegram topic; UI routes to parent. Default true for new spawns. */
+  headless?: boolean;
 };
 
 export type SpawnIndex = {
