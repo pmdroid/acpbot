@@ -26,6 +26,7 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 | [Schedules](/docs/schedules) | Durable delayed/recurring jobs + host ticker |
 | [Skills](/docs/skills) | Bundled `telegram` + `schedules` skills, global install |
 | [OAuth](/docs/oauth) | Remote MCP auth (PKCE + DCR) |
+| [Multi-agent](/docs/multi-agent) | Spawn child agents via MCP; worktrees + A2A |
 
 ## Source
 

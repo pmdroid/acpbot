@@ -25,6 +25,7 @@ The name `acpbot` is reserved.
 | `schedule_list` | List jobs for this session (or whole repo) |
 | `schedule_cancel` | Disable a job |
 | `schedule_run_now` | Mark due so the host fires on the next tick |
+| `agent_spawn` / `list` / `send` / `wait` / `kill` | Multi-agent children (worktrees + A2A) — [Multi-agent](/docs/multi-agent) |
 
 ### Working bubble vs permanent messages
 
@@ -38,7 +39,7 @@ Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegra
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [Worker API](/docs/worker-api).
 
-Agent guidance for these tools is in bundled skills **telegram** and **schedules** ([Skills](/docs/skills)).
+Agent guidance for these tools is in bundled skills **telegram**, **schedules**, and **multi-agent** ([Skills](/docs/skills)).
 
 Disable host MCP entirely:
 
