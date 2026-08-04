@@ -171,3 +171,83 @@ export async function workerHealth(opts?: {
     timeoutMs: 5_000,
   });
 }
+
+// ── Multi-agent spawn (MCP → worker) ─────────────────────────────────────────
+
+export type WorkerAgentSpawnBody = {
+  sessionKey: string;
+  name: string;
+  agent?: string;
+  role?: string;
+  prompt?: string;
+};
+
+export type WorkerAgentListBody = { sessionKey: string };
+export type WorkerAgentKillBody = {
+  sessionKey: string;
+  childSessionKey?: string;
+  id?: string;
+  dispose?: boolean;
+};
+export type WorkerAgentSendBody = {
+  sessionKey: string;
+  to: string;
+  message: string;
+  mode?: "prompt" | "steer";
+};
+export type WorkerAgentWaitBody = {
+  sessionKey: string;
+  childSessionKey?: string;
+  id?: string;
+  to?: string;
+  timeout_sec?: number;
+  poll_sec?: number;
+};
+
+export async function workerAgentSpawn(
+  body: WorkerAgentSpawnBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { record?: unknown }> {
+  return workerApiRequest("/v1/agents/spawn", body, opts) as Promise<
+    WorkerApiResult & { record?: unknown }
+  >;
+}
+
+export async function workerAgentList(
+  body: WorkerAgentListBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { children?: unknown[] }> {
+  return workerApiRequest("/v1/agents/list", body, opts) as Promise<
+    WorkerApiResult & { children?: unknown[] }
+  >;
+}
+
+export async function workerAgentKill(
+  body: WorkerAgentKillBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult> {
+  return workerApiRequest("/v1/agents/kill", body, opts);
+}
+
+export async function workerAgentSend(
+  body: WorkerAgentSendBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { to?: string; summary?: string }> {
+  return workerApiRequest("/v1/agents/send", body, opts) as Promise<
+    WorkerApiResult & { to?: string; summary?: string }
+  >;
+}
+
+export async function workerAgentWait(
+  body: WorkerAgentWaitBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<
+  WorkerApiResult & { status?: string; summary?: string; sessionKey?: string }
+> {
+  return workerApiRequest("/v1/agents/wait", body, {
+    ...opts,
+    timeoutMs: opts?.timeoutMs ?? 620_000,
+  }) as Promise<
+    WorkerApiResult & { status?: string; summary?: string; sessionKey?: string }
+  >;
+}
