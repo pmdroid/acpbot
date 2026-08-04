@@ -56,13 +56,18 @@ export type SpawnDeps = {
     spawnRunId: string;
     role?: string;
   }) => Promise<{ sessionKey: string; messageThreadId?: number }>;
-  /** Ensure host slot + optional first prompt. */
+  /**
+   * Ensure host slot + optional first prompt.
+   * When a kickoff prompt finishes, return its text summary so the registry
+   * can store lastResultSummary (markChildResult also works if child is
+   * already registered).
+   */
   ensureAndMaybePrompt: (input: {
     sessionKey: string;
     agent: string;
     cwd: string;
     prompt?: string;
-  }) => Promise<void>;
+  }) => Promise<void | { summary?: string }>;
   /** Deliver A2A message as a prompt turn on target. */
   deliverMessage?: (input: {
     sessionKey: string;
@@ -162,19 +167,54 @@ export async function agentSpawn(
       spawnRunId: runId,
       ...(input.role ? { role: input.role } : {}),
     });
-    await deps.ensureAndMaybePrompt({
+    // Register before kickoff so markChildResult / wait can see the child.
+    index = addSpawnRecord(index, record);
+    await saveSpawnIndex(deps.stateDir, index);
+
+    const promptResult = await deps.ensureAndMaybePrompt({
       sessionKey: childKey,
       agent: record.agent,
       cwd: wt.worktreePath,
       ...(input.prompt ? { prompt: input.prompt } : {}),
     });
-    record.status = input.prompt ? "running" : "idle";
-    record.updatedAt = deps.now?.() ?? Date.now();
-    index = addSpawnRecord(index, record);
+
+    // Reload — kickoff may have written lastResultSummary via markChildResult.
+    index = await loadSpawnIndex(deps.stateDir);
+    let final = index.byChild[childKey] ?? record;
+    const kickoffSummary =
+      (promptResult &&
+      typeof promptResult === "object" &&
+      typeof promptResult.summary === "string"
+        ? promptResult.summary.trim()
+        : "") || final.lastResultSummary;
+
+    // Kickoff is synchronous for the spawn call: when it returns, the child
+    // is not mid-turn. Terminal status so agent_wait can complete.
+    const nextStatus: SpawnStatus =
+      final.status === "failed" || final.status === "killed"
+        ? final.status
+        : "idle";
+    index = updateSpawnRecord(index, childKey, {
+      status: nextStatus,
+      ...(kickoffSummary
+        ? { lastResultSummary: kickoffSummary.slice(0, 4000) }
+        : {}),
+      updatedAt: deps.now?.() ?? Date.now(),
+    });
     await saveSpawnIndex(deps.stateDir, index);
-    return record;
+    final = index.byChild[childKey]!;
+    return final;
   } catch (err) {
-    // Rollback worktree
+    // Rollback registry + worktree
+    try {
+      let idx = await loadSpawnIndex(deps.stateDir);
+      if (idx.byChild[childKey]) {
+        idx = removeSpawnRecord(idx, childKey);
+        await saveSpawnIndex(deps.stateDir, idx);
+      }
+    } catch {
+      /* */
+    }
     try {
       await removeAgentWorktree({
         repoRoot: deps.parentRepoRoot,
