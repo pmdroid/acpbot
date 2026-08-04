@@ -21,6 +21,8 @@ import {
   createAcpHostClient,
   resolveAcpHostSockPath,
 } from "../acp-host/client";
+import { createHostRouter } from "../acp-host/router";
+import { resolveHostId } from "../acp-host/hosts";
 import {
   isAutoApproveAgentMode,
   pickModeForPermissionPolicy,
@@ -108,31 +110,58 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     },
   };
 
-  // Production: only acp-host client. In-process createSessionHost is host-side only.
+  // Production: acp-host client(s). In-process createSessionHost is host-side only.
   const hostSockPath = resolveAcpHostSockPath(options.stateDir);
-  const host: SessionHost =
+  const catalog = options.config.hostsCatalog;
+  const router =
+    options.host
+      ? null
+      : catalog && Object.keys(catalog.hosts).length > 0
+        ? createHostRouter({
+            catalog,
+            stateDir: options.stateDir,
+            log,
+            hooks,
+          })
+        : null;
+  const defaultHost: SessionHost =
     options.host ??
-    (() => {
-      log.info("using acp-host client", { sockPath: hostSockPath });
-      return createAcpHostClient({ log, hooks, sockPath: hostSockPath });
-    })();
+    (router
+      ? router.getHost("local")
+      : (() => {
+          log.info("using acp-host client", { sockPath: hostSockPath });
+          return createAcpHostClient({ log, hooks, sockPath: hostSockPath });
+        })());
+
+  /** Resolve host for a session identity (sticky hostId on handle later). */
+  function hostFor(sessionKey: string, repoKey?: string, stickyHostId?: string): SessionHost {
+    if (!router) return defaultHost;
+    const hostId = resolveHostId({
+      sessionHostId: stickyHostId,
+      repoKey: repoKey ?? sessionKey.split("/")[0],
+      catalog: router.catalog,
+    });
+    return router.getHost(hostId);
+  }
 
   // Keep hooks live when handlers are set after construction.
   const refreshHooks = () => {
-    host.setHooks({
-      onPermissionRequest: async (req, ctx) => {
+    const next = {
+      onPermissionRequest: async (req: Parameters<NonNullable<typeof permissionHandler>>[0], ctx: { signal: AbortSignal }) => {
         if (permissionHandler) return permissionHandler(req, ctx);
-        return { outcome: "reject_once" };
+        return { outcome: "reject_once" as const };
       },
-      onElicitationRequest: async (req, ctx) => {
+      onElicitationRequest: async (req: Parameters<NonNullable<typeof elicitationHandler>>[0], ctx: { signal: AbortSignal }) => {
         if (elicitationHandler) return elicitationHandler(req, ctx);
-        return { action: "decline" };
+        return { action: "decline" as const };
       },
-      onAskUserQuestion: async (req, ctx) => {
+      onAskUserQuestion: async (req: { sessionId: string; raw: unknown }, ctx: { signal: AbortSignal }) => {
         if (!askUserQuestionHandler) return { outcome: "skip_interview" };
         return askUserQuestionHandler(req, ctx);
       },
-    });
+    };
+    if (router) router.setHooks(next);
+    else defaultHost.setHooks(next);
   };
 
   const sessionKeyOf = (id: SessionIdentity) => `${id.repo}/${id.name}`;
@@ -154,11 +183,11 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     async cancelTurn(sessionKey, reason) {
       abortBySession.get(sessionKey)?.abort();
       abortBySession.delete(sessionKey);
-      await host.cancel(sessionKey, reason);
+      await hostFor(sessionKey).cancel(sessionKey, reason);
     },
 
     async setSessionMode(sessionKey, modeId) {
-      const st = await host.setMode(sessionKey, modeId);
+      const st = await hostFor(sessionKey).setMode(sessionKey, modeId);
       return {
         ...(st.currentModeId !== undefined
           ? { currentModeId: st.currentModeId }
@@ -169,7 +198,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
 
     async getSessionMode(sessionKey) {
       // Always query host (RPC for acp-host client) — never serve a one-shot cache.
-      const st = await host.getModeState(sessionKey);
+      const st = await hostFor(sessionKey).getModeState(sessionKey);
       if (!st) {
         return { availableModeIds: [] };
       }
@@ -183,11 +212,11 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
 
     async getSessionConfigOptions(sessionKey) {
       // Live read: picks up late `_x.ai/models/update` on the host slot.
-      return host.getConfigOptions(sessionKey);
+      return hostFor(sessionKey).getConfigOptions(sessionKey);
     },
 
     async setSessionConfigOption(sessionKey, configId, value) {
-      return host.setConfigOption(sessionKey, configId, value);
+      return hostFor(sessionKey).setConfigOption(sessionKey, configId, value);
     },
 
     async switchSessionAgent(identity, agentId) {
@@ -208,16 +237,16 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         to: agent,
       });
       try {
-        await host.cancel(key, "operator /agent switch");
+        await hostFor(key).cancel(key, "operator /agent switch");
       } catch {
         /* */
       }
-      if (host.disposeSession) {
-        await host.disposeSession(key);
+      if (hostFor(key).disposeSession) {
+        await hostFor(key).disposeSession!(key);
       }
       handles.delete(key);
 
-      const hs = await host.ensureSession({
+      const hs = await hostFor(key).ensureSession({
         sessionKey: key,
         agent,
         cwd,
@@ -271,20 +300,20 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       try {
         if (opts?.forceRespawn) {
           try {
-            await host.cancel?.(key, "forceRespawn MCP rebuild");
+            await hostFor(key).cancel?.(key, "forceRespawn MCP rebuild");
           } catch {
             /* */
           }
-          if (host.disposeSession) {
+          if (hostFor(key).disposeSession) {
             try {
-              await host.disposeSession(key);
+              await hostFor(key).disposeSession!(key);
             } catch {
               /* */
             }
           }
           handles.delete(key);
         }
-        const hs = await host.ensureSession({
+        const hs = await hostFor(key).ensureSession({
           sessionKey: key,
           agent,
           cwd,
@@ -292,9 +321,9 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
         });
         if (options.forceReadOnly) {
-          const modes = await host.getAvailableModes(key);
+          const modes = await hostFor(key).getAvailableModes(key);
           const modeId = pickSessionModeId(modes, { forceReadOnly: true });
-          if (modeId) await host.setMode(key, modeId);
+          if (modeId) await hostFor(key).setMode(key, modeId);
         }
         const resolvedIdentity = { ...identity, agent };
         handles.set(key, {
@@ -359,7 +388,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         backend: "acp-sdk",
       });
 
-      const turn = host.startTurn({
+      const turn = hostFor(handle.sessionKey).startTurn({
         sessionKey: handle.sessionKey,
         text: input.text,
         signal: ac.signal,

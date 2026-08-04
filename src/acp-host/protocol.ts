@@ -33,6 +33,13 @@ export type HostAgentConfig = {
 
 export type WorkerToHost =
   | {
+      /** Authenticate a remote (WSS) connection. Unix sockets skip this. */
+      type: "hello";
+      reqId: string;
+      token: string;
+      client?: string;
+    }
+  | {
       type: "ensure";
       reqId: string;
       slotKey: string;
@@ -88,6 +95,8 @@ export type WorkerToHost =
   | { type: "list"; reqId: string };
 
 export type HostToWorker =
+  | { type: "hello_ok"; reqId: string }
+  | { type: "hello_err"; reqId: string; error: string }
   | {
       type: "ensure_ok";
       reqId: string;

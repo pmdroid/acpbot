@@ -21,6 +21,11 @@ import {
 } from "./env/speech";
 import { parsePermissionMode } from "./acp/permission-mode";
 import { normalizeOauthCallbackBase } from "./mcp/oauth-flow";
+import {
+  parseHostsCatalog,
+  reposPathsOnly,
+  type HostsCatalog,
+} from "./acp-host/hosts";
 import { ensureBundledSkillsRoot } from "./core/bundled-skills";
 
 export type ProcessConfig = AcpbotConfig & {
@@ -48,6 +53,12 @@ export type ProcessConfig = AcpbotConfig & {
   agentCommandJson?: string;
   claudeAcpPkg?: string;
   codexAcpPkg?: string;
+  /** Multi-host catalog (local unix + remote wss). */
+  hostsCatalog?: HostsCatalog;
+  /** Remote listen for host process (WSS). */
+  hostListenPort?: number;
+  hostListenHost?: string;
+  hostListenToken?: string;
 };
 
 export type LoadConfigOptions = {
@@ -199,8 +210,29 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
   pick("claudeAcpPkg", "claude_acp_pkg");
   pick("codexAcpPkg", "codex_acp_pkg");
 
+  // Keep raw tables for parseHostsCatalog later in loadConfig;
+  // also flatten string paths onto out.repos for normalizeToml callers/tests.
   if (raw.repos && typeof raw.repos === "object" && !Array.isArray(raw.repos)) {
-    out.repos = raw.repos as Record<string, string>;
+    out._rawRepos = raw.repos;
+    const flat: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw.repos as Record<string, unknown>)) {
+      if (typeof v === "string" && v.trim()) flat[k] = v.trim();
+      else if (v && typeof v === "object" && !Array.isArray(v)) {
+        const path = String((v as { path?: unknown }).path ?? "").trim();
+        if (path) flat[k] = path;
+      }
+    }
+    if (Object.keys(flat).length) out.repos = flat;
+  }
+  if (raw.hosts && typeof raw.hosts === "object" && !Array.isArray(raw.hosts)) {
+    out._rawHosts = raw.hosts;
+  }
+  const hostListen = raw.host_listen ?? raw.hostListen;
+  if (hostListen && typeof hostListen === "object" && !Array.isArray(hostListen)) {
+    const h = hostListen as Record<string, unknown>;
+    if (h.port !== undefined) out.hostListenPort = Number(h.port);
+    if (h.host !== undefined) out.hostListenHost = String(h.host);
+    if (h.token !== undefined) out.hostListenToken = String(h.token);
   }
 
   const features = raw.features;
@@ -518,9 +550,15 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     defaultStateDir(env);
   const stateDir = resolveStateDir(resolvePath(stateDirRaw, env), env);
 
-  let repos = file.repos as Record<string, string> | undefined;
+  // Multi-host catalog + repos (string path or { path, host })
+  const rawRepos =
+    (file as { _rawRepos?: Record<string, unknown> })._rawRepos ??
+    (file.repos as Record<string, unknown> | undefined);
+  const rawHosts = (file as { _rawHosts?: Record<string, unknown> })._rawHosts;
+  // Env JSON remains path-only (host=local)
+  let envRepos: Record<string, unknown> | undefined;
   const reposJson = firstEnv(env, "ACPBOT_REPOS_JSON", "TACP_REPOS_JSON");
-  if (!repos && reposJson) {
+  if (reposJson) {
     let raw = reposJson.trim();
     if (
       (raw.startsWith("'") && raw.endsWith("'")) ||
@@ -528,14 +566,27 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     ) {
       raw = raw.slice(1, -1);
     }
-    repos = JSON.parse(raw) as Record<string, string>;
+    envRepos = JSON.parse(raw) as Record<string, unknown>;
   }
-  if (repos) {
-    const resolved: Record<string, string> = {};
-    for (const [k, v] of Object.entries(repos)) {
-      resolved[k] = resolvePath(String(v), env);
-    }
-    repos = resolved;
+  const catalog = parseHostsCatalog({
+    rawHosts,
+    rawRepos: rawRepos ?? envRepos,
+    defaultSockPath: undefined, // filled after stateDir if needed
+    env: env as NodeJS.ProcessEnv,
+  });
+  // Resolve repo paths absolute
+  for (const [k, b] of Object.entries(catalog.repos)) {
+    b.path = resolvePath(b.path, env);
+  }
+  // local sock path after stateDir known — set below once stateDir computed
+  let repos: Record<string, string> | undefined =
+    Object.keys(catalog.repos).length > 0
+      ? reposPathsOnly(catalog)
+      : undefined;
+
+  // Host remote listen (acp-host process)
+  if ((file as { hostListenPort?: number }).hostListenPort != null) {
+    // deferred onto config below via file fields already on normalizeToml
   }
 
   const operatorChatIdRaw =
@@ -573,6 +624,34 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     config.operatorChatId = operatorChatId;
   }
   if (repos && Object.keys(repos).length > 0) config.repos = repos;
+  // Attach multi-host catalog (local sock filled with stateDir)
+  catalog.hosts.local = {
+    ...catalog.hosts.local,
+    id: "local",
+    kind: "unix",
+    sockPath:
+      catalog.hosts.local?.sockPath ||
+      `${stateDir.replace(/\/$/, "")}/acp-host.sock`,
+  };
+  config.hostsCatalog = catalog;
+  {
+    const port =
+      (file as { hostListenPort?: number }).hostListenPort ??
+      (firstEnv(env, "ACPBOT_HOST_LISTEN_PORT")
+        ? Number(firstEnv(env, "ACPBOT_HOST_LISTEN_PORT"))
+        : undefined);
+    if (port != null && Number.isFinite(port) && port > 0) {
+      config.hostListenPort = port;
+    }
+    const hh =
+      (file as { hostListenHost?: string }).hostListenHost ??
+      firstEnv(env, "ACPBOT_HOST_LISTEN_HOST");
+    if (hh) config.hostListenHost = hh;
+    const tok =
+      (file as { hostListenToken?: string }).hostListenToken ??
+      firstEnv(env, "ACPBOT_HOST_TOKEN");
+    if (tok) config.hostListenToken = tok;
+  }
 
   // Skills — package skills/ or materialised embedded skills (binary)
   const skillRoots: string[] = [];
