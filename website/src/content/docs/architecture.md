@@ -75,6 +75,13 @@ Long-lived process that **owns agent stdio** so the Telegram worker can restart 
 
 Socket: `$state_dir/acp-host.sock`  
 
+### Multi-host (optional)
+
+The worker can open **more than one** host client: local Unix plus remote **WSS** endpoints from `[hosts.*]`.  
+Each `[repos]` entry may set `host = "<id>"` so agents for that workspace run on the matching machine.  
+Details: [Multi-host](/docs/multi-host).
+  
+
 ### Background install (`acpbot setup`)
 
 The guided setup can install **both** host and worker as user services (same
