@@ -1,6 +1,6 @@
 /**
  * Embedded operator skills shipped inside the acpbot binary.
- * Keep in sync with package `skills/{telegram,schedules}/SKILL.md`.
+ * Keep in sync with package `skills/{telegram,schedules,multi-agent}/SKILL.md`.
  *
  * Binary installs materialize these under ~/.local/share/acpbot/bundled-skills/
  * via `acpbot skills install` (and on demand for skillRoots discovery).
@@ -164,6 +164,44 @@ repo → send via \`telegram_send_photo\` / \`telegram_send_file\` if the operat
 - Put secrets in prompts or committed scripts.
 - Use path escapes or absolute paths outside the repo.
 - Assume non-UTC \`timezone\` shifts the clock (firing is UTC for now).
+`,
+  },
+  "multi-agent": {
+    "SKILL.md": `---
+name: multi-agent
+description: >
+  Spawn parent-linked child ACP agents via host MCP tools (agent_spawn / list /
+  send / wait / kill). Each child runs in a new git worktree. Use after a plan
+  to fan out implementers; parent is the A2A hub.
+---
+
+# Multi-agent spawn (acpbot MCP)
+
+Host MCP server: **\`acpbot\`**. Tools (no CLI in v1):
+
+| Tool | Purpose |
+|---|---|
+| \`agent_spawn\` | Create child session + **new git worktree** + optional kickoff prompt |
+| \`agent_list\` | List children of **this** session |
+| \`agent_send\` | Message a child (slug) or \`parent\` |
+| \`agent_wait\` | Wait until child idle/done/failed (returns summary) |
+| \`agent_kill\` | Cancel child; dispose worktree (branch kept by default) |
+
+## Rules
+
+- Parent cwd is never shared — every child has its own branch under \`$state_dir/worktrees/…\`
+- Parent hub only: no sibling-to-sibling mesh
+- Caps: depth and max children (config \`[agents.spawn]\`)
+- Parent must be a **git** work tree or spawn fails
+- Do not put secrets in A2A messages
+
+## Plan → implement recipe
+
+1. Finish the plan with the operator in this topic
+2. \`agent_spawn({ name: "impl", agent: "codex", prompt: "…" })\`
+3. \`agent_wait({ to: "impl" })\`
+4. Optionally spawn a reviewer; or merge/PR from the child branch
+5. Summarize to the operator
 `,
   },
 };

@@ -37,6 +37,42 @@ export type WorkerApiHandlers = {
     sessionKey: string;
     text: string;
   }): Promise<{ message?: string; bytes?: number }>;
+  /** Multi-agent spawn (optional — when unset, routes return 501). */
+  agentSpawn?(input: {
+    sessionKey: string;
+    name: string;
+    agent?: string;
+    role?: string;
+    prompt?: string;
+  }): Promise<{ message?: string; record?: unknown }>;
+  agentList?(input: {
+    sessionKey: string;
+  }): Promise<{ message?: string; children?: unknown[] }>;
+  agentKill?(input: {
+    sessionKey: string;
+    childSessionKey?: string;
+    id?: string;
+    dispose?: boolean;
+  }): Promise<{ message?: string }>;
+  agentSend?(input: {
+    sessionKey: string;
+    to: string;
+    message: string;
+    mode?: "prompt" | "steer";
+  }): Promise<{ message?: string; to?: string; summary?: string }>;
+  agentWait?(input: {
+    sessionKey: string;
+    childSessionKey?: string;
+    id?: string;
+    to?: string;
+    timeout_sec?: number;
+    poll_sec?: number;
+  }): Promise<{
+    message?: string;
+    status?: string;
+    summary?: string;
+    sessionKey?: string;
+  }>;
 };
 
 export type WorkerApiServer = {
@@ -203,6 +239,94 @@ export function createWorkerApiServer(options: {
         const out = await options.handlers.speak({
           sessionKey,
           text: text.trim(),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+
+      if (pathname === "/v1/agents/spawn") {
+        if (!options.handlers.agentSpawn) {
+          sendJson(res, 501, { ok: false, error: "agent spawn not enabled" });
+          return;
+        }
+        const name = typeof body.name === "string" ? body.name : "";
+        if (!name.trim()) {
+          sendJson(res, 400, { ok: false, error: "name required" });
+          return;
+        }
+        const out = await options.handlers.agentSpawn({
+          sessionKey,
+          name: name.trim(),
+          ...(typeof body.agent === "string" ? { agent: body.agent } : {}),
+          ...(typeof body.role === "string" ? { role: body.role } : {}),
+          ...(typeof body.prompt === "string" ? { prompt: body.prompt } : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/agents/list") {
+        if (!options.handlers.agentList) {
+          sendJson(res, 501, { ok: false, error: "agent list not enabled" });
+          return;
+        }
+        const out = await options.handlers.agentList({ sessionKey });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/agents/kill") {
+        if (!options.handlers.agentKill) {
+          sendJson(res, 501, { ok: false, error: "agent kill not enabled" });
+          return;
+        }
+        const out = await options.handlers.agentKill({
+          sessionKey,
+          ...(typeof body.childSessionKey === "string"
+            ? { childSessionKey: body.childSessionKey }
+            : {}),
+          ...(typeof body.id === "string" ? { id: body.id } : {}),
+          ...(typeof body.dispose === "boolean" ? { dispose: body.dispose } : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/agents/send") {
+        if (!options.handlers.agentSend) {
+          sendJson(res, 501, { ok: false, error: "agent send not enabled" });
+          return;
+        }
+        const to = typeof body.to === "string" ? body.to : "";
+        const message = typeof body.message === "string" ? body.message : "";
+        if (!to.trim() || !message.trim()) {
+          sendJson(res, 400, { ok: false, error: "to and message required" });
+          return;
+        }
+        const out = await options.handlers.agentSend({
+          sessionKey,
+          to: to.trim(),
+          message: message.trim(),
+          ...(body.mode === "steer" ? { mode: "steer" as const } : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/agents/wait") {
+        if (!options.handlers.agentWait) {
+          sendJson(res, 501, { ok: false, error: "agent wait not enabled" });
+          return;
+        }
+        const out = await options.handlers.agentWait({
+          sessionKey,
+          ...(typeof body.childSessionKey === "string"
+            ? { childSessionKey: body.childSessionKey }
+            : {}),
+          ...(typeof body.id === "string" ? { id: body.id } : {}),
+          ...(typeof body.to === "string" ? { to: body.to } : {}),
+          ...(typeof body.timeout_sec === "number"
+            ? { timeout_sec: body.timeout_sec }
+            : {}),
+          ...(typeof body.poll_sec === "number"
+            ? { poll_sec: body.poll_sec }
+            : {}),
         });
         sendJson(res, 200, { ok: true, ...out });
         return;

@@ -248,7 +248,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       }
 
       const repos = options.config.repos ?? {};
-      const cwd = repos[identity.repo];
+      const cwd = opts?.cwd?.trim() || repos[identity.repo];
       if (!cwd) {
         throw new Error(
           `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON / config.repos`,
