@@ -105,6 +105,62 @@ describe("renderFullConfigToml", () => {
     expect(toml).toContain("mcp = false");
     expect(toml).toContain('permission_mode = "bypass"');
   });
+
+  test("multi-host host_listen, remote hosts, and repo host binding", () => {
+    const toml = renderFullConfigToml({
+      botToken: "1:AAAreal-token-here-not-placeholder",
+      defaultAgent: "grok-build",
+      logLevel: "info",
+      repos: {
+        demo: "/tmp/demo",
+        work: { path: "/data/work", hostId: "studio" },
+      },
+      ttsMode: "agent",
+      permissionMode: "ask",
+      ttsProvider: "auto",
+      sttProvider: "auto",
+      hostListen: {
+        port: 8790,
+        host: "0.0.0.0",
+        token: "shared-secret",
+      },
+      remoteHosts: [
+        {
+          id: "studio",
+          url: "wss://studio.example.com:8790",
+          token: "shared-secret",
+        },
+      ],
+    });
+    expect(toml).toContain("[host_listen]");
+    expect(toml).toContain("port = 8790");
+    expect(toml).toContain('host = "0.0.0.0"');
+    expect(toml).toContain('token = "shared-secret"');
+    expect(toml).toContain("[hosts.studio]");
+    expect(toml).toContain('kind = "wss"');
+    expect(toml).toContain('url = "wss://studio.example.com:8790"');
+    expect(toml).toContain("[repos.work]");
+    expect(toml).toContain('path = "/data/work"');
+    expect(toml).toContain('host = "studio"');
+    // local-only repos still get a table entry when any repo is remote-bound
+    expect(toml).toContain("[repos.demo]");
+    expect(toml).toContain('path = "/tmp/demo"');
+    // string-only form when all local
+    const localOnly = renderFullConfigToml({
+      botToken: "1:AAAreal-token-here-not-placeholder",
+      defaultAgent: "grok-build",
+      logLevel: "info",
+      repos: { demo: "/tmp/demo" },
+      ttsMode: "agent",
+      permissionMode: "ask",
+      ttsProvider: "auto",
+      sttProvider: "auto",
+    });
+    expect(localOnly).toContain("[repos]");
+    expect(localOnly).toContain('demo = "/tmp/demo"');
+    expect(localOnly).not.toContain("[repos.demo]");
+    expect(localOnly).not.toContain("[host_listen]");
+  });
 });
 
 describe("service CLI", () => {

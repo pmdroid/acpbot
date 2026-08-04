@@ -55,6 +55,11 @@ export type AcpbotConfig = {
    * Default true. Env: ACPBOT_MCP=0.
    */
   mcpEnabled?: boolean;
+  /**
+   * Multi-host catalog (parsed from [hosts] / structured [repos]).
+   * When omitted, worker uses local Unix acp-host only.
+   */
+  hostsCatalog?: import("../acp-host/hosts").HostsCatalog;
 };
 
 
