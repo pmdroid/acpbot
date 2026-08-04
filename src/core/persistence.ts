@@ -24,6 +24,13 @@ export type PersistedSession = {
   parentSessionKey?: string | null;
   spawnRunId?: string;
   spawnRole?: string;
+  /**
+   * Headless multi-agent child: no dedicated Telegram topic.
+   * Operator UI (permissions, summaries) surfaces on the parent topic.
+   * messageThreadId mirrors the parent for send helpers; byThread must not
+   * map the parent thread to this session.
+   */
+  headless?: boolean;
 };
 
 export type SessionIndex = {

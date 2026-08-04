@@ -465,8 +465,9 @@ server.tool(
     name: "agent_spawn",
     description:
       "Spawn a child ACP agent in a NEW git worktree (never parent cwd). " +
-      "Child is linked to this session as parent. Optional kickoff prompt. " +
-      "Use after a plan to fan out implementers. name is a short slug [a-z0-9-].",
+      "Child is linked to this session as parent. Default headless=true: no new " +
+      "Telegram topic; permissions and asks surface on this (parent) topic. " +
+      "Set headless=false for a dedicated child topic. name is a short slug [a-z0-9-].",
     input: z.object({
       name: z
         .string()
@@ -483,6 +484,12 @@ server.tool(
         .min(1)
         .optional()
         .describe("Optional first prompt for the child"),
+      headless: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default true — no Telegram topic; permissions on parent. false = dedicated topic",
+        ),
     }),
   },
   async (args) => {
@@ -495,6 +502,7 @@ server.tool(
         ...(args.agent ? { agent: args.agent } : {}),
         ...(args.role ? { role: args.role } : {}),
         ...(args.prompt ? { prompt: args.prompt } : {}),
+        ...(args.headless !== undefined ? { headless: args.headless } : {}),
       });
       if (!ack.ok) return `agent_spawn failed: ${ack.error}`;
       return (

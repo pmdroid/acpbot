@@ -513,7 +513,46 @@ export function createDaemon(
   function effectivePermissionMode(
     session?: PersistedSession,
   ): PermissionMode {
-    return session?.permissionMode ?? getDefaultPermissionMode();
+    if (!session) return getDefaultPermissionMode();
+    // Headless (and all) children inherit the parent's ask/bypass policy.
+    if (session.parentSessionKey) {
+      const parent = sessionIndex.byKey[session.parentSessionKey];
+      if (parent) {
+        return parent.permissionMode ?? getDefaultPermissionMode();
+      }
+    }
+    return session.permissionMode ?? getDefaultPermissionMode();
+  }
+
+  /** Leaf slug from child session key (e.g. work/plan--impl → impl). */
+  function childSlugOf(sessionKey: string): string {
+    return sessionKey.includes("--")
+      ? sessionKey.split("--").slice(-1)[0]!
+      : sessionKey;
+  }
+
+  /**
+   * Where operator-facing UI goes: headless children surface on the parent topic.
+   */
+  function resolveOperatorSurface(
+    session: PersistedSession,
+  ): PersistedSession {
+    if (!session.headless || !session.parentSessionKey) return session;
+    return sessionIndex.byKey[session.parentSessionKey] ?? session;
+  }
+
+  /** Send text for a session; headless children post on the parent with a prefix. */
+  async function sendForSession(
+    session: PersistedSession,
+    text: string,
+    opts?: { html?: boolean },
+  ): Promise<void> {
+    const surface = resolveOperatorSurface(session);
+    const body =
+      session.headless && surface.sessionKey !== session.sessionKey
+        ? `[${childSlugOf(session.sessionKey)}] ${text}`
+        : text;
+    await sendInTopic(surface, body, undefined, opts);
   }
 
   /**
@@ -829,19 +868,25 @@ export function createDaemon(
       return { outcome: "allow_always" };
     }
 
+    const surface = resolveOperatorSurface(session);
     const ui = buildPermissionUi(req);
+    const promptText =
+      session.headless && surface.sessionKey !== session.sessionKey
+        ? `**[${childSlugOf(sessionKey)}]** needs permission\n\n${ui.text}`
+        : ui.text;
     log.info("permission UI: send keyboard", {
       sessionKey,
+      surface: surface.sessionKey,
       toolCallId: req.toolCallId,
       token: ui.token,
       options: ui.options.map((o) => o.name),
     });
 
     const decision = await awaitInlineDecision(inlineDecisionDeps, {
-      session,
+      session: surface,
       signal: ctx.signal,
       waitingBubbleText: "Waiting for your decision…",
-      text: ui.text,
+      text: promptText,
       keyboard: ui.keyboard,
       sendOpts: { html: true },
       logContext: { kind: "permission", token: ui.token },
@@ -853,12 +898,13 @@ export function createDaemon(
       register: ({ messageId, resolve }) => {
         permissions.register({
           token: ui.token,
+          // Child owns the turn; surface is display-only
           sessionKey,
-          chatId: session.chatId,
-          messageThreadId: session.messageThreadId,
+          chatId: surface.chatId,
+          messageThreadId: surface.messageThreadId,
           messageId,
           options: ui.options,
-          promptText: ui.text,
+          promptText,
           settled: false,
           resolve,
         });
@@ -917,18 +963,24 @@ export function createDaemon(
       return { action: "decline" };
     }
 
+    const surface = resolveOperatorSurface(session);
     const ui = buildElicitationUi({ sessionId: sessionKey, raw: req.raw });
+    const elicitText =
+      session.headless && surface.sessionKey !== session.sessionKey
+        ? `**[${childSlugOf(sessionKey)}]**\n\n${ui.text}`
+        : ui.text;
     log.info("elicitation UI: send keyboard", {
       sessionKey,
+      surface: surface.sessionKey,
       token: ui.token,
       options: ui.options.map((o) => o.label),
     });
 
     const decision = await awaitInlineDecision(inlineDecisionDeps, {
-      session,
+      session: surface,
       signal: ctx.signal,
       waitingBubbleText: "Waiting for your answer…",
-      text: ui.text,
+      text: elicitText,
       keyboard: ui.keyboard,
       sendOpts: { alreadyHtml: true },
       logContext: { kind: "elicitation", token: ui.token },
@@ -940,12 +992,12 @@ export function createDaemon(
         elicitations.register({
           token: ui.token,
           sessionKey,
-          chatId: session.chatId,
-          messageThreadId: session.messageThreadId,
+          chatId: surface.chatId,
+          messageThreadId: surface.messageThreadId,
           messageId,
           fieldName: ui.fieldName,
           options: ui.options,
-          promptText: ui.text,
+          promptText: elicitText,
           settled: false,
           resolve,
         });
@@ -955,7 +1007,7 @@ export function createDaemon(
           d.action === "accept"
             ? `→ chose: ${JSON.stringify(d.content)}`
             : `→ ${d.action}`;
-        return { text: `${ui.text}\n\n${summary}`, parseMode: "HTML" };
+        return { text: `${elicitText}\n\n${summary}`, parseMode: "HTML" };
       },
     });
 
@@ -978,6 +1030,7 @@ export function createDaemon(
       return toAskUserQuestionExtResponse({ answers: [] }, { declined: true });
     }
 
+    const surface = resolveOperatorSurface(session);
     const questions = parseAskUserQuestions(req.raw);
     if (questions.length === 0) {
       log.warn("ask_user_question empty questions", { sessionKey });
@@ -986,6 +1039,10 @@ export function createDaemon(
 
     const token = newAskToken();
     const first = buildAskQuestionUi(token, 0, questions.length, questions[0]!);
+    const askPrefix =
+      session.headless && surface.sessionKey !== session.sessionKey
+        ? `**[${childSlugOf(sessionKey)}]**\n\n`
+        : "";
     log.info("ask_user_question UI", {
       sessionKey,
       token,
@@ -1010,10 +1067,10 @@ export function createDaemon(
     };
 
     const result = await awaitInlineDecision(inlineDecisionDeps, {
-      session,
+      session: surface,
       signal: ctx.signal,
       waitingBubbleText: "Waiting for your answer…",
-      text: first.text,
+      text: askPrefix + first.text,
       keyboard: first.keyboard,
       sendOpts: { alreadyHtml: true },
       logContext: { kind: "ask_user_question", token },
@@ -1025,8 +1082,8 @@ export function createDaemon(
         askQuestions.register({
           token,
           sessionKey,
-          chatId: session.chatId,
-          messageThreadId: session.messageThreadId,
+          chatId: surface.chatId,
+          messageThreadId: surface.messageThreadId,
           questions,
           answers: questions.map(() => []),
           currentIndex: 0,
@@ -1798,13 +1855,15 @@ export function createDaemon(
           message: `Sent Telegram voice note (${text.length} chars).`,
         };
       },
-      async agentSpawn({ sessionKey, name, agent, role, prompt }) {
+      async agentSpawn({ sessionKey, name, agent, role, prompt, headless }) {
         const parent = requireSession(sessionKey);
         if (operatorChatId === undefined) {
           throw new Error("operator chat id unknown");
         }
         const repoKey = parent.identity.repo;
         const parentRepoRoot = parent.cwd;
+        // Default headless — no dedicated Telegram topic
+        const wantHeadless = headless !== false;
         // If parent is itself a child worktree, still use its cwd as git root
         const rec = await runAgentSpawn(
           {
@@ -1830,20 +1889,26 @@ export function createDaemon(
                   messageThreadId: existing.messageThreadId,
                 };
               }
-              const permissionMode = getDefaultPermissionMode();
+              // Inherit parent ask/bypass
+              const permissionMode = effectivePermissionMode(parent);
               await env.agents.ensureSession(identity, {
                 permissionMode,
                 cwd: input.cwd,
               });
-              const topic = await env.telegram.createForumTopic({
-                chatId: operatorChatId!,
-                name: initialTopicName(repo, namePart),
-              });
               const now = env.clock.now();
+              const isHeadless = input.headless !== false;
+              let messageThreadId = parent.messageThreadId;
+              if (!isHeadless) {
+                const topic = await env.telegram.createForumTopic({
+                  chatId: operatorChatId!,
+                  name: initialTopicName(repo, namePart),
+                });
+                messageThreadId = topic.message_thread_id;
+              }
               const record: PersistedSession = {
                 sessionKey: input.sessionKey,
                 identity: { ...identity },
-                messageThreadId: topic.message_thread_id,
+                messageThreadId,
                 chatId: operatorChatId!,
                 status: "idle",
                 cwd: input.cwd,
@@ -1851,23 +1916,37 @@ export function createDaemon(
                 parentSessionKey: input.parentSessionKey,
                 spawnRunId: input.spawnRunId,
                 ...(input.role ? { spawnRole: input.role } : {}),
+                ...(isHeadless ? { headless: true } : {}),
                 createdAt: now,
                 updatedAt: now,
               };
               sessionIndex.byKey[input.sessionKey] = record;
-              sessionIndex.byThread[String(topic.message_thread_id)] =
-                input.sessionKey;
+              // Only topic children own a thread mapping
+              if (!isHeadless) {
+                sessionIndex.byThread[String(messageThreadId)] =
+                  input.sessionKey;
+              }
               await persistIndex();
-              await sendInTopic(
-                parent,
-                `Spawned child **${namePart}** (${input.agent})\n` +
-                  `session: \`${input.sessionKey}\`\n` +
-                  `worktree: \`${input.cwd}\`\n` +
-                  `topic thread: ${topic.message_thread_id}`,
-              );
+              if (isHeadless) {
+                await sendInTopic(
+                  parent,
+                  `Spawned **headless** child **${namePart}** (${input.agent})\n` +
+                    `session: \`${input.sessionKey}\`\n` +
+                    `worktree: \`${input.cwd}\`\n` +
+                    `Permissions & asks surface **on this topic**.`,
+                );
+              } else {
+                await sendInTopic(
+                  parent,
+                  `Spawned child **${namePart}** (${input.agent})\n` +
+                    `session: \`${input.sessionKey}\`\n` +
+                    `worktree: \`${input.cwd}\`\n` +
+                    `topic thread: ${messageThreadId}`,
+                );
+              }
               return {
                 sessionKey: input.sessionKey,
-                messageThreadId: topic.message_thread_id,
+                messageThreadId,
               };
             },
             ensureAndMaybePrompt: async (input) => {
@@ -1880,12 +1959,15 @@ export function createDaemon(
                 agent: input.agent,
               };
               await maybeRestoreClosedChild(input.sessionKey);
+              const child = sessionIndex.byKey[input.sessionKey];
+              const permissionMode = child
+                ? effectivePermissionMode(child)
+                : effectivePermissionMode(parent);
               const handle = await env.agents.ensureSession(identity, {
-                permissionMode: getDefaultPermissionMode(),
+                permissionMode,
                 cwd: input.cwd,
               });
               if (!input.prompt?.trim()) return {};
-              const child = sessionIndex.byKey[input.sessionKey];
               if (child) {
                 child.status = "running";
                 await persistIndex();
@@ -1909,7 +1991,7 @@ export function createDaemon(
                   "idle",
                 );
                 if (child && summary.trim()) {
-                  await sendInTopic(child, summary.trim().slice(0, 3500));
+                  await sendForSession(child, summary.trim().slice(0, 3500));
                 }
                 return { summary: text };
               } finally {
@@ -1927,12 +2009,13 @@ export function createDaemon(
               parent.identity.agent ||
               env.config.defaultAgent ||
               "grok-build",
+            headless: wantHeadless,
             ...(role ? { role } : {}),
             ...(prompt ? { prompt } : {}),
           },
         );
         return {
-          message: `Spawned ${rec.childSessionKey} on branch ${rec.branch}`,
+          message: `Spawned ${rec.childSessionKey} on branch ${rec.branch}${rec.headless ? " (headless)" : ""}`,
           record: rec,
         };
       },
@@ -1984,7 +2067,7 @@ export function createDaemon(
         await notifySpawnLifecycle(
           sessionKey,
           target,
-          `Closed child **${slug}** (\`${target}\`) — process stopped; session kept. Message the child topic or agent_send to restore.`,
+          `Closed child **${slug}** (\`${target}\`) — process stopped; session kept. agent_send or a new task restores it.`,
           "This sub-agent was closed (process stopped). Send a message to restore.",
         );
         return {
@@ -2028,7 +2111,7 @@ export function createDaemon(
                 }
                 await turn.done;
                 if (summary.trim()) {
-                  await sendInTopic(sess, summary.trim().slice(0, 3500));
+                  await sendForSession(sess, summary.trim().slice(0, 3500));
                   await markChildResult(
                     stateDir,
                     input.sessionKey,
@@ -2594,6 +2677,7 @@ export function createDaemon(
           agent?: string;
           role?: string;
           closed?: boolean;
+          headless?: boolean;
         }>
       | undefined;
     let childrenTruncated: number | undefined;
@@ -2612,9 +2696,10 @@ export function createDaemon(
         const maxShow = 12;
         const shown = kids.slice(0, maxShow);
         childLines = shown.map((k) => {
-          const slug = k.childSessionKey.includes("--")
-            ? k.childSessionKey.split("--").slice(-1)[0]!
-            : k.childSessionKey;
+          const slug = childSlugOf(k.childSessionKey);
+          const isHeadless =
+            k.headless === true ||
+            sessionIndex.byKey[k.childSessionKey]?.headless === true;
           return {
             slug,
             sessionKey: k.childSessionKey,
@@ -2622,6 +2707,7 @@ export function createDaemon(
             ageLabel: formatSpawnAge(now - k.updatedAt),
             agent: k.agent,
             ...(k.role ? { role: k.role } : {}),
+            ...(isHeadless ? { headless: true } : {}),
             closed: k.status === "closed",
           };
         });
@@ -2695,14 +2781,13 @@ export function createDaemon(
         /* */
       }
     }
-    if (textChild) {
-      const child = sessionIndex.byKey[childKey];
-      if (child) {
-        try {
-          await sendInTopic(child, textChild);
-        } catch {
-          /* */
-        }
+    const child = sessionIndex.byKey[childKey];
+    // Headless children share the parent topic — skip duplicate child posts
+    if (textChild && child && !child.headless) {
+      try {
+        await sendInTopic(child, textChild);
+      } catch {
+        /* */
       }
     }
   }
@@ -4426,7 +4511,7 @@ export function createDaemon(
             await notifySpawnLifecycle(
               rec.parentSessionKey,
               rec.childSessionKey,
-              `Closed child **${slug}** (idle ≥ ${idleHours ?? 24}h) — process stopped; session kept. Message the child topic to restore.`,
+              `Closed child **${slug}** (idle ≥ ${idleHours ?? 24}h) — process stopped; session kept. agent_send restores it.`,
               `This sub-agent was auto-closed after ${idleHours ?? 24}h idle. Send a message to restore.`,
             );
           }

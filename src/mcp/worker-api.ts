@@ -180,6 +180,8 @@ export type WorkerAgentSpawnBody = {
   agent?: string;
   role?: string;
   prompt?: string;
+  /** Default true — no Telegram topic; permissions on parent. */
+  headless?: boolean;
 };
 
 export type WorkerAgentListBody = { sessionKey: string };
