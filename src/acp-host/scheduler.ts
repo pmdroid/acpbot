@@ -131,9 +131,9 @@ export function buildFireEnvelope(job: ScheduleJob, cwd: string): string {
   if (writeMemoryFirst) {
     lines.push(
       "## Before the scheduled task (required)",
-      `1. Read durable memory if present: \`${memPath}\`.`,
-      "2. Update that file with anything important from this session that should survive a fresh context (merge; prune stale).",
-      "3. Only after memory is written, execute the scheduled prompt below.",
+      `1. Read durable memory **in this repository** (repo root \`${cwd}\`) if present: \`${memPath}\`.`,
+      "2. Update that file under the **repo root** (not a child worktree-only path) with anything that should survive a fresh context.",
+      "3. Only after memory is written into the repo, execute the scheduled prompt below.",
       "",
     );
   }

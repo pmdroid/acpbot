@@ -3,31 +3,37 @@ import {
   buildCompactPrompt,
   buildScheduleMemoryPreamble,
   memoryFileSlug,
+  sessionMemoryAbsPath,
   sessionMemoryRelPath,
 } from "../src/core/compact";
 import { buildFireEnvelope } from "../src/acp-host/scheduler";
 import type { ScheduleJob } from "../src/schedules/types";
 
 describe("compact helpers", () => {
-  test("memory path from sessionKey", () => {
+  test("memory path is under repo root", () => {
     expect(memoryFileSlug("work/life")).toBe("work-life");
     expect(sessionMemoryRelPath("work/life")).toBe(
       ".acpbot/memory/work-life.md",
+    );
+    expect(sessionMemoryAbsPath("/Users/me/life-repo", "work/life")).toBe(
+      "/Users/me/life-repo/.acpbot/memory/work-life.md",
     );
   });
 
   test("buildCompactPrompt bare and with focus", () => {
     const bare = buildCompactPrompt({
       sessionKey: "work/life",
-      cwd: "/tmp/repo",
+      repoRoot: "/tmp/repo",
     });
     expect(bare).toContain(".acpbot/memory/work-life.md");
+    expect(bare).toContain("/tmp/repo/.acpbot/memory/work-life.md");
+    expect(bare).toContain("inside the git repo");
     expect(bare).toContain("full useful session context");
     expect(bare).toContain("Do not ask questions");
 
     const focused = buildCompactPrompt({
       sessionKey: "work/life",
-      cwd: "/tmp/repo",
+      repoRoot: "/tmp/repo",
       focus: "family calendar + travel",
     });
     expect(focused).toContain("Operator focus");

@@ -161,8 +161,9 @@ repo → send via \`telegram_send_photo\` / \`telegram_send_file\` if the operat
 
 ## Memory-first (life-assistant / long-lived sessions)
 
-By default each fire tells the agent to **update \`.acpbot/memory/<session>.md\` before**
-running your prompt (\`write_memory_first: true\`). That keeps standing context across days.
+By default each fire tells the agent to **update \`.acpbot/memory/<session>.md\` in the
+repository root** before running your prompt (\`write_memory_first: true\`). That keeps
+standing context across days (not under host state_dir or a disposable worktree).
 
 \`\`\`
 schedule_create({
