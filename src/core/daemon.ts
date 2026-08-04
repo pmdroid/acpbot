@@ -2840,11 +2840,20 @@ export function createDaemon(
   /**
    * /compact [focus…] — agent writes durable memory then short operator summary.
    */
+  /** Primary git repo root for durable memory (never a child worktree). */
+  function repoRootForSession(session: PersistedSession): string {
+    const fromCatalog = env.config.repos?.[session.identity.repo]?.trim();
+    if (fromCatalog) return fromCatalog;
+    // Fallback: session cwd is usually the repo for non-spawned sessions
+    return session.cwd;
+  }
+
   async function handleCompactCommand(
     session: PersistedSession,
     args: string[],
   ): Promise<void> {
     const focus = args.join(" ").trim();
+    const repoRoot = repoRootForSession(session);
     const memRel = sessionMemoryRelPath(session.sessionKey);
     if (sessionTurnBusy(session.sessionKey)) {
       await sendInTopic(
@@ -2865,14 +2874,14 @@ export function createDaemon(
     const handle = await ensureSessionWithPerms(session);
     const prompt = buildCompactPrompt({
       sessionKey: session.sessionKey,
-      cwd: session.cwd,
+      repoRoot,
       ...(focus ? { focus } : {}),
     });
     await sendInTopic(
       session,
       focus
-        ? `Compacting with focus → \`${memRel}\`…`
-        : `Compacting session memory → \`${memRel}\`…`,
+        ? `Compacting with focus → \`${memRel}\` (in repo)…`
+        : `Compacting session memory → \`${memRel}\` (in repo)…`,
     );
     try {
       await setSessionStatus(session, "running");
