@@ -20,6 +20,10 @@ export type PersistedSession = {
   permissionMode?: "ask" | "bypass";
   createdAt: number;
   updatedAt: number;
+  /** Set when session was created via agent_spawn (parent host slot). */
+  parentSessionKey?: string | null;
+  spawnRunId?: string;
+  spawnRole?: string;
 };
 
 export type SessionIndex = {

@@ -142,6 +142,18 @@ import {
   loadPairedOperator,
   takePairingCleared,
 } from "./pairing";
+import {
+  agentSpawn as runAgentSpawn,
+  agentList as runAgentList,
+  agentKill as runAgentKill,
+  agentSend as runAgentSend,
+  agentWait as runAgentWait,
+  markChildResult,
+} from "./agent-spawn";
+import {
+  loadSpawnIndex,
+  resolveAgentTarget,
+} from "./agent-spawn-registry";
 import type { PermissionMode, PromptAttachment } from "../env/types";
 import {
   formatPermissionStatus,
@@ -1776,6 +1788,272 @@ export function createDaemon(
         }
         return {
           message: `Sent Telegram voice note (${text.length} chars).`,
+        };
+      },
+      async agentSpawn({ sessionKey, name, agent, role, prompt }) {
+        const parent = requireSession(sessionKey);
+        if (operatorChatId === undefined) {
+          throw new Error("operator chat id unknown");
+        }
+        const repoKey = parent.identity.repo;
+        const parentRepoRoot = parent.cwd;
+        // If parent is itself a child worktree, still use its cwd as git root
+        const rec = await runAgentSpawn(
+          {
+            stateDir,
+            parentRepoRoot,
+            parentSessionKey: parent.sessionKey,
+            repoKey,
+            createChildSession: async (input) => {
+              const slash = input.sessionKey.indexOf("/");
+              if (slash < 0) throw new Error(`bad sessionKey ${input.sessionKey}`);
+              const repo = input.sessionKey.slice(0, slash);
+              const namePart = input.sessionKey.slice(slash + 1);
+              const identity = {
+                repo,
+                name: namePart,
+                agent: input.agent,
+              };
+              const existing = sessionIndex.byKey[input.sessionKey];
+              if (existing) {
+                return {
+                  sessionKey: existing.sessionKey,
+                  messageThreadId: existing.messageThreadId,
+                };
+              }
+              const permissionMode = getDefaultPermissionMode();
+              await env.agents.ensureSession(identity, {
+                permissionMode,
+                cwd: input.cwd,
+              });
+              const topic = await env.telegram.createForumTopic({
+                chatId: operatorChatId!,
+                name: initialTopicName(repo, namePart),
+              });
+              const now = env.clock.now();
+              const record: PersistedSession = {
+                sessionKey: input.sessionKey,
+                identity: { ...identity },
+                messageThreadId: topic.message_thread_id,
+                chatId: operatorChatId!,
+                status: "idle",
+                cwd: input.cwd,
+                permissionMode,
+                parentSessionKey: input.parentSessionKey,
+                spawnRunId: input.spawnRunId,
+                ...(input.role ? { spawnRole: input.role } : {}),
+                createdAt: now,
+                updatedAt: now,
+              };
+              sessionIndex.byKey[input.sessionKey] = record;
+              sessionIndex.byThread[String(topic.message_thread_id)] =
+                input.sessionKey;
+              await persistIndex();
+              await sendInTopic(
+                parent,
+                `Spawned child **${namePart}** (${input.agent})\n` +
+                  `session: \`${input.sessionKey}\`\n` +
+                  `worktree: \`${input.cwd}\`\n` +
+                  `topic thread: ${topic.message_thread_id}`,
+              );
+              return {
+                sessionKey: input.sessionKey,
+                messageThreadId: topic.message_thread_id,
+              };
+            },
+            ensureAndMaybePrompt: async (input) => {
+              const slash = input.sessionKey.indexOf("/");
+              const repo = input.sessionKey.slice(0, slash);
+              const namePart = input.sessionKey.slice(slash + 1);
+              const identity = {
+                repo,
+                name: namePart,
+                agent: input.agent,
+              };
+              const handle = await env.agents.ensureSession(identity, {
+                permissionMode: getDefaultPermissionMode(),
+                cwd: input.cwd,
+              });
+              if (!input.prompt?.trim()) return {};
+              const child = sessionIndex.byKey[input.sessionKey];
+              if (child) {
+                child.status = "running";
+                await persistIndex();
+              }
+              let summary = "";
+              try {
+                const turn = await env.agents.runPromptTurn(handle, {
+                  text: input.prompt.trim(),
+                });
+                for await (const ev of turn.events) {
+                  if (ev.type === "agent_message_chunk" && ev.text) {
+                    summary += ev.text;
+                  }
+                }
+                await turn.done;
+                const text = summary.trim() || "(no text)";
+                await markChildResult(
+                  stateDir,
+                  input.sessionKey,
+                  text,
+                  "idle",
+                );
+                if (child && summary.trim()) {
+                  await sendInTopic(child, summary.trim().slice(0, 3500));
+                }
+                return { summary: text };
+              } finally {
+                if (child) {
+                  child.status = "idle";
+                  await persistIndex();
+                }
+              }
+            },
+          },
+          {
+            name,
+            agent:
+              agent?.trim() ||
+              parent.identity.agent ||
+              env.config.defaultAgent ||
+              "grok-build",
+            ...(role ? { role } : {}),
+            ...(prompt ? { prompt } : {}),
+          },
+        );
+        return {
+          message: `Spawned ${rec.childSessionKey} on branch ${rec.branch}`,
+          record: rec,
+        };
+      },
+      async agentList({ sessionKey }) {
+        requireSession(sessionKey);
+        const children = await runAgentList(stateDir, sessionKey);
+        return {
+          message: `${children.length} child(ren)`,
+          children,
+        };
+      },
+      async agentKill({ sessionKey, childSessionKey, id, dispose }) {
+        const parent = requireSession(sessionKey);
+        let target = childSessionKey?.trim() || id?.trim() || "";
+        if (!target) throw new Error("childSessionKey required");
+        const index = await loadSpawnIndex(stateDir);
+        // allow slug
+        if (!index.byChild[target] && !target.includes("/")) {
+          target = `${sessionKey}--${target}`;
+        }
+        const killed = await runAgentKill({
+          stateDir,
+          parentRepoRoot: parent.cwd,
+          callerSessionKey: sessionKey,
+          childSessionKey: target,
+          dispose: dispose !== false,
+          killSession: async (key) => {
+            try {
+              await env.agents.cancelTurn?.(key, "agent_kill");
+            } catch {
+              /* */
+            }
+          },
+        });
+        if (!killed) throw new Error(`unknown child ${target}`);
+        return {
+          message: `Killed ${target} (worktree dispose=${dispose !== false})`,
+        };
+      },
+      async agentSend({ sessionKey, to, message, mode }) {
+        const parent = requireSession(sessionKey);
+        const result = await runAgentSend(
+          {
+            stateDir,
+            parentRepoRoot: parent.cwd,
+            parentSessionKey: parent.sessionKey,
+            repoKey: parent.identity.repo,
+            callerSessionKey: sessionKey,
+            createChildSession: async () => {
+              throw new Error("unreachable");
+            },
+            ensureAndMaybePrompt: async () => {},
+            deliverMessage: async (input) => {
+              const sess = sessionIndex.byKey[input.sessionKey];
+              if (!sess) throw new Error(`unknown session ${input.sessionKey}`);
+              const handle = await env.agents.ensureSession(sess.identity, {
+                permissionMode: sess.permissionMode ?? getDefaultPermissionMode(),
+                cwd: sess.cwd,
+              });
+              sess.status = "running";
+              await persistIndex();
+              try {
+                const turn = await env.agents.runPromptTurn(handle, {
+                  text: input.message,
+                  ...(input.mode === "steer" ? { mode: "steer" as const } : {}),
+                });
+                let summary = "";
+                for await (const ev of turn.events) {
+                  if (ev.type === "agent_message_chunk" && ev.text) {
+                    summary += ev.text;
+                  }
+                }
+                await turn.done;
+                if (summary.trim()) {
+                  await sendInTopic(sess, summary.trim().slice(0, 3500));
+                  await markChildResult(
+                    stateDir,
+                    input.sessionKey,
+                    summary.trim(),
+                    "idle",
+                  );
+                }
+                return { summary: summary.trim() || undefined };
+              } finally {
+                sess.status = "idle";
+                await persistIndex();
+              }
+            },
+          },
+          { to, message, mode },
+        );
+        return {
+          message: `Sent to ${result.to}`,
+          to: result.to,
+          summary: result.summary,
+        };
+      },
+      async agentWait({
+        sessionKey,
+        childSessionKey,
+        id,
+        to,
+        timeout_sec,
+        poll_sec,
+      }) {
+        requireSession(sessionKey);
+        let target =
+          childSessionKey?.trim() || id?.trim() || to?.trim() || "";
+        if (!target) throw new Error("child target required");
+        const index = await loadSpawnIndex(stateDir);
+        try {
+          target = resolveAgentTarget(index, sessionKey, target);
+        } catch {
+          if (!target.includes("/")) target = `${sessionKey}--${target}`;
+        }
+        const out = await runAgentWait({
+          stateDir,
+          callerSessionKey: sessionKey,
+          childSessionKey: target,
+          timeoutSec: timeout_sec,
+          pollSec: poll_sec,
+          isBusy: (key) => {
+            const s = sessionIndex.byKey[key];
+            return s?.status === "running" || s?.status === "waiting-on-you";
+          },
+        });
+        return {
+          message: `status=${out.status}`,
+          status: out.status,
+          summary: out.summary,
+          sessionKey: out.sessionKey,
         };
       },
     },

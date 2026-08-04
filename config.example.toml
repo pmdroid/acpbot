@@ -105,6 +105,17 @@ tts_mode = "agent"                       # agent | always | off
 # codex_acp_pkg = "@agentclientprotocol/codex-acp@1.1.7"
 # command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
 
+# ── Multi-agent spawn (optional) ────────────────────────────────────────────
+# Parent agents spawn children via MCP agent_* tools. Each child gets a new
+# git worktree under state_dir/worktrees/… (never the parent cwd).
+# [agents.spawn]
+# enabled = true
+# max_children_per_parent = 4
+# max_depth = 2
+# max_concurrent_spawned = 8
+# remove_worktree_on_kill = true
+# delete_branch_on_kill = false
+
 # ── Multi-host (optional) ───────────────────────────────────────────────────
 # Default is local Unix acp-host only. To run agents on another machine:
 #   1) On the remote host: acpbot host with [host_listen] token + port

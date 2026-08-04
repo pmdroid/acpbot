@@ -404,6 +404,11 @@ export interface AgentsPort {
       permissionMode?: PermissionMode;
       /** Rebuild agent + MCP (after OAuth / token change). */
       forceRespawn?: boolean;
+      /**
+       * Override working directory (multi-agent child worktree).
+       * When set, used instead of config.repos[repo].
+       */
+      cwd?: string;
     },
   ): Promise<AgentSessionHandle>;
 

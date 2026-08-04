@@ -4,6 +4,7 @@
  * Outbound Telegram (text / photo / file / speak) goes to the **worker API**
  * (HTTP over Unix socket). The daemon owns the bot token and topic map.
  * schedule_*: create / list / cancel / run-now durable delayed work.
+ * agent_*: spawn / list / send / wait / kill parent-linked child agents (worktrees).
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -24,6 +25,11 @@ import {
   workerSendMessage,
   workerSendPhoto,
   workerSpeak,
+  workerAgentSpawn,
+  workerAgentList,
+  workerAgentKill,
+  workerAgentSend,
+  workerAgentWait,
 } from "./worker-api";
 
 const server = new FastMCP({
@@ -453,4 +459,210 @@ server.tool(
   },
 );
 
+
+server.tool(
+  {
+    name: "agent_spawn",
+    description:
+      "Spawn a child ACP agent in a NEW git worktree (never parent cwd). " +
+      "Child is linked to this session as parent. Optional kickoff prompt. " +
+      "Use after a plan to fan out implementers. name is a short slug [a-z0-9-].",
+    input: z.object({
+      name: z
+        .string()
+        .min(1)
+        .describe("Short child slug (a-z0-9-), becomes session …--name"),
+      agent: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Agent id: grok-build | claude | codex | opencode"),
+      role: z.string().min(1).optional().describe("Optional role label"),
+      prompt: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Optional first prompt for the child"),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `agent_spawn failed: ${env.error}`;
+    try {
+      const ack = await workerAgentSpawn({
+        sessionKey: env.sessionKey,
+        name: args.name,
+        ...(args.agent ? { agent: args.agent } : {}),
+        ...(args.role ? { role: args.role } : {}),
+        ...(args.prompt ? { prompt: args.prompt } : {}),
+      });
+      if (!ack.ok) return `agent_spawn failed: ${ack.error}`;
+      return (
+        (ack.message ?? "spawned") +
+        (ack.record ? `\n${JSON.stringify(ack.record, null, 2)}` : "")
+      );
+    } catch (err) {
+      return `agent_spawn failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "agent_list",
+    description: "List child agents spawned from this session (parent hub).",
+    input: z.object({}),
+  },
+  async () => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `agent_list failed: ${env.error}`;
+    try {
+      const ack = await workerAgentList({ sessionKey: env.sessionKey });
+      if (!ack.ok) return `agent_list failed: ${ack.error}`;
+      return (
+        (ack.message ?? "children") +
+        `\n${JSON.stringify(ack.children ?? [], null, 2)}`
+      );
+    } catch (err) {
+      return `agent_list failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "agent_send",
+    description:
+      "Send an A2A message to a child (slug or sessionKey) or to parent. " +
+      "Sibling free-mesh is not allowed — parent is the hub.",
+    input: z.object({
+      to: z
+        .string()
+        .min(1)
+        .describe('Child slug, full sessionKey, or "parent"'),
+      message: z.string().min(1).describe("Message body delivered as a prompt"),
+      mode: z.enum(["prompt", "steer"]).optional(),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `agent_send failed: ${env.error}`;
+    try {
+      const ack = await workerAgentSend(
+        {
+          sessionKey: env.sessionKey,
+          to: args.to,
+          message: args.message,
+          ...(args.mode ? { mode: args.mode } : {}),
+        },
+        // Nested parent/child turns can exceed the default 90s client timeout.
+        { timeoutMs: 300_000 },
+      );
+      if (!ack.ok) return `agent_send failed: ${ack.error}`;
+      // Include peer turn summary so the caller can use the answer (critical for
+      // child→parent questions during a nested kickoff turn).
+      const header = ack.message ?? `sent to ${ack.to ?? args.to}`;
+      const summary =
+        typeof (ack as { summary?: unknown }).summary === "string"
+          ? (ack as { summary: string }).summary.trim()
+          : "";
+      if (!summary) return header;
+      return (
+        `${header}\n\n` +
+        `--- reply from ${ack.to ?? args.to} ---\n` +
+        summary
+      );
+    } catch (err) {
+      return `agent_send failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "agent_wait",
+    description:
+      "Wait until a child is idle/done/failed/killed (or timeout). " +
+      "Returns last result summary when available.",
+    input: z.object({
+      to: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Child slug or sessionKey (or use childSessionKey)"),
+      childSessionKey: z.string().min(1).optional(),
+      timeout_sec: z.number().optional().describe("Default 600"),
+      poll_sec: z.number().optional().describe("Default 2"),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `agent_wait failed: ${env.error}`;
+    try {
+      const ack = await workerAgentWait({
+        sessionKey: env.sessionKey,
+        ...(args.to ? { to: args.to } : {}),
+        ...(args.childSessionKey
+          ? { childSessionKey: args.childSessionKey }
+          : {}),
+        ...(args.timeout_sec != null
+          ? { timeout_sec: args.timeout_sec }
+          : {}),
+        ...(args.poll_sec != null ? { poll_sec: args.poll_sec } : {}),
+      });
+      if (!ack.ok) return `agent_wait failed: ${ack.error}`;
+      return (
+        (ack.message ?? `status=${ack.status}`) +
+        (ack.summary ? `\n${ack.summary}` : "")
+      );
+    } catch (err) {
+      return `agent_wait failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "agent_kill",
+    description:
+      "Cancel and dispose a child agent. Removes its worktree by default; " +
+      "branch is kept for PRs unless configured otherwise.",
+    input: z.object({
+      to: z.string().min(1).optional().describe("Child slug or sessionKey"),
+      childSessionKey: z.string().min(1).optional(),
+      dispose: z.boolean().optional().describe("Default true — remove worktree"),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `agent_kill failed: ${env.error}`;
+    try {
+      const ack = await workerAgentKill({
+        sessionKey: env.sessionKey,
+        ...(args.to ? { childSessionKey: args.to } : {}),
+        ...(args.childSessionKey
+          ? { childSessionKey: args.childSessionKey }
+          : {}),
+        ...(args.dispose != null ? { dispose: args.dispose } : {}),
+      });
+      if (!ack.ok) return `agent_kill failed: ${ack.error}`;
+      return ack.message ?? "killed";
+    } catch (err) {
+      return `agent_kill failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+
 await server.run();
+
