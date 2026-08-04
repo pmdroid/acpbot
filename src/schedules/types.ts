@@ -26,6 +26,11 @@ export const scheduleJobSchema = z.object({
   prompt: z.string().min(1),
   /** Optional path relative to repo root (must stay inside repo). */
   script: z.string().min(1).optional(),
+  /**
+   * When true/omitted, fire envelope tells the agent to update
+   * `.acpbot/memory/<session>.md` before running the prompt (life-assistant).
+   */
+  writeMemoryFirst: z.boolean().optional(),
   kind: scheduleJobKindSchema,
   cronExpr: z.string().min(1).optional(),
   timezone: z.string().min(1).optional(),
@@ -47,6 +52,8 @@ export type CreateScheduleInput = {
   name?: string;
   prompt: string;
   script?: string;
+  /** Default true — agent writes memory before the scheduled prompt. */
+  writeMemoryFirst?: boolean;
   kind: ScheduleJobKind;
   cronExpr?: string;
   runAt?: string;

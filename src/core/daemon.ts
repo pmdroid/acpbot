@@ -94,6 +94,7 @@ import {
   type SkillInfo,
 } from "./skills";
 import { initialTopicName, topicName } from "./status";
+import { buildCompactPrompt, sessionMemoryRelPath } from "./compact";
 import {
   formatModeStatus,
   formatSessionStatus,
@@ -2836,6 +2837,73 @@ export function createDaemon(
     }
   }
 
+  /**
+   * /compact [focus…] — agent writes durable memory then short operator summary.
+   */
+  async function handleCompactCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const focus = args.join(" ").trim();
+    const memRel = sessionMemoryRelPath(session.sessionKey);
+    if (sessionTurnBusy(session.sessionKey)) {
+      await sendInTopic(
+        session,
+        "A turn is already running — wait or `/cancel` first, then `/compact`.",
+      );
+      return;
+    }
+    try {
+      await ensureSessionWithPerms(session);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Could not attach agent: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    const handle = await ensureSessionWithPerms(session);
+    const prompt = buildCompactPrompt({
+      sessionKey: session.sessionKey,
+      cwd: session.cwd,
+      ...(focus ? { focus } : {}),
+    });
+    await sendInTopic(
+      session,
+      focus
+        ? `Compacting with focus → \`${memRel}\`…`
+        : `Compacting session memory → \`${memRel}\`…`,
+    );
+    try {
+      await setSessionStatus(session, "running");
+      const turn = await env.agents.runPromptTurn(handle, { text: prompt });
+      let summary = "";
+      for await (const ev of turn.events) {
+        if (ev.type === "agent_message_chunk" && ev.text) summary += ev.text;
+        if (ev.type === "process_died") {
+          throw new Error(ev.error ?? "agent process died");
+        }
+      }
+      await turn.done;
+      const text = summary.trim();
+      if (text) {
+        await sendInTopic(session, text.slice(0, 3500));
+      } else {
+        await sendInTopic(
+          session,
+          `Compact finished (empty reply). Check \`${memRel}\`.`,
+        );
+      }
+      await setSessionStatus(session, "idle");
+    } catch (err) {
+      await setSessionStatus(session, "failed");
+      await sendInTopic(
+        session,
+        `Compact failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   async function handleModelCommand(
     session: PersistedSession,
     args: string[],
@@ -3797,6 +3865,10 @@ export function createDaemon(
       }
       if (slash.name === "/status") {
         await handleStatusCommand(session);
+        return;
+      }
+      if (slash.name === "/compact") {
+        await handleCompactCommand(session, slash.args);
         return;
       }
       if (slash.name === "/model") {
