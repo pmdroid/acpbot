@@ -75,6 +75,10 @@ Long-lived process that **owns agent stdio** so the Telegram worker can restart 
 
 Socket: `$state_dir/acp-host.sock`  
 
+### Multi-agent spawn (optional)
+
+A parent topic can spawn **child** sessions via MCP (`agent_spawn`, …). Each child is parent-linked, gets its own forum topic, and runs in a **new git worktree**. See [Multi-agent](/docs/multi-agent).
+
 ### Background install (`acpbot setup`)
 
 The guided setup can install **both** host and worker as user services (same
