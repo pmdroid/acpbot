@@ -108,6 +108,7 @@ tts_mode = "agent"                       # agent | always | off
 # ── Multi-agent spawn (optional) ────────────────────────────────────────────
 # Parent agents spawn children via MCP agent_* tools. Each child gets a new
 # git worktree under state_dir/worktrees/… (never the parent cwd).
+# Soft-close stops the host process but keeps the Telegram session restorable.
 # [agents.spawn]
 # enabled = true
 # max_children_per_parent = 4
@@ -115,6 +116,7 @@ tts_mode = "agent"                       # agent | always | off
 # max_concurrent_spawned = 8
 # remove_worktree_on_kill = true
 # delete_branch_on_kill = false
+# idle_close_hours = 24   # 0 = disable auto soft-close of idle children
 
 # ── Multi-host (optional) ───────────────────────────────────────────────────
 # Default is local Unix acp-host only. To run agents on another machine:

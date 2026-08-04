@@ -8,6 +8,7 @@ import {
   authorizeAgentPeer,
   childSessionKey,
   depthOfSessionKey,
+  isSpawnIdleCloseable,
   listChildren,
   loadSpawnIndex,
   removeSpawnRecord,
@@ -34,6 +35,11 @@ export type AgentSpawnConfig = {
   worktreeRoot?: string;
   removeWorktreeOnKill?: boolean;
   deleteBranchOnKill?: boolean;
+  /**
+   * Soft-close children idle this many hours (process stop, session kept).
+   * 0 = disabled. Default applied by daemon (24).
+   */
+  idleCloseHours?: number;
 };
 
 export type SpawnDeps = {
@@ -242,6 +248,88 @@ export async function agentList(
   return listChildren(index, parentSessionKey);
 }
 
+/**
+ * Soft-close: stop host agent process, keep worktree + registry + Telegram
+ * session so the child can be restored on next message / agent_send.
+ */
+export async function agentClose(
+  deps: Pick<SpawnDeps, "stateDir" | "config" | "now"> & {
+    callerSessionKey: string;
+    childSessionKey: string;
+    reason?: string;
+    /** Stop host slot / process (prefer disposeSession over cancel-only). */
+    killSession?: (sessionKey: string) => Promise<void>;
+  },
+): Promise<SpawnRecord | undefined> {
+  let index = await loadSpawnIndex(deps.stateDir);
+  const rec = index.byChild[deps.childSessionKey];
+  if (!rec) return undefined;
+  const auth = authorizeAgentPeer(
+    index,
+    deps.callerSessionKey,
+    deps.childSessionKey,
+  );
+  if (!auth.ok) throw new Error(auth.error);
+
+  if (rec.status === "closed") {
+    return rec;
+  }
+
+  try {
+    await deps.killSession?.(deps.childSessionKey);
+  } catch {
+    /* */
+  }
+
+  const now = deps.now?.() ?? Date.now();
+  index = updateSpawnRecord(index, deps.childSessionKey, {
+    status: "closed",
+    closedAt: now,
+    closeReason: (deps.reason?.trim() || "closed").slice(0, 200),
+    updatedAt: now,
+  });
+  await saveSpawnIndex(deps.stateDir, index);
+  return index.byChild[deps.childSessionKey];
+}
+
+/**
+ * Mark a closed child active again (after ensureSession / new turn).
+ */
+export async function agentMarkRestored(
+  stateDir: string,
+  childSessionKey: string,
+  now?: () => number,
+): Promise<SpawnRecord | undefined> {
+  let index = await loadSpawnIndex(stateDir);
+  const rec = index.byChild[childSessionKey];
+  if (!rec) return undefined;
+  if (rec.status !== "closed") return rec;
+  const t = now?.() ?? Date.now();
+  index = updateSpawnRecord(index, childSessionKey, {
+    status: "idle",
+    updatedAt: t,
+    closedAt: undefined,
+    closeReason: undefined,
+  });
+  // Clear closed fields explicitly (spread keeps undefined patches).
+  const next = {
+    ...index.byChild[childSessionKey]!,
+  };
+  delete next.closedAt;
+  delete next.closeReason;
+  index = {
+    byChild: { ...index.byChild, [childSessionKey]: next },
+    byParent: index.byParent,
+  };
+  await saveSpawnIndex(stateDir, index);
+  return next;
+}
+
+/**
+ * Kill child.
+ * - dispose=true (default): hard cleanup — remove worktree (if configured) + registry.
+ * - dispose=false: soft-close — stop process, keep registry as `closed` + worktree.
+ */
 export async function agentKill(
   deps: Pick<
     SpawnDeps,
@@ -250,10 +338,24 @@ export async function agentKill(
     callerSessionKey: string;
     childSessionKey: string;
     dispose?: boolean;
+    reason?: string;
     /** Cancel host turn / dispose slot. */
     killSession?: (sessionKey: string) => Promise<void>;
   },
 ): Promise<SpawnRecord | undefined> {
+  // Soft-close path
+  if (deps.dispose === false) {
+    return agentClose({
+      stateDir: deps.stateDir,
+      callerSessionKey: deps.callerSessionKey,
+      childSessionKey: deps.childSessionKey,
+      reason: deps.reason ?? "kill dispose=false",
+      now: deps.now,
+      killSession: deps.killSession,
+      config: deps.config,
+    });
+  }
+
   let index = await loadSpawnIndex(deps.stateDir);
   const rec = index.byChild[deps.childSessionKey];
   if (!rec) return undefined;
@@ -271,7 +373,7 @@ export async function agentKill(
   }
 
   const cfg = { ...DEFAULTS, ...deps.config };
-  if (deps.dispose !== false && cfg.removeWorktreeOnKill) {
+  if (cfg.removeWorktreeOnKill) {
     try {
       await removeAgentWorktree({
         repoRoot: deps.parentRepoRoot,
@@ -292,6 +394,20 @@ export async function agentKill(
   index = removeSpawnRecord(index, deps.childSessionKey);
   await saveSpawnIndex(deps.stateDir, index);
   return { ...rec, status: "killed" };
+}
+
+/** List children eligible for auto idle soft-close. */
+export async function listIdleCloseableChildren(
+  stateDir: string,
+  idleCloseMs: number,
+  nowMs?: number,
+): Promise<SpawnRecord[]> {
+  if (idleCloseMs <= 0) return [];
+  const index = await loadSpawnIndex(stateDir);
+  const now = nowMs ?? Date.now();
+  return Object.values(index.byChild).filter((rec) =>
+    isSpawnIdleCloseable(rec, now, idleCloseMs),
+  );
 }
 
 export async function agentSend(
@@ -375,6 +491,7 @@ export async function agentWait(
       (rec.status === "idle" ||
         rec.status === "done" ||
         rec.status === "failed" ||
+        rec.status === "closed" ||
         rec.status === "killed")
     ) {
       return {

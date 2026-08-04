@@ -633,12 +633,17 @@ server.tool(
   {
     name: "agent_kill",
     description:
-      "Cancel and dispose a child agent. Removes its worktree by default; " +
-      "branch is kept for PRs unless configured otherwise.",
+      "Stop a child agent. dispose=true (default): hard cleanup (remove worktree, drop registry). " +
+      "dispose=false: soft-close (stop process, keep Telegram session + worktree; restorable).",
     input: z.object({
       to: z.string().min(1).optional().describe("Child slug or sessionKey"),
       childSessionKey: z.string().min(1).optional(),
-      dispose: z.boolean().optional().describe("Default true — remove worktree"),
+      dispose: z
+        .boolean()
+        .optional()
+        .describe(
+          "true=hard cleanup (default); false=soft-close keep session restorable",
+        ),
     }),
   },
   async (args) => {

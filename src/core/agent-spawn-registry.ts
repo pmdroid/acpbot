@@ -12,6 +12,7 @@ export type SpawnStatus =
   | "waiting"
   | "done"
   | "failed"
+  | "closed"
   | "killed";
 
 export type SpawnRecord = {
@@ -29,6 +30,10 @@ export type SpawnRecord = {
   createdAt: number;
   updatedAt: number;
   lastResultSummary?: string;
+  /** Soft-close timestamp (process stopped; session restorable). */
+  closedAt?: number;
+  /** Why the child was soft-closed (operator / auto-idle / …). */
+  closeReason?: string;
 };
 
 export type SpawnIndex = {
@@ -143,7 +148,14 @@ export function updateSpawnRecord(
   index: SpawnIndex,
   childSessionKey: string,
   patch: Partial<
-    Pick<SpawnRecord, "status" | "lastResultSummary" | "updatedAt">
+    Pick<
+      SpawnRecord,
+      | "status"
+      | "lastResultSummary"
+      | "updatedAt"
+      | "closedAt"
+      | "closeReason"
+    >
   >,
 ): SpawnIndex {
   const rec = index.byChild[childSessionKey];
@@ -157,6 +169,38 @@ export function updateSpawnRecord(
     byChild: { ...index.byChild, [childSessionKey]: next },
     byParent: index.byParent,
   };
+}
+
+/** True when a child may be auto soft-closed for idle age. */
+export function isSpawnIdleCloseable(
+  rec: SpawnRecord,
+  nowMs: number,
+  idleCloseMs: number,
+): boolean {
+  if (idleCloseMs <= 0) return false;
+  if (rec.status === "closed" || rec.status === "killed") return false;
+  if (
+    rec.status === "running" ||
+    rec.status === "starting" ||
+    rec.status === "waiting"
+  ) {
+    return false;
+  }
+  // idle | done | failed
+  return nowMs - rec.updatedAt >= idleCloseMs;
+}
+
+/** Short age label for status (e.g. 12m, 5h, 2d). */
+export function formatSpawnAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "?";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
 }
 
 export function listChildren(

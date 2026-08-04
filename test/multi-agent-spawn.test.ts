@@ -11,6 +11,8 @@ import {
   authorizeAgentPeer,
   childSessionKey,
   emptySpawnIndex,
+  formatSpawnAge,
+  isSpawnIdleCloseable,
   listChildren,
   resolveAgentTarget,
   validateChildSlug,
@@ -26,8 +28,11 @@ import {
   agentSpawn,
   agentList,
   agentKill,
+  agentClose,
+  agentMarkRestored,
   agentSend,
   agentWait,
+  listIdleCloseableChildren,
   markChildResult,
 } from "../src/core/agent-spawn";
 
@@ -324,6 +329,113 @@ describe("agentSpawn orchestration", () => {
       expect(waited.summary).toContain("kickoff complete");
     } finally {
       await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  test("soft-close keeps worktree + registry; restore clears closed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acpbot-spawn-close-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-spawn-close-st-"));
+    try {
+      await initGitRepo(root);
+      const rec = await agentSpawn(
+        {
+          stateDir: state,
+          parentRepoRoot: root,
+          parentSessionKey: "demo/plan",
+          repoKey: "demo",
+          createChildSession: async (input) => ({
+            sessionKey: input.sessionKey,
+          }),
+          ensureAndMaybePrompt: async () => ({}),
+        },
+        { name: "impl", agent: "codex" },
+      );
+
+      let killed = false;
+      const closed = await agentClose({
+        stateDir: state,
+        callerSessionKey: "demo/plan",
+        childSessionKey: rec.childSessionKey,
+        reason: "test-close",
+        killSession: async () => {
+          killed = true;
+        },
+      });
+      expect(killed).toBe(true);
+      expect(closed?.status).toBe("closed");
+      expect(closed?.closeReason).toBe("test-close");
+      await access(rec.worktreePath, constants.F_OK);
+      expect(await agentList(state, "demo/plan")).toHaveLength(1);
+
+      const restored = await agentMarkRestored(state, rec.childSessionKey);
+      expect(restored?.status).toBe("idle");
+      expect(restored?.closedAt).toBeUndefined();
+
+      // dispose=false maps to soft-close
+      await agentKill({
+        stateDir: state,
+        parentRepoRoot: root,
+        callerSessionKey: "demo/plan",
+        childSessionKey: rec.childSessionKey,
+        dispose: false,
+        reason: "soft",
+        killSession: async () => {},
+      });
+      const list = await agentList(state, "demo/plan");
+      expect(list[0]?.status).toBe("closed");
+      await access(rec.worktreePath, constants.F_OK);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("idle close eligibility", () => {
+  test("isSpawnIdleCloseable and listIdleCloseableChildren", async () => {
+    const now = 1_000_000;
+    const idleOk = {
+      runId: "r1",
+      childSessionKey: "p--a",
+      parentSessionKey: "p",
+      agent: "codex",
+      status: "idle" as const,
+      worktreePath: "/t",
+      branch: "b",
+      baseRef: "x",
+      depth: 1,
+      createdAt: now - 100_000,
+      updatedAt: now - 50_000,
+    };
+    expect(isSpawnIdleCloseable(idleOk, now, 10_000)).toBe(true);
+    expect(isSpawnIdleCloseable(idleOk, now, 100_000)).toBe(false);
+    expect(
+      isSpawnIdleCloseable({ ...idleOk, status: "running" }, now, 1),
+    ).toBe(false);
+    expect(
+      isSpawnIdleCloseable({ ...idleOk, status: "closed" }, now, 1),
+    ).toBe(false);
+    expect(formatSpawnAge(90_000)).toBe("1m");
+
+    const state = await mkdtemp(join(tmpdir(), "acpbot-idle-"));
+    try {
+      const { saveSpawnIndex, emptySpawnIndex, addSpawnRecord } = await import(
+        "../src/core/agent-spawn-registry"
+      );
+      let idx = emptySpawnIndex();
+      idx = addSpawnRecord(idx, idleOk);
+      idx = addSpawnRecord(idx, {
+        ...idleOk,
+        runId: "r2",
+        childSessionKey: "p--b",
+        status: "running",
+        updatedAt: now - 1_000_000,
+      });
+      await saveSpawnIndex(state, idx);
+      const due = await listIdleCloseableChildren(state, 10_000, now);
+      expect(due.map((d) => d.childSessionKey)).toEqual(["p--a"]);
+    } finally {
       await rm(state, { recursive: true, force: true });
     }
   });

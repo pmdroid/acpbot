@@ -158,4 +158,51 @@ describe("/status and /mode picker", () => {
     expect(t).toContain("grok agent stdio");
     expect(t).toContain("acpbot");
   });
+
+  test("formatSessionStatus lists children and parent spawn link", () => {
+    const parent = formatSessionStatus({
+      sessionKey: "work/plan",
+      status: "idle",
+      agent: "grok-build",
+      cwd: "/tmp/p",
+      threadId: 1,
+      chatId: 2,
+      children: [
+        {
+          slug: "impl",
+          sessionKey: "work/plan--impl",
+          status: "idle",
+          ageLabel: "12m",
+          agent: "codex",
+        },
+        {
+          slug: "ui",
+          sessionKey: "work/plan--ui",
+          status: "closed",
+          ageLabel: "5h",
+          closed: true,
+        },
+      ],
+    });
+    expect(parent).toContain("**Children**");
+    expect(parent).toContain("`impl`");
+    expect(parent).toContain("closed");
+    expect(parent).toContain("restore on next msg");
+
+    const child = formatSessionStatus({
+      sessionKey: "work/plan--impl",
+      status: "idle",
+      agent: "codex",
+      cwd: "/tmp/wt",
+      threadId: 9,
+      chatId: 2,
+      spawnParentKey: "work/plan",
+      spawnStatus: "closed",
+      spawnBranch: "acpbot/plan--impl",
+      spawnRole: "implementer",
+    });
+    expect(child).toContain("**Parent** `work/plan`");
+    expect(child).toContain("status=`closed`");
+    expect(child).toContain("restore");
+  });
 });
