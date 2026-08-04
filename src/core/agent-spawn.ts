@@ -180,7 +180,11 @@ export async function agentSpawn(
 
     // Reload — kickoff may have written lastResultSummary via markChildResult.
     index = await loadSpawnIndex(deps.stateDir);
-    let final = index.byChild[childKey] ?? record;
+    // If the registry file was clobbered/missing, re-insert from memory.
+    if (!index.byChild[childKey]) {
+      index = addSpawnRecord(index, record);
+    }
+    let final = index.byChild[childKey]!;
     const kickoffSummary =
       (promptResult &&
       typeof promptResult === "object" &&
