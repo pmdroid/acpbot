@@ -552,14 +552,30 @@ server.tool(
     const env = requireSessionEnv();
     if (!env.ok) return `agent_send failed: ${env.error}`;
     try {
-      const ack = await workerAgentSend({
-        sessionKey: env.sessionKey,
-        to: args.to,
-        message: args.message,
-        ...(args.mode ? { mode: args.mode } : {}),
-      });
+      const ack = await workerAgentSend(
+        {
+          sessionKey: env.sessionKey,
+          to: args.to,
+          message: args.message,
+          ...(args.mode ? { mode: args.mode } : {}),
+        },
+        // Nested parent/child turns can exceed the default 90s client timeout.
+        { timeoutMs: 300_000 },
+      );
       if (!ack.ok) return `agent_send failed: ${ack.error}`;
-      return ack.message ?? `sent to ${ack.to ?? args.to}`;
+      // Include peer turn summary so the caller can use the answer (critical for
+      // child→parent questions during a nested kickoff turn).
+      const header = ack.message ?? `sent to ${ack.to ?? args.to}`;
+      const summary =
+        typeof (ack as { summary?: unknown }).summary === "string"
+          ? (ack as { summary: string }).summary.trim()
+          : "";
+      if (!summary) return header;
+      return (
+        `${header}\n\n` +
+        `--- reply from ${ack.to ?? args.to} ---\n` +
+        summary
+      );
     } catch (err) {
       return `agent_send failed: ${
         err instanceof Error ? err.message : String(err)
