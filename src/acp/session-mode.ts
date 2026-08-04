@@ -548,7 +548,7 @@ export function formatSessionStatus(input: {
       lines.push(`· _…and ${input.childrenTruncated} more_`);
     }
     lines.push(
-      "Lifecycle: parent MCP `agent_kill` (dispose=true cleans worktree; false soft-closes).",
+      "Lifecycle: `agent_kill` — dispose=false soft-closes; dispose=true removes registry (worktree kept unless remove_worktree=true).",
     );
   }
 

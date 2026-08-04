@@ -641,8 +641,10 @@ server.tool(
   {
     name: "agent_kill",
     description:
-      "Stop a child agent. dispose=true (default): hard cleanup (remove worktree, drop registry). " +
-      "dispose=false: soft-close (stop process, keep Telegram session + worktree; restorable).",
+      "Stop a child agent. dispose=false: soft-close (process stopped, session restorable). " +
+      "dispose=true (default): drop from spawn registry. " +
+      "remove_worktree=false (default): keep git worktree/branch on disk after hard kill; " +
+      "set remove_worktree=true to delete the worktree.",
     input: z.object({
       to: z.string().min(1).optional().describe("Child slug or sessionKey"),
       childSessionKey: z.string().min(1).optional(),
@@ -650,7 +652,13 @@ server.tool(
         .boolean()
         .optional()
         .describe(
-          "true=hard cleanup (default); false=soft-close keep session restorable",
+          "true=hard remove from registry (default); false=soft-close keep restorable",
+        ),
+      remove_worktree: z
+        .boolean()
+        .optional()
+        .describe(
+          "Hard kill only. false/omit=keep worktree (default); true=delete worktree",
         ),
     }),
   },
@@ -665,6 +673,9 @@ server.tool(
           ? { childSessionKey: args.childSessionKey }
           : {}),
         ...(args.dispose != null ? { dispose: args.dispose } : {}),
+        ...(args.remove_worktree != null
+          ? { remove_worktree: args.remove_worktree }
+          : {}),
       });
       if (!ack.ok) return `agent_kill failed: ${ack.error}`;
       return ack.message ?? "killed";

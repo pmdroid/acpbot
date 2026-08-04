@@ -124,7 +124,8 @@ Also listed under [Skills](/docs/skills).
 | Action | Process | Worktree | Telegram session | How |
 |---|---|---|---|---|
 | Soft-close | stopped | kept | **kept** (restorable) | `agent_kill({ dispose: false })` or auto idle |
-| Hard kill | stopped | removed (default) | topic kept | `agent_kill({ dispose: true })` (default) |
+| Hard kill | stopped | **kept by default** | registry dropped | `agent_kill({ dispose: true })` |
+| Hard kill + drop files | stopped | removed | registry dropped | `agent_kill({ dispose: true, remove_worktree: true })` |
 
 **Auto soft-close:** children idle for **`idle_close_hours`** (default **24**) are soft-closed. Message the child topic (or parent `agent_send`) to restore the process.
 

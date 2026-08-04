@@ -91,7 +91,8 @@ const DEFAULTS = {
   maxDepth: 2,
   maxConcurrentSpawned: 8,
   branchPrefix: "acpbot/",
-  removeWorktreeOnKill: true,
+  // Keep worktree by default so implementer output survives kill/cleanup.
+  removeWorktreeOnKill: false,
   deleteBranchOnKill: false,
 };
 
@@ -334,8 +335,9 @@ export async function agentMarkRestored(
 
 /**
  * Kill child.
- * - dispose=true (default): hard cleanup — remove worktree (if configured) + registry.
  * - dispose=false: soft-close — stop process, keep registry as `closed` + worktree.
+ * - dispose=true (default): remove from registry; stop process.
+ *   removeWorktree: per-call override; default false (keep worktree + branch).
  */
 export async function agentKill(
   deps: Pick<
@@ -345,6 +347,13 @@ export async function agentKill(
     callerSessionKey: string;
     childSessionKey: string;
     dispose?: boolean;
+    /**
+     * When hard-killing (dispose !== false): whether to delete the git worktree.
+     * Default false — keep worktree/branch for PRs and inspection.
+     * true forces remove (also used when config.removeWorktreeOnKill is true and
+     * this is omitted — see below).
+     */
+    removeWorktree?: boolean;
     reason?: string;
     /** Cancel host turn / dispose slot. */
     killSession?: (sessionKey: string) => Promise<void>;
@@ -380,7 +389,12 @@ export async function agentKill(
   }
 
   const cfg = { ...DEFAULTS, ...deps.config };
-  if (cfg.removeWorktreeOnKill) {
+  // Per-call removeWorktree wins; else config; default keep worktree.
+  const removeWt =
+    deps.removeWorktree !== undefined
+      ? deps.removeWorktree
+      : Boolean(cfg.removeWorktreeOnKill);
+  if (removeWt) {
     try {
       await removeAgentWorktree({
         repoRoot: deps.parentRepoRoot,
@@ -400,7 +414,7 @@ export async function agentKill(
   });
   index = removeSpawnRecord(index, deps.childSessionKey);
   await saveSpawnIndex(deps.stateDir, index);
-  return { ...rec, status: "killed" };
+  return { ...rec, status: "killed", worktreePath: rec.worktreePath };
 }
 
 /** List children eligible for auto idle soft-close. */

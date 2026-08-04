@@ -264,22 +264,53 @@ describe("agentSpawn orchestration", () => {
       );
       expect(sent.to).toBe("demo/plan--impl");
 
+      // Hard kill without remove_worktree keeps the worktree
       await agentKill({
         stateDir: state,
         parentRepoRoot: root,
         callerSessionKey: "demo/plan",
         childSessionKey: rec.childSessionKey,
         dispose: true,
-        config: { removeWorktreeOnKill: true, deleteBranchOnKill: false },
+        removeWorktree: false,
       });
-
-      await expect(
-        access(rec.worktreePath, constants.F_OK),
-      ).rejects.toBeTruthy();
+      await access(rec.worktreePath, constants.F_OK);
       expect(await agentList(state, "demo/plan")).toHaveLength(0);
 
       const raw = await readFile(join(state, "agent-spawns.json"), "utf8");
       expect(raw).toContain("byChild");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  test("hard kill with removeWorktree true deletes worktree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acpbot-spawn-rmwt-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-spawn-rmwt-st-"));
+    try {
+      await initGitRepo(root);
+      const rec = await agentSpawn(
+        {
+          stateDir: state,
+          parentRepoRoot: root,
+          parentSessionKey: "demo/plan",
+          repoKey: "demo",
+          createChildSession: async (input) => ({
+            sessionKey: input.sessionKey,
+          }),
+          ensureAndMaybePrompt: async () => ({}),
+        },
+        { name: "tmp", agent: "codex" },
+      );
+      await agentKill({
+        stateDir: state,
+        parentRepoRoot: root,
+        callerSessionKey: "demo/plan",
+        childSessionKey: rec.childSessionKey,
+        dispose: true,
+        removeWorktree: true,
+      });
+      await expect(access(rec.worktreePath, constants.F_OK)).rejects.toBeTruthy();
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(state, { recursive: true, force: true });

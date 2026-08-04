@@ -2027,7 +2027,13 @@ export function createDaemon(
           children,
         };
       },
-      async agentKill({ sessionKey, childSessionKey, id, dispose }) {
+      async agentKill({
+        sessionKey,
+        childSessionKey,
+        id,
+        dispose,
+        removeWorktree,
+      }) {
         const parent = requireSession(sessionKey);
         let target = childSessionKey?.trim() || id?.trim() || "";
         if (!target) throw new Error("childSessionKey required");
@@ -2040,12 +2046,16 @@ export function createDaemon(
         const slug = target.includes("--")
           ? target.split("--").slice(-1)[0]!
           : target;
+        const wtPath = index.byChild[target]?.worktreePath;
         const killed = await runAgentKill({
           stateDir,
           parentRepoRoot: parent.cwd,
           callerSessionKey: sessionKey,
           childSessionKey: target,
           dispose: hard,
+          ...(removeWorktree !== undefined
+            ? { removeWorktree }
+            : {}),
           reason: hard ? "agent_kill" : "agent_kill soft-close",
           config: env.config.agentSpawn,
           killSession: async (key) => {
@@ -2054,14 +2064,22 @@ export function createDaemon(
         });
         if (!killed) throw new Error(`unknown child ${target}`);
         if (hard) {
+          const didRemove =
+            removeWorktree === true ||
+            (removeWorktree === undefined &&
+              env.config.agentSpawn?.removeWorktreeOnKill === true);
+          const wtNote = didRemove
+            ? "worktree removed"
+            : `worktree kept${wtPath ? ` at \`${wtPath}\`` : ""}`;
           await notifySpawnLifecycle(
             sessionKey,
             target,
-            `Killed child **${slug}** (\`${target}\`) — worktree disposed.`,
+            `Killed child **${slug}** (\`${target}\`) — ${wtNote}.`,
             "This sub-agent was killed and cleaned up.",
           );
           return {
-            message: `Killed ${target} (worktree disposed)`,
+            message: `Killed ${target} (${wtNote})`,
+            worktreePath: didRemove ? undefined : wtPath,
           };
         }
         await notifySpawnLifecycle(

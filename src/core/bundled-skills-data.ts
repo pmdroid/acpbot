@@ -185,7 +185,7 @@ Host MCP server: **\`acpbot\`**. Tools (no CLI in v1):
 | \`agent_list\` | List children of **this** session |
 | \`agent_send\` | Message a child (slug) or \`parent\` |
 | \`agent_wait\` | Wait until child idle/done/failed (returns summary) |
-| \`agent_kill\` | Soft-close (\`dispose:false\` — keep session) or hard cleanup (\`dispose:true\` default) |
+| \`agent_kill\` | Soft-close (\`dispose:false\`) or hard remove (\`dispose:true\`); worktree kept unless \`remove_worktree:true\` |
 
 ## Rules
 
