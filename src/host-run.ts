@@ -44,6 +44,17 @@ export async function runHostMain(): Promise<void> {
     repos,
     scheduleTickMs: tickMs,
     defaultAgent: cfg.defaultAgent ?? "grok-build",
+    ...(cfg.hostListenPort &&
+    cfg.hostListenToken &&
+    cfg.hostListenPort > 0
+      ? {
+          remoteListen: {
+            port: cfg.hostListenPort,
+            host: cfg.hostListenHost ?? "0.0.0.0",
+            token: cfg.hostListenToken,
+          },
+        }
+      : {}),
   });
   const { sockPath, close } = host;
   // Prefer server's mutable catalog so watch + scheduler share one map
@@ -65,6 +76,11 @@ export async function runHostMain(): Promise<void> {
   }
 
   console.error(`acpbot host listening on ${sockPath}`);
+  if (host.remotePort) {
+    console.error(
+      `acpbot host remote WebSocket on port ${host.remotePort} (token auth required)`,
+    );
+  }
   if (cfg.configPath) {
     console.error(`acpbot host config: ${cfg.configPath} (hot-reload on)`);
   }

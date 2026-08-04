@@ -4,6 +4,7 @@
  * what you pick, and preserves keys the wizard does not edit.
  */
 import * as p from "@clack/prompts";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -74,6 +75,11 @@ function maskSecret(s: string | undefined): string {
   if (!s?.trim()) return "(not set)";
   if (s.length <= 8) return "••••";
   return `…${s.slice(-6)}`;
+}
+
+/** Random URL-safe token for [host_listen] / remote worker auth. */
+function randomHostToken(): string {
+  return randomBytes(24).toString("base64url");
 }
 
 /**
@@ -233,12 +239,37 @@ function resolveOAuthTlsForCallback(input: {
   return {};
 }
 
+/** Workspace repo entry (path + optional multi-host binding). */
+export type SetupRepoEntry = {
+  path: string;
+  /** Host catalog id; omit or "local" = agents on this machine. */
+  hostId?: string;
+};
+
+/** Remote acp-host this worker can use for some repos. */
+export type SetupRemoteHost = {
+  id: string;
+  url: string;
+  token: string;
+};
+
+/** Accept inbound worker connections to acp-host on this machine. */
+export type SetupHostListen = {
+  port: number;
+  host?: string;
+  token: string;
+};
+
 /** Fields the wizard manages + optional preserved extras from an existing config. */
 export type FullConfigTomlInput = {
   botToken: string;
   defaultAgent: string;
   logLevel: string;
-  repos: Record<string, string>;
+  /**
+   * Repos: plain path string (host=local) or `{ path, hostId }`.
+   * When any hostId is non-local, TOML uses table form with `host = …`.
+   */
+  repos: Record<string, string | SetupRepoEntry>;
   ttsMode: string;
   permissionMode: string;
   ttsProvider: string;
@@ -251,6 +282,16 @@ export type FullConfigTomlInput = {
   /** Absolute paths written as [oauth] tls_cert / tls_key (Tailscale certs). */
   oauthTlsCert?: string;
   oauthTlsKey?: string;
+  /**
+   * This machine's acp-host listens for remote workers (WSS).
+   * Written as [host_listen].
+   */
+  hostListen?: SetupHostListen;
+  /**
+   * Other machines' acp-host endpoints this worker can route to.
+   * Written as [hosts.<id>] kind=wss.
+   */
+  remoteHosts?: SetupRemoteHost[];
   /** Preserve non-wizard fields from a prior ProcessConfig. */
   preserve?: {
     mcpEnabled?: boolean;
@@ -268,6 +309,14 @@ export type FullConfigTomlInput = {
     verbose?: boolean;
   };
 };
+
+function normalizeSetupRepo(v: string | SetupRepoEntry): SetupRepoEntry {
+  if (typeof v === "string") return { path: v, hostId: "local" };
+  return {
+    path: v.path,
+    hostId: v.hostId?.trim() || "local",
+  };
+}
 
 /** Full config TOML from guided answers (includes speech / oauth). */
 export function renderFullConfigToml(a: FullConfigTomlInput): string {
@@ -291,17 +340,61 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
   }
   if (a.preserve?.storePath || a.preserve?.stateDir) lines.push(``);
 
-  const repoEntries = Object.entries(a.repos);
+  const repoEntries = Object.entries(a.repos).map(
+    ([k, v]) => [k, normalizeSetupRepo(v)] as const,
+  );
+  const anyRemoteRepo = repoEntries.some(
+    ([, e]) => e.hostId && e.hostId !== "local",
+  );
   if (repoEntries.length > 0) {
-    lines.push(`[repos]`);
-    for (const [k, v] of repoEntries) {
-      lines.push(`${k} = ${tomlString(v)}`);
+    if (anyRemoteRepo) {
+      // Table form required when binding repos to non-local hosts
+      for (const [k, e] of repoEntries) {
+        lines.push(`[repos.${k}]`);
+        lines.push(`path = ${tomlString(e.path)}`);
+        if (e.hostId && e.hostId !== "local") {
+          lines.push(`host = ${tomlString(e.hostId)}`);
+        }
+        lines.push(``);
+      }
+    } else {
+      lines.push(`[repos]`);
+      for (const [k, e] of repoEntries) {
+        lines.push(`${k} = ${tomlString(e.path)}`);
+      }
+      lines.push(``);
     }
-    lines.push(``);
   } else {
     lines.push(`# [repos]`);
     lines.push(`# demo = "/absolute/path/to/repo"`);
+    lines.push(`# Or multi-host:`);
+    lines.push(`# [repos.work]`);
+    lines.push(`# path = "/data/work"`);
+    lines.push(`# host = "studio"`);
     lines.push(``);
+  }
+
+  // Multi-host: accept inbound remote workers + outbound remote hosts
+  if (a.hostListen?.token?.trim() && a.hostListen.port > 0) {
+    lines.push(`[host_listen]`);
+    lines.push(`port = ${a.hostListen.port}`);
+    lines.push(
+      `host = ${tomlString(a.hostListen.host?.trim() || "0.0.0.0")}`,
+    );
+    lines.push(`token = ${tomlString(a.hostListen.token.trim())}`);
+    lines.push(``);
+  }
+
+  if (a.remoteHosts && a.remoteHosts.length > 0) {
+    for (const h of a.remoteHosts) {
+      const id = h.id.trim();
+      if (!id || !h.url?.trim() || !h.token?.trim()) continue;
+      lines.push(`[hosts.${id}]`);
+      lines.push(`kind = "wss"`);
+      lines.push(`url = ${tomlString(h.url.trim())}`);
+      lines.push(`token = ${tomlString(h.token.trim())}`);
+      lines.push(``);
+    }
   }
 
   const mcp = a.preserve?.mcpEnabled !== false;
@@ -866,6 +959,351 @@ export async function runGuidedSetupTui(
   const oauthTlsCert = tlsResolved.cert;
   const oauthTlsKey = tlsResolved.key;
 
+  // ── Multi-host (optional) ─────────────────────────────────────────────
+  // Two roles:
+  //  A) This machine's acp-host accepts remote workers ([host_listen])
+  //  B) This worker routes some repos to another machine's host ([hosts.*])
+  p.log.step("Remote agent hosts (optional)");
+  p.log.message(
+    "By default agents run on this machine (local acp-host).\n" +
+      "You can also: (1) let other machines connect here, and/or " +
+      "(2) send some repos' agents to a remote acp-host over WSS.",
+  );
+
+  // Seed from existing config
+  let hostListen: SetupHostListen | undefined =
+    existing?.hostListenPort && existing?.hostListenToken
+      ? {
+          port: existing.hostListenPort,
+          host: existing.hostListenHost ?? "0.0.0.0",
+          token: existing.hostListenToken,
+        }
+      : undefined;
+
+  const existingRemoteHosts: SetupRemoteHost[] = [];
+  if (existing?.hostsCatalog?.hosts) {
+    for (const [id, h] of Object.entries(existing.hostsCatalog.hosts)) {
+      if (id === "local" || h.kind !== "wss" || !h.url || !h.token) continue;
+      existingRemoteHosts.push({ id, url: h.url, token: h.token });
+    }
+  }
+  let remoteHosts: SetupRemoteHost[] = [...existingRemoteHosts];
+
+  // Repo → hostId map (start from catalog if present)
+  const repoHostByKey: Record<string, string> = {};
+  if (existing?.hostsCatalog?.repos) {
+    for (const [k, b] of Object.entries(existing.hostsCatalog.repos)) {
+      repoHostByKey[k] = b.hostId || "local";
+    }
+  }
+  for (const k of Object.keys(repos)) {
+    if (!repoHostByKey[k]) repoHostByKey[k] = "local";
+  }
+
+  const hasMultiHost =
+    Boolean(hostListen) ||
+    remoteHosts.length > 0 ||
+    Object.values(repoHostByKey).some((h) => h !== "local");
+
+  const multiHostAction = await p.select({
+    message: hasMultiHost
+      ? "Multi-host setup (current config has remote host settings)"
+      : "Multi-host / remote acp-host",
+    options: [
+      {
+        value: "skip",
+        label: hasMultiHost ? "Keep current multi-host settings" : "Skip (local only)",
+        hint: "Agents only on this machine",
+      },
+      {
+        value: "configure",
+        label: "Configure multi-host…",
+        hint: "Accept remotes here and/or use a remote host for some repos",
+      },
+      ...(hasMultiHost
+        ? [
+            {
+              value: "clear",
+              label: "Clear multi-host (local only)",
+              hint: "Remove host_listen and remote hosts",
+            },
+          ]
+        : []),
+    ],
+    initialValue: "skip",
+  });
+  if (cancelled(multiHostAction)) abort();
+
+  if (multiHostAction === "clear") {
+    hostListen = undefined;
+    remoteHosts = [];
+    for (const k of Object.keys(repoHostByKey)) repoHostByKey[k] = "local";
+    p.log.info("Multi-host cleared — all repos use local acp-host.");
+  }
+
+  if (multiHostAction === "configure") {
+    // A) Inbound listen
+    const wantListen = await p.confirm({
+      message:
+        "Accept remote workers on THIS machine's acp-host? (writes [host_listen])",
+      initialValue: Boolean(hostListen),
+    });
+    if (cancelled(wantListen)) abort();
+
+    if (wantListen) {
+      const portRaw = await p.text({
+        message: "Listen port for remote workers",
+        placeholder: "8790",
+        initialValue: String(hostListen?.port ?? 8790),
+        validate: (v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) {
+            return "Port must be 1–65535";
+          }
+          return undefined;
+        },
+      });
+      if (cancelled(portRaw)) abort();
+      const bind = await p.select({
+        message: "Bind address",
+        options: [
+          {
+            value: "0.0.0.0",
+            label: "0.0.0.0 (all interfaces)",
+            hint: "Needed for LAN / Tailscale / Orb VMs",
+          },
+          {
+            value: "127.0.0.1",
+            label: "127.0.0.1 (localhost only)",
+            hint: "Only processes on this machine",
+          },
+        ],
+        initialValue: hostListen?.host ?? "0.0.0.0",
+      });
+      if (cancelled(bind)) abort();
+
+      let token = hostListen?.token;
+      if (token) {
+        const keep = await p.confirm({
+          message: `Keep host token (${maskSecret(token)})?`,
+          initialValue: true,
+        });
+        if (cancelled(keep)) abort();
+        if (!keep) token = undefined;
+      }
+      if (!token) {
+        const gen = await p.confirm({
+          message: "Generate a random host token?",
+          initialValue: true,
+        });
+        if (cancelled(gen)) abort();
+        if (gen) {
+          token = randomHostToken();
+          p.log.success(`Generated token (save for remote workers): ${token}`);
+        } else {
+          const tok = await p.password({
+            message: "Shared host token (workers must use the same value)",
+          });
+          if (cancelled(tok)) abort();
+          token = String(tok).trim();
+          if (!token) {
+            p.log.warn("Empty token — host_listen not written.");
+          }
+        }
+      }
+      if (token) {
+        hostListen = {
+          port: Number(portRaw),
+          host: String(bind),
+          token,
+        };
+      } else {
+        hostListen = undefined;
+      }
+    } else {
+      hostListen = undefined;
+    }
+
+    // B) Outbound remote hosts
+    const wantRemotes = await p.confirm({
+      message:
+        "Use a remote acp-host for some workspace repos? (writes [hosts.*])",
+      initialValue: remoteHosts.length > 0,
+    });
+    if (cancelled(wantRemotes)) abort();
+
+    if (wantRemotes) {
+      if (remoteHosts.length > 0) {
+        p.log.info(
+          `Current remote hosts: ${remoteHosts.map((h) => h.id).join(", ")}`,
+        );
+        const remoteAction = await p.select({
+          message: "Remote hosts",
+          options: [
+            { value: "keep", label: "Keep existing remote hosts" },
+            { value: "add", label: "Add another remote host" },
+            { value: "replace", label: "Replace all remote hosts" },
+          ],
+          initialValue: "keep",
+        });
+        if (cancelled(remoteAction)) abort();
+        if (remoteAction === "replace") remoteHosts = [];
+        if (remoteAction === "add" || remoteAction === "replace") {
+          // fall through to add at least one if replace emptied
+        } else {
+          // keep — skip add loop unless empty
+        }
+        if (remoteAction === "add" || remoteAction === "replace") {
+          let addMore = true;
+          while (addMore) {
+            const id = await p.text({
+              message: "Remote host id (label)",
+              placeholder: "studio",
+              initialValue: "studio",
+              validate: (v) => {
+                const s = v?.trim() ?? "";
+                if (!s) return "Required";
+                if (s === "local") return 'Reserved id "local"';
+                if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(s)) {
+                  return "Use letters, numbers, _ or -";
+                }
+                return undefined;
+              },
+            });
+            if (cancelled(id)) abort();
+            const url = await p.text({
+              message: "Remote host WebSocket URL",
+              placeholder: "wss://studio.example.com:8790",
+              validate: (v) => {
+                const s = v?.trim() ?? "";
+                if (!s) return "Required";
+                if (!/^wss?:\/\//i.test(s)) {
+                  return "Must start with wss:// (or ws:// for trusted LAN/Orb)";
+                }
+                return undefined;
+              },
+            });
+            if (cancelled(url)) abort();
+            const tok = await p.password({
+              message: "Token for that host (same as its [host_listen] token)",
+            });
+            if (cancelled(tok)) abort();
+            const tokenVal = String(tok).trim();
+            if (!tokenVal) {
+              p.log.warn("Empty token — host not added.");
+            } else {
+              const hid = String(id).trim();
+              remoteHosts = remoteHosts.filter((h) => h.id !== hid);
+              remoteHosts.push({
+                id: hid,
+                url: String(url).trim(),
+                token: tokenVal,
+              });
+              p.log.success(`Added remote host "${hid}"`);
+            }
+            const more = await p.confirm({
+              message: "Add another remote host?",
+              initialValue: false,
+            });
+            if (cancelled(more)) abort();
+            addMore = Boolean(more);
+          }
+        }
+      } else {
+        // first remote
+        let addMore = true;
+        while (addMore) {
+          const id = await p.text({
+            message: "Remote host id (label)",
+            placeholder: "studio",
+            initialValue: "studio",
+            validate: (v) => {
+              const s = v?.trim() ?? "";
+              if (!s) return "Required";
+              if (s === "local") return 'Reserved id "local"';
+              if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(s)) {
+                return "Use letters, numbers, _ or -";
+              }
+              return undefined;
+            },
+          });
+          if (cancelled(id)) abort();
+          const url = await p.text({
+            message: "Remote host WebSocket URL",
+            placeholder: "wss://studio.example.com:8790",
+            validate: (v) => {
+              const s = v?.trim() ?? "";
+              if (!s) return "Required";
+              if (!/^wss?:\/\//i.test(s)) {
+                return "Must start with wss:// (or ws:// for trusted LAN/Orb)";
+              }
+              return undefined;
+            },
+          });
+          if (cancelled(url)) abort();
+          const tok = await p.password({
+            message: "Token for that host (same as its [host_listen] token)",
+          });
+          if (cancelled(tok)) abort();
+          const tokenVal = String(tok).trim();
+          if (tokenVal) {
+            remoteHosts.push({
+              id: String(id).trim(),
+              url: String(url).trim(),
+              token: tokenVal,
+            });
+            p.log.success(`Added remote host "${String(id).trim()}"`);
+          }
+          const more = await p.confirm({
+            message: "Add another remote host?",
+            initialValue: false,
+          });
+          if (cancelled(more)) abort();
+          addMore = Boolean(more);
+        }
+      }
+
+      // Bind repos to hosts
+      const hostChoices = [
+        { value: "local", label: "local (this machine)" },
+        ...remoteHosts.map((h) => ({
+          value: h.id,
+          label: `${h.id} · ${h.url}`,
+        })),
+      ];
+      const repoKeysNow = Object.keys(repos);
+      if (repoKeysNow.length > 0 && remoteHosts.length > 0) {
+        p.log.message(
+          "Which host should run agents for each workspace repo?\n" +
+            "Path is the filesystem path on that host.",
+        );
+        for (const rk of repoKeysNow) {
+          const pick = await p.select({
+            message: `Host for repo "${rk}" (${repos[rk]})`,
+            options: hostChoices,
+            initialValue: repoHostByKey[rk] ?? "local",
+          });
+          if (cancelled(pick)) abort();
+          repoHostByKey[rk] = String(pick);
+        }
+      }
+    } else {
+      remoteHosts = [];
+      for (const k of Object.keys(repoHostByKey)) repoHostByKey[k] = "local";
+    }
+  }
+
+  // Build repos map with optional host binding for TOML
+  const reposForToml: Record<string, string | SetupRepoEntry> = {};
+  for (const [k, path] of Object.entries(repos)) {
+    const hostId = repoHostByKey[k] ?? "local";
+    if (hostId !== "local") {
+      reposForToml[k] = { path, hostId };
+    } else {
+      reposForToml[k] = path;
+    }
+  }
+
   // ── Log level ─────────────────────────────────────────────────────────
   const logLevel = await p.select({
     message: reconfigure
@@ -896,7 +1334,7 @@ export async function runGuidedSetupTui(
     botToken,
     defaultAgent,
     logLevel: String(logLevel),
-    repos,
+    repos: reposForToml,
     ttsMode,
     permissionMode,
     ttsProvider,
@@ -908,6 +1346,8 @@ export async function runGuidedSetupTui(
     oauthCallbackBase,
     oauthTlsCert,
     oauthTlsKey,
+    ...(hostListen ? { hostListen } : {}),
+    ...(remoteHosts.length > 0 ? { remoteHosts } : {}),
     preserve,
   });
   writeConfigToml(layout.configPath, body);
@@ -1044,6 +1484,24 @@ export async function runGuidedSetupTui(
     `Agent: ${defaultAgent}`,
     `Permissions: ${permissionMode}`,
   ];
+  if (hostListen) {
+    nextLines.push(
+      `Host listen: ${hostListen.host ?? "0.0.0.0"}:${hostListen.port} (token set — remote workers can connect)`,
+    );
+  }
+  if (remoteHosts.length > 0) {
+    nextLines.push(
+      `Remote hosts: ${remoteHosts.map((h) => h.id).join(", ")}`,
+    );
+    const bound = Object.entries(repoHostByKey).filter(
+      ([, h]) => h !== "local",
+    );
+    if (bound.length > 0) {
+      nextLines.push(
+        `Repo→host: ${bound.map(([k, h]) => `${k}→${h}`).join(", ")}`,
+      );
+    }
+  }
   if (!daemonResult?.installed && !reconfigure) {
     nextLines.push(
       "",

@@ -79,6 +79,12 @@ Socket: `$state_dir/acp-host.sock`
 
 A parent topic can spawn **child** sessions via MCP (`agent_spawn`, …). Each child is parent-linked, gets its own forum topic, and runs in a **new git worktree**. See [Multi-agent](/docs/multi-agent).
 
+### Multi-host (optional)
+
+The worker can open **more than one** host client: local Unix plus remote **WSS** endpoints from `[hosts.*]`.  
+Each `[repos]` entry may set `host = "<id>"` so agents for that workspace run on the matching machine.  
+Details: [Multi-host](/docs/multi-host).
+
 ### Background install (`acpbot setup`)
 
 The guided setup can install **both** host and worker as user services (same
