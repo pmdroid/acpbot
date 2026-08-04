@@ -38,6 +38,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [Commands](/docs/commands) `/permissions` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
+| Multi-host (optional) | Accept remote workers (`[host_listen]`) and/or route repos to remote hosts (`[hosts.*]`) — see [Multi-host](/docs/multi-host) |
 | OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |
 | Log level | Optional `log_level` (`info` default) |
 | Daemon | Installs **both** host and worker as background services (see below) |

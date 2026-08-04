@@ -14,6 +14,9 @@ acpbot = "/Users/you/code/acpbot"
 demo   = "/Users/you/code/demo"
 ```
 
+Paths are absolute workspace roots on the machine that runs **acp-host** for that repo.  
+To run agents on another machine, bind the repo with table form and `host = "…"` — see [Multi-host](/docs/multi-host).
+
 ## Commands
 
 ```bash

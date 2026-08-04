@@ -26,6 +26,13 @@ export type AcpHostClientOptions = {
   sockPath?: string;
   log?: Logger;
   hooks?: SessionHostHooks;
+  /**
+   * Remote WebSocket URL (ws:// or wss://). When set, Unix sockPath is ignored
+   * and hello+token auth is required.
+   */
+  url?: string;
+  /** Shared secret for remote host (required with url). */
+  token?: string;
 };
 
 type Pending = {
@@ -167,10 +174,15 @@ export function createAcpHostClient(
   options: AcpHostClientOptions = {},
 ): SessionHost {
   const log = (options.log ?? silentLogger()).child("acp-host-client");
+  const remoteUrl = options.url?.trim();
+  const remoteToken = options.token?.trim();
   const sockPath = options.sockPath ?? resolveAcpHostSockPath();
+  const endpointLabel = remoteUrl || sockPath;
   let hooks: SessionHostHooks = { ...options.hooks };
   let sock: Socket | null = null;
+  let ws: WebSocket | null = null;
   let buf = "";
+  let helloDone = !remoteUrl;
   const pending = new Map<string, Pending>();
   /** Active prompt streams: reqId → push event */
   const turnPushes = new Map<
@@ -193,10 +205,19 @@ export function createAcpHostClient(
   >();
 
   function send(msg: WorkerToHost): void {
-    if (!sock || sock.destroyed) {
-      throw new Error(`acp-host not connected (${sockPath})`);
+    const line = `${JSON.stringify(msg)}\n`;
+    if (remoteUrl) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error(`acp-host not connected (${endpointLabel})`);
+      }
+      // One JSON object per WS text frame (also accept newline form).
+      ws.send(JSON.stringify(msg));
+      return;
     }
-    sock.write(`${JSON.stringify(msg)}\n`);
+    if (!sock || sock.destroyed) {
+      throw new Error(`acp-host not connected (${endpointLabel})`);
+    }
+    sock.write(line);
   }
 
   function request(msg: WorkerToHost, timeoutMs = 600_000): Promise<HostToWorker> {
@@ -356,7 +377,99 @@ export function createAcpHostClient(
     }
   }
 
+  function ingestLine(line: string): void {
+    if (!line) return;
+    try {
+      onMessage(JSON.parse(line) as HostToWorker);
+    } catch {
+      /* */
+    }
+  }
+
+  async function connectWs(): Promise<void> {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* */
+      }
+      ws = null;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(remoteUrl!);
+      let settled = false;
+      ws = socket;
+      socket.addEventListener("open", () => {
+        log.info("connected to acp-host (websocket)", { url: remoteUrl });
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      });
+      socket.addEventListener("error", () => {
+        if (!settled) {
+          settled = true;
+          reject(
+            new Error(
+              `acp-host websocket connect failed (${remoteUrl}). Is host remoteListen up?`,
+            ),
+          );
+        }
+      });
+      socket.addEventListener("message", (ev) => {
+        const text = typeof ev.data === "string" ? ev.data : String(ev.data);
+        if (text.includes("\n")) {
+          buf += text;
+          let i: number;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i).trim();
+            buf = buf.slice(i + 1);
+            ingestLine(line);
+          }
+        } else {
+          ingestLine(text.trim());
+        }
+      });
+      socket.addEventListener("close", () => {
+        log.warn("acp-host websocket closed");
+        ws = null;
+        helloDone = false;
+        for (const [, pend] of pending) {
+          pend.reject(new Error("acp-host disconnected"));
+        }
+        pending.clear();
+      });
+    });
+  }
+
   async function connect(): Promise<void> {
+    if (remoteUrl) {
+      if (ws && ws.readyState === WebSocket.OPEN && helloDone) return;
+      await connectWs();
+      if (!helloDone) {
+        if (!remoteToken) {
+          throw new Error(
+            `acp-host remote url set but no token (host "${remoteUrl}")`,
+          );
+        }
+        const reqId = randomUUID();
+        const reply = await request(
+          { type: "hello", reqId, token: remoteToken, client: "worker" },
+          10_000,
+        );
+        if (reply.type === "hello_err") {
+          throw new Error(`acp-host auth failed: ${reply.error}`);
+        }
+        if (reply.type !== "hello_ok") {
+          throw new Error(`acp-host auth unexpected: ${reply.type}`);
+        }
+        helloDone = true;
+        log.info("acp-host remote hello ok", { url: remoteUrl });
+      }
+      return;
+    }
+
     if (sock && !sock.destroyed) return;
     await new Promise<void>((resolve, reject) => {
       const s = createConnection(sockPath);
@@ -380,11 +493,7 @@ export function createAcpHostClient(
           const line = buf.slice(0, i).trim();
           buf = buf.slice(i + 1);
           if (!line) continue;
-          try {
-            onMessage(JSON.parse(line) as HostToWorker);
-          } catch {
-            /* */
-          }
+          ingestLine(line);
         }
       });
       s.on("close", () => {

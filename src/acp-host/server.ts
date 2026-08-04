@@ -28,7 +28,7 @@ import {
 } from "./scheduler";
 
 type QueuedHostPrompt = {
-  sock: Socket;
+  sock: HostConn;
   msg: Extract<WorkerToHost, { type: "prompt" }>;
 };
 
@@ -40,7 +40,7 @@ type Slot = {
   permissionMode?: "ask" | "bypass";
   host: SessionHost;
   agentSessionId: string | null;
-  owner: Socket | null;
+  owner: HostConn | null;
   busy: boolean;
   /** FIFO prompts while a turn is in flight (worker waits for prompt_ok/err). */
   promptQueue: QueuedHostPrompt[];
@@ -72,11 +72,39 @@ export type AcpHostServerOptions = {
   scheduleTickMs?: number;
   /** Disable schedule loop (tests that only need the socket). */
   enableScheduler?: boolean;
+  /**
+   * Optional remote WebSocket listen (authenticated). When set, host accepts
+   * WSS/WS workers in addition to the Unix socket. Token is required.
+   */
+  remoteListen?: {
+    port: number;
+    host?: string;
+    token: string;
+    /** When true (default in prod callers), only wss with tls. Tests use ws. */
+    tls?: { cert: string | Buffer; key: string | Buffer };
+  };
 };
 
-function send(sock: Socket, msg: HostToWorker): void {
+/** Line-oriented endpoint (Unix socket or WebSocket adapter). */
+export type HostConn = {
+  destroyed: boolean;
+  write(data: string): void;
+};
+
+function send(sock: HostConn, msg: HostToWorker): void {
   if (sock.destroyed) return;
   sock.write(`${JSON.stringify(msg)}\n`);
+}
+
+function asHostConn(sock: Socket): HostConn {
+  return {
+    get destroyed() {
+      return sock.destroyed;
+    },
+    write(data: string) {
+      sock.write(data);
+    },
+  };
 }
 
 export async function startAcpHostServer(
@@ -682,7 +710,24 @@ export async function startAcpHostServer(
     }
   }
 
-  async function handleMsg(sock: Socket, msg: WorkerToHost): Promise<void> {
+  async function handleMsg(sock: HostConn, msg: WorkerToHost, opts?: { requireAuth?: boolean; authed?: () => boolean }): Promise<void> {
+    if (msg.type === "hello") {
+      // handled by connection layer for remote; unix may ignore
+      if (opts?.requireAuth) {
+        send(sock, { type: "hello_err", reqId: msg.reqId, error: "use connection handshake" });
+      } else {
+        send(sock, { type: "hello_ok", reqId: msg.reqId });
+      }
+      return;
+    }
+    if (opts?.requireAuth && opts.authed && !opts.authed()) {
+      send(sock, {
+        type: "err",
+        reqId: (msg as { reqId?: string }).reqId ?? "?",
+        error: "not authenticated — send hello with token first",
+      });
+      return;
+    }
     switch (msg.type) {
       case "ping":
         send(sock, { type: "pong", reqId: msg.reqId });
@@ -890,33 +935,70 @@ export async function startAcpHostServer(
     }
   }
 
+  function wireConn(conn: HostConn, label: string, auth: { required: boolean; token?: string }): { processLine: (line: string) => void; getAuthed: () => boolean } {
+    let authed = !auth.required;
+    const processLine = (line: string) => {
+      if (!line) return;
+      let msg: WorkerToHost;
+      try {
+        msg = JSON.parse(line) as WorkerToHost;
+      } catch {
+        return;
+      }
+      if (msg.type === "hello") {
+        if (!auth.required) {
+          send(conn, { type: "hello_ok", reqId: msg.reqId });
+          return;
+        }
+        const ok =
+          Boolean(auth.token) &&
+          typeof msg.token === "string" &&
+          msg.token === auth.token;
+        if (ok) {
+          authed = true;
+          send(conn, { type: "hello_ok", reqId: msg.reqId });
+          log.info("remote worker authenticated", { label });
+        } else {
+          send(conn, {
+            type: "hello_err",
+            reqId: msg.reqId,
+            error: "invalid host token",
+          });
+          log.warn("remote worker auth failed", { label });
+        }
+        return;
+      }
+      void handleMsg(conn, msg, {
+        requireAuth: auth.required,
+        authed: () => authed,
+      }).catch((e) => {
+        log.error("handle error", {
+          error: e instanceof Error ? e.message : String(e),
+        });
+        send(conn, {
+          type: "err",
+          reqId: (msg as { reqId?: string }).reqId ?? "?",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    };
+
+    return { processLine, getAuthed: () => authed };
+  }
+
   function onConnection(sock: Socket): void {
     let buf = "";
     sock.setEncoding("utf8");
-    log.info("worker connected", { slots: slots.size });
+    const conn = asHostConn(sock);
+    log.info("worker connected", { slots: slots.size, transport: "unix" });
+    const { processLine } = wireConn(conn, "unix", { required: false });
     sock.on("data", (chunk: string) => {
       buf += chunk;
       let i: number;
       while ((i = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, i).trim();
         buf = buf.slice(i + 1);
-        if (!line) continue;
-        let msg: WorkerToHost;
-        try {
-          msg = JSON.parse(line) as WorkerToHost;
-        } catch {
-          continue;
-        }
-        void handleMsg(sock, msg).catch((e) => {
-          log.error("handle error", {
-            error: e instanceof Error ? e.message : String(e),
-          });
-          send(sock, {
-            type: "err",
-            reqId: (msg as { reqId?: string }).reqId ?? "?",
-            error: e instanceof Error ? e.message : String(e),
-          });
-        });
+        processLine(line);
       }
     });
     sock.on("close", () => {
@@ -924,7 +1006,7 @@ export async function startAcpHostServer(
         slots: slots.size,
       });
       for (const slot of slots.values()) {
-        if (slot.owner === sock) slot.owner = null;
+        if (slot.owner === conn) slot.owner = null;
       }
     });
     sock.on("error", (e) => {
@@ -969,10 +1051,123 @@ export async function startAcpHostServer(
     });
   }
 
+
+  let remoteServer: { stop(): void; port: number } | undefined;
+  const remote = options.remoteListen;
+  if (remote?.token?.trim() && remote.port != null && remote.port >= 0) {
+    const token = remote.token.trim();
+    type WsData = { buf: string; conn: HostConn; processLine: (line: string) => void };
+    const bunServer = Bun.serve<WsData>({
+      hostname: remote.host?.trim() || "127.0.0.1",
+      port: remote.port,
+      ...(remote.tls
+        ? { tls: { cert: remote.tls.cert, key: remote.tls.key } }
+        : {}),
+      fetch(req, server) {
+        const ok = server.upgrade(req, {
+          data: {
+            buf: "",
+            conn: null as unknown as HostConn,
+            processLine: () => {},
+          },
+        });
+        if (ok) return undefined;
+        return new Response("acpbot host: WebSocket upgrade required\n", {
+          status: 426,
+        });
+      },
+      websocket: {
+        open(ws) {
+          const conn: HostConn = {
+            get destroyed() {
+              return false;
+            },
+            write(data: string) {
+              try {
+                ws.send(data.endsWith("\n") ? data.slice(0, -1) : data.replace(/\n$/, ""));
+                // send NDJSON as text frames without requiring trailing newline on wire
+                // but protocol uses newline-delimited; send full line without extra
+              } catch {
+                /* */
+              }
+            },
+          };
+          // Prefer sending raw line including newline stripped for WS text
+          conn.write = (data: string) => {
+            try {
+              ws.send(data.endsWith("\n") ? data.slice(0, -1) : data);
+            } catch {
+              /* */
+            }
+          };
+          const { processLine } = wireConn(conn, "wss", {
+            required: true,
+            token,
+          });
+          ws.data.conn = conn;
+          ws.data.processLine = processLine;
+          ws.data.buf = "";
+          log.info("remote worker websocket open", {
+            port: remote.port,
+            slots: slots.size,
+          });
+        },
+        message(ws, message) {
+          const text =
+            typeof message === "string"
+              ? message
+              : new TextDecoder().decode(message as ArrayBuffer);
+          ws.data.buf += text;
+          // Accept either newline-delimited or one JSON object per message
+          if (!ws.data.buf.includes("\n")) {
+            const line = ws.data.buf.trim();
+            if (line.startsWith("{")) {
+              ws.data.buf = "";
+              ws.data.processLine(line);
+            }
+            return;
+          }
+          let i: number;
+          while ((i = ws.data.buf.indexOf("\n")) >= 0) {
+            const line = ws.data.buf.slice(0, i).trim();
+            ws.data.buf = ws.data.buf.slice(i + 1);
+            ws.data.processLine(line);
+          }
+        },
+        close(ws) {
+          const conn = ws.data.conn;
+          log.info("remote worker websocket closed", { slots: slots.size });
+          for (const slot of slots.values()) {
+            if (slot.owner === conn) slot.owner = null;
+          }
+        },
+      },
+    });
+    remoteServer = {
+      port: bunServer.port,
+      stop() {
+        bunServer.stop(true);
+      },
+    };
+    log.info("remote WebSocket listening", {
+      host: remote.host ?? "127.0.0.1",
+      port: bunServer.port,
+      tls: Boolean(remote.tls),
+    });
+  }
+
   const close = async () => {
     if (scheduler) {
       scheduler.stop();
       scheduler = null;
+    }
+    if (remoteServer) {
+      try {
+        remoteServer.stop();
+      } catch {
+        /* */
+      }
+      remoteServer = undefined;
     }
     log.info("shutting down — disposing all agent slots");
     for (const [key, slot] of slots) {
@@ -997,6 +1192,7 @@ export async function startAcpHostServer(
     dropSlotsForRepo,
     /** Shared mutable repo catalog (hot-reload mutates in place). */
     repos,
+    remotePort: remoteServer?.port,
     ...(scheduler
       ? { scheduleTickNow: () => scheduler!.tickNow() }
       : {}),
