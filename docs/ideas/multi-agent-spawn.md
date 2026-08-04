@@ -1,14 +1,22 @@
-# Idea: Multi-agent spawn via MCP tools (parent-linked slots)
+# Idea: Multi-agent spawn via MCP tools (parent-linked slots + worktrees)
 
 **Status:** parked for later (2026-08-04)
-**Branch:** `feature/remote-host-support`
+**Branch:** `docs/multi-agent-spawn` (PR)
 **Not implemented** — design only.
 
-Related: [multi-host-http3.md](./multi-host-http3.md) (where agents run). This doc is **how many agents cooperate** and how they talk.
+Related: [multi-host-http3.md](./multi-host-http3.md) (where agents run). This doc is **how many agents cooperate**, parent-linked slots, **always-new git worktree**, and A2A.
 
 ## Intent
 
-A **parent** ACP agent spawns other ACP agents through **acpbot MCP tools**. acpbot **owns lifecycle**, **links every child slot to its parent slot**, and provides an **A2A bridge** so plan → multi-agent implement → review works without the human juggling topics manually.
+A **parent** ACP agent spawns other ACP agents through **acpbot MCP tools**. acpbot **owns lifecycle**, **links every child slot to its parent slot**, runs **each child in a fresh git worktree** (never the parent’s cwd), and provides an **A2A bridge** so plan → multi-agent implement → review works without file clashes or the human juggling topics.
+
+---
+
+## Core invariants
+
+1. **Parent link:** every child has immutable `parentSessionKey` (host slotKey of parent).  
+2. **Worktree:** every spawned child has **`cwd` = a new `git worktree`** created at spawn time. Never share the parent working tree.  
+3. **Surface:** MCP tools only in v1 (no CLI). Skill teaches tools only.
 
 ---
 
@@ -16,230 +24,189 @@ A **parent** ACP agent spawns other ACP agents through **acpbot MCP tools**. acp
 
 | Surface | Verdict |
 |---|---|
-| **MCP tools** (primary, **only v1 surface**) | Agents already talk MCP; no shell permission theater; same path as `schedule_*` / `telegram_*` |
-| **`acpbot agent …` CLI** | **Out of scope for v1** — defer; avoid two APIs to keep in sync |
-| **Skill** | Teaching layer **for the MCP tools only** (not “how to shell out to the binary”) |
-
-**Rationale:** Dual surfaces (tools + CLI) double design/test load and drift. The caller is almost always an agent mid-turn → MCP is the natural API. Humans keep using Telegram (`/new`, `/sessions`, child topics). A CLI can be a later thin wrapper over the same worker-api if ops need it; it is **not** part of this plan.
-
-Skill documents tool names + recipes only. No `acpbot agent spawn` in the skill.
+| **MCP tools** | Only v1 agent API |
+| **`acpbot agent …` CLI** | Out of scope v1 |
+| **Skill** | Documents MCP tools (+ worktree semantics for agents) |
 
 ---
 
-## What exists today (hooks)
+## Why always a new worktree
 
-| Building block | Reuse |
+| Without worktrees | With worktrees |
 |---|---|
-| Topic = session (`repo/name`) | Child sessions are sessions |
-| Host **slotKey = sessionKey** | Child = new slot; parent link is **extra metadata**, not a second ID space |
-| Host MCP + worker-api | Add `agent_*` tools like `schedule_*` |
-| Free-text queue / busy slots | A2A send while child busy |
-| Skills embed | New skill: multi-agent **tools** usage |
+| Parallel children stomp the same files | Isolated trees / branches |
+| Parent mid-edit races with implementer | Parent stays on its cwd; children on branches |
+| Hard to open PRs per child | Natural: one branch per child → PR |
+| Review agent sees dirty mixed state | Review can target child branch / worktree |
+
+Spawned agents are **implementation workers**, not co-editors of the parent dirty tree.
 
 ---
 
-## Storage model: child slots **always** linked to parent
+## Worktree model
 
-### Invariant
+### Create on `agent_spawn`
 
-> Every spawned child has a durable record with a **non-null `parentSessionKey`** equal to the parent’s host **slotKey** (which is the parent `sessionKey`).  
-> No orphan children. Kill/dispose of parent can cascade (policy) or reparent (v1: cascade cancel only).
+acpbot (worker, on the machine that owns the repo / host) runs roughly:
 
-### Keys
+```bash
+# from parent repo root (git common dir)
+git worktree add -b "<branch>" "<worktreePath>" "<startPoint>"
+```
 
-| Field | Meaning |
+| Parameter | Default (v1) |
 |---|---|
-| `sessionKey` / host `slotKey` | Unique agent process slot = `repo/name` (unchanged) |
-| `parentSessionKey` | **Required** for children; **absent/null** only for operator-created roots (`/new`) |
-| `runId` | Stable uuid for this spawn edge (parent→child), for A2A correlation |
+| **startPoint** | Parent session’s current HEAD (or `HEAD` in parent cwd) — optional override `base_ref` later |
+| **branch** | `acpbot/<parentSlug>--<childSlug>` e.g. `acpbot/plan--impl-auth` (sanitized) |
+| **worktreePath** | Under a dedicated base, **not** inside `.git` |
 
-Parent sessionKey is the **foreign key**. Child sessionKey is the **primary key** of the child slot.
+**Path layout (recommended):**
 
 ```text
-Operator /new work/plan     → slot work/plan          parent=null
-agent_spawn name=impl       → slot work/plan--impl    parent=work/plan
-agent_spawn name=review     → slot work/plan--review  parent=work/plan
+# Option A — sibling of repo (clear, git-friendly)
+{repoRoot}/../.acpbot-worktrees/{repoKey}/{sessionKeySafe}/
+# or under state (central, no pollution of parent parent-dir):
+{state_dir}/worktrees/{repoKey}/{sessionKeySafe}/
 ```
 
-Naming (fixed convention):
+**v1 pick:** `$state_dir/worktrees/{repoKey}/{childSessionKey-sanitized}/`  
+- Owned by acpbot, easy cleanup  
+- Works even if repo is not writable for siblings  
+- Host spawn `cwd` = that absolute path  
 
-- Child name slug: `^[a-z0-9][a-z0-9-]{0,31}$`
-- Child sessionKey: `{parentSessionKey}--{slug}`  
-  - Parent already `repo/name` → child `repo/name--slug`  
-  - If parent is itself a child `repo/a--b`, grandchild `repo/a--b--c` (depth cap applies)
-- Reject if sessionKey exists.
+Requires: parent `cwd` is a git work tree (`git rev-parse --is-inside-work-tree`). If not git → **fail spawn** with clear error (MVP: git-only for multi-agent).
 
-### Durable records
+### Child session cwd
 
-**A. Extend session index (worker store)** — operator / Telegram truth
+```text
+Operator /new work/plan
+  cwd = /repos/work                    # primary worktree (operator)
 
-```ts
-// PersistedSession (extend)
-type PersistedSession = {
-  sessionKey: string;
-  identity: SessionIdentity;
-  messageThreadId: number;
-  chatId: number;
-  status: SessionStatus;
-  cwd: string;
-  permissionMode?: "ask" | "bypass";
-  createdAt: number;
-  updatedAt: number;
-
-  /** null/undefined = root (operator /new). Set = spawned child of that slot. */
-  parentSessionKey?: string | null;
-  /** Spawn edge id when created via agent_spawn */
-  spawnRunId?: string;
-  /** Optional role label from parent */
-  spawnRole?: string;
-};
+agent_spawn name=impl
+  sessionKey = work/plan--impl
+  parentSessionKey = work/plan
+  branch = acpbot/plan--impl
+  cwd = $state_dir/worktrees/work/plan--impl   # NEW worktree
 ```
 
-**B. Spawn registry (worker state file)** — tree + A2A bookkeeping  
-Path: `$state_dir/agent-spawns.json` (or store key `agents:spawns`)
+`PersistedSession.cwd` for the child **is the worktree path** (same field as today — host already spawns with `cwd`).
+
+### Dispose on `agent_kill` / cascade
+
+When `dispose: true` (default on kill after done, or explicit):
+
+```bash
+git worktree remove --force "<worktreePath>"   # from primary repo
+git branch -D "<branch>"                       # optional; keep branch if merged/PR open
+```
+
+Config:
+
+```toml
+[agents.spawn]
+remove_worktree_on_kill = true
+delete_branch_on_kill = false   # safer default: keep branch for PR
+```
+
+### Registry fields (worktree)
 
 ```ts
 type SpawnRecord = {
   runId: string;
-  /** Child host slotKey / sessionKey */
   childSessionKey: string;
-  /** Parent host slotKey / sessionKey — REQUIRED, immutable after create */
-  parentSessionKey: string;
+  parentSessionKey: string;   // required
   agent: string;
   role?: string;
   status: "starting" | "idle" | "running" | "waiting" | "done" | "failed" | "killed";
+  /** Absolute path of child worktree (session cwd) */
+  worktreePath: string;
+  /** Branch created for this child */
+  branch: string;
+  /** startPoint used at create (sha or ref) */
+  baseRef: string;
+  depth: number;
   createdAt: number;
   updatedAt: number;
   lastResultSummary?: string;
-  /** Optional depth from root (root children = 1) */
-  depth: number;
-};
-
-type SpawnIndex = {
-  /** childSessionKey → record (unique child) */
-  byChild: Record<string, SpawnRecord>;
-  /** parentSessionKey → childSessionKey[] */
-  byParent: Record<string, string[]>;
 };
 ```
 
-**Indexes always updated together** on spawn/kill:
+`PersistedSession` also stores `parentSessionKey`, `spawnRunId`, and `cwd` (= worktreePath).
 
-1. Create Telegram topic + `PersistedSession` with `parentSessionKey`
-2. Insert `SpawnRecord`; append to `byParent[parent]`
-3. Host `ensure` child slot
+### Concurrency / git rules
 
-**Queries:**
+- One worktree per branch (git constraint) → branch names unique per child sessionKey  
+- Parallel spawns: unique slugs → unique branches → OK  
+- Lock: serialize `git worktree add` per repo (mutex on repoKey) to avoid git index races  
+- Dirty parent: **allowed** — children start from committed HEAD (or recorded sha), not parent uncommitted junk unless we add `include_uncommitted` later (non-goal v1)
 
-- `agent_list` from parent → `byParent[parentSessionKey]`
-- “Who is my parent?” → `byChild[self].parentSessionKey` or `PersistedSession.parentSessionKey`
-- Root tree → walk `byParent` from root sessionKey
+### MCP / skills in worktree
 
-### Host slot linking
+- Child `.acpbot/mcp.json` is the worktree copy (same as branch content)  
+- Host MCP `acpbot` still injected; `ACPBOT_REPO_ROOT` = worktree path  
+- Schedules in child worktree are separate files — prefer schedules only on parent (skill guidance)
 
-acp-host today: `slots: Map<slotKey, Slot>` with no parent field.
+### Operator UX
 
-**MVP:** parent link lives in **worker registry only**; host stays “flat slots.” Worker enforces all spawn/send/kill authorization using `parentSessionKey`.
+- Spawn notice: “Spawned **impl** in worktree `…` branch `acpbot/plan--impl`”  
+- Child topic `/status` shows **cwd** (worktree) + branch  
+- Parent can `agent_send` “open PR from your branch” after impl done  
 
-**Optional later:** pass `parentSessionKey` in host `ensure` config for host-side metrics / cascade kill if worker dies — not required for v1.
+### A2A + worktrees
 
-### Authorization rules (enforced in worker-api)
+Unchanged messaging model; children edit **their** tree. Parent (or review child) integrates via git (merge/PR), not shared dirty files.
 
-| Action | Allowed if |
-|---|---|
-| `agent_spawn` | Caller sessionKey is a live session; depth & caps OK |
-| `agent_list` | Own children (byParent[caller]); not arbitrary trees |
-| `agent_send` to child | `byChild[to].parentSessionKey === caller` **or** caller is that child sending to parent |
-| `agent_wait` / `status` / `kill` | Same as send (parent of child, or self) |
-| Sibling → sibling | **Denied** in v1 (parent is hub) |
+Review spawn pattern:
 
-### Cascade on parent dispose
+```text
+agent_spawn name=review agent=claude
+  # still new worktree — but base_ref can be impl branch (phase 2)
+  # v1: start from same HEAD as parent; prompt says "review branch acpbot/plan--impl"
+```
 
-When operator ends parent topic or `agent_kill` on parent with `cascade: true` (default for kill if we add parent kill later):
-
-1. List `byParent[parent]`
-2. Cancel + kill each child slot
-3. Remove spawn records + optional archive
-
-v1 minimum: **spawn/list/send/wait/kill child**; parent delete from `/sessions` cleanup walks children via `byParent`.
-
-### Consistency
-
-- `parentSessionKey` on `PersistedSession` and `SpawnRecord` must match; spawn path writes both in one critical section (in-memory mutex per parent).
-- Never create a host slot for a spawn without both records.
-- Never leave `byParent` entry without `byChild` (and vice versa).
+**Phase 2 enhancement:** `agent_spawn({ base_ref: "acpbot/plan--impl" })` or `worktree_of: "impl"` to check out sibling branch for review. **v1:** always `base_ref = parent HEAD`; prompt carries branch name to review.
 
 ---
 
-## Product flow
+## Storage model: parent-linked slots (unchanged + worktree)
 
-```text
-Operator ── topic parent (slot work/plan)
-                 │
-                 │ MCP agent_spawn / agent_send / agent_wait
-                 ▼
-              worker (registry + topics)
-                 │  parentSessionKey links
-                 ├─► slot work/plan--impl    parent=work/plan
-                 └─► slot work/plan--review  parent=work/plan
-```
+### Invariant
 
-### MCP tools (only agent-facing API)
+> Every child: non-null `parentSessionKey` + non-null `worktreePath` + non-null `branch`.  
+> No orphan children; no child sharing parent cwd.
 
-| Tool | Purpose |
+### Naming
+
+- Slug: `^[a-z0-9][a-z0-9-]{0,31}$`  
+- `sessionKey`: `{parentSessionKey}--{slug}`  
+- `branch`: `acpbot/{safeParentLeaf}--{slug}`  
+
+### Authorization
+
+Same as before: parent may send/wait/kill only its `byParent` children; child may message parent; no sibling mesh v1.
+
+---
+
+## MCP tools (only surface)
+
+| Tool | Worktree-related behavior |
 |---|---|
-| `agent_spawn` | Create child session/slot linked to caller; optional kickoff prompt |
-| `agent_list` | Children of caller (from `byParent`) |
-| `agent_send` | A2A message → prompt/steer on linked peer |
-| `agent_wait` | Wait until child idle/done/failed; return `lastResultSummary` |
-| `agent_status` | One child (must be linked) |
-| `agent_kill` | Cancel/dispose child; remove from indexes |
-
-### Tool sketch
+| `agent_spawn` | Create branch + worktree → create topic session with `cwd=worktree` → ensure host slot → optional prompt |
+| `agent_list` | Include `branch`, `worktreePath`, status |
+| `agent_send` / `agent_wait` / `agent_status` | Unchanged A2A |
+| `agent_kill` | Cancel turn; optionally remove worktree / keep branch |
 
 ```ts
 agent_spawn({
-  name: "impl-auth",        // slug → sessionKey parent--slug
+  name: "impl-auth",
   agent?: "codex",
   role?: "implementer",
   prompt?: "…",
   permission_mode?: "ask" | "bypass",
+  // v2: base_ref?: string
 })
-// → { runId, sessionKey, parentSessionKey, status }
-
-agent_send({
-  to: "impl-auth" | "work/plan--impl-auth" | "parent",
-  message: "…",
-  mode?: "prompt" | "steer",
-})
-
-agent_wait({ id?: runId, sessionKey?: "…", timeout_sec?: 600 })
-agent_list({})
-agent_kill({ sessionKey | id, dispose?: true })
+// → { runId, sessionKey, parentSessionKey, worktreePath, branch, status }
 ```
-
-MCP → `POST /v1/agents/*` on worker-api → daemon (createSession, ensure, prompt, registry).
-
-### Skill (tools only)
-
-`skills/multi-agent/SKILL.md`:
-
-- When to fan out after a plan
-- Tool recipes only (no CLI)
-- Caps, no secrets in A2A, parent as hub
-- Depth / max children
-
-### A2A
-
-- Envelope in prompt text with `from`, `to`, `runId` / `parentSessionKey`
-- Results: final child turn text → `lastResultSummary` for `agent_wait`
-- Sibling traffic: only via parent in v1
-
-### Operator UX
-
-- Notice in parent topic on spawn (child topic link)
-- Child topics normal Telegram sessions with `parentSessionKey` in store
-- `/sessions` can indent children under parent (small daemon UX add)
 
 ---
 
@@ -252,61 +219,87 @@ max_children_per_parent = 4
 max_depth = 2
 max_concurrent_spawned = 8
 default_child_permission = "ask"
-# allow_agents = ["grok-build", "claude", "codex", "opencode"]
+worktree_root = ""   # empty → $state_dir/worktrees
+branch_prefix = "acpbot/"
+remove_worktree_on_kill = true
+delete_branch_on_kill = false
+require_git = true   # spawn fails if parent cwd is not a git work tree
 ```
 
 ---
 
-## Architecture
+## Architecture (extra module)
 
 ```text
-src/mcp/server.ts              agent_* tools only
-src/mcp/worker-api.ts          client
-src/core/worker-api-server.ts  routes
-src/core/daemon.ts             spawn/send/wait/kill handlers
-src/core/agent-spawn-registry.ts   byChild / byParent + invariants
-src/core/persistence.ts        parentSessionKey on PersistedSession
+src/core/agent-spawn-registry.ts   byChild / byParent
+src/core/agent-worktree.ts         add/remove worktree, branch names, mutex per repo
+src/mcp/server.ts                  agent_* tools
+src/core/worker-api-server.ts      /v1/agents/*
+src/core/daemon.ts                 orchestration
 skills/multi-agent/SKILL.md
+test/agent-worktree.test.ts
 test/agent-spawn.test.ts
 ```
 
-**No** `acpbot agent` CLI in this plan.
+`agent-worktree.ts` uses `git -C <repo> worktree add|list|remove` (executable `git` on PATH).
 
 ---
 
-## Plan → multi-agent implement
+## Plan → multi-agent implement (with worktrees)
 
 ```text
-Parent plans → operator OK
-  agent_spawn name=impl agent=codex prompt=<plan slice>
-  agent_wait …
-  agent_spawn name=review agent=claude prompt=<review impl summary>
-  agent_wait …
-  Parent replies to operator
+Parent plans in primary tree (operator topic)
+  agent_spawn name=impl agent=codex
+    → worktree + branch acpbot/plan--impl
+    → implement only there
+  agent_wait impl
+  agent_spawn name=review agent=claude
+    → another worktree; prompt: review branch acpbot/plan--impl
+  agent_wait review
+  Parent (or human) merges / opens PR from impl branch
 ```
-
-Parallel: multiple spawns, then multiple waits (bounded by caps).
 
 ---
 
-## Phases
+## Phases (updated)
 
 | Phase | Work |
 |---|---|
-| **1** | Registry (`byChild`/`byParent`) + `PersistedSession.parentSessionKey` + `agent_spawn` / `list` / `kill` |
+| **1** | Registry + **worktree add** + `agent_spawn` / `list` / `kill` (dispose removes worktree) |
 | **2** | `agent_send` + `agent_wait` + result summary |
-| **3** | Skill + `/sessions` indent + docs |
-| **4** | Caps polish, cascade on parent close, optional host metadata |
+| **3** | Skill (tools + worktree/branch habits) + `/sessions` indent + status shows branch |
+| **4** | `base_ref` for review-on-impl-branch; cascade parent dispose; caps polish |
+
+---
+
+## Failure modes
+
+| Case | Behavior |
+|---|---|
+| Not a git repo | `agent_spawn` fails: “multi-agent spawn requires git work tree” |
+| Branch exists | Fail or suffix `-2` (v1: fail clearly) |
+| Worktree path exists | Fail; do not reuse |
+| `git worktree add` fails | No session/topic created (transaction: worktree first, then session, or rollback worktree) |
+| Disk full | Fail spawn; no orphan session |
+
+**Order of operations (atomic-ish):**
+
+1. Validate parent, caps, slug  
+2. `git worktree add`  
+3. Create Telegram topic + PersistedSession (`cwd` = worktree, `parentSessionKey`)  
+4. Spawn registry insert  
+5. Host ensure + optional prompt  
+6. On failure after 2: `worktree remove` + delete branch if we created it  
 
 ---
 
 ## Non-goals (v1)
 
-- **`acpbot` CLI for spawn** (explicitly deferred)
-- Headless children (no topic)
-- Sibling mesh without parent
-- Multi-host routing (separate idea)
-- Replacing Grok-internal subagents
+- CLI spawn  
+- Shared cwd / “same worktree” mode  
+- Non-git repos  
+- Auto-push / auto-PR (skill may instruct agent to `gh pr create` inside worktree)  
+- `base_ref` / review-from-sibling (phase 4)  
 
 ---
 
@@ -314,13 +307,16 @@ Parallel: multiple spawns, then multiple waits (bounded by caps).
 
 | Phase | Size |
 |---|---|
-| 1 Parent-linked spawn/list/kill | 3–5 days |
+| 1 Spawn + worktree + list/kill | 4–6 days |
 | 2 Send/wait | 2–4 days |
-| 3 Skill + sessions UX | 1–2 days |
+| 3 Skill + UX | 1–2 days |
 
 ---
 
+
 ## Summary
 
-- **One surface:** MCP tools + teaching skill. **No CLI** in v1.  
-- **Storage:** every child slot is linked to its parent via immutable `parentSessionKey` on both `PersistedSession` and `SpawnRecord`, with `byParent` / `byChild` indexes so trees stay consistent and A2A stays authorized.
+- **MCP tools only**; parent-linked slots.  
+- **Every child always runs in a new git worktree** on its own branch under `$state_dir/worktrees/…`, with `cwd` pointed there.  
+- Kill/dispose can remove the worktree; branches kept by default for PRs.  
+- Enables safe parallel implementers after a plan without trampling the parent tree.

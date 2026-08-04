@@ -16,4 +16,4 @@ Parked ideas and future work under [`docs/ideas/`](ideas/):
 
 | Doc | Topic |
 |---|---|
-| [multi-agent-spawn.md](ideas/multi-agent-spawn.md) | Parent agent spawns children via MCP tools; parent-linked slots + A2A bridge (no CLI in v1) |
+| [multi-agent-spawn.md](ideas/multi-agent-spawn.md) | Parent spawns children via MCP tools; parent-linked slots; **always new git worktree**; A2A (no CLI in v1) |
