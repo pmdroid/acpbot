@@ -104,3 +104,24 @@ tts_mode = "agent"                       # agent | always | off
 # claude_acp_pkg = "@agentclientprotocol/claude-agent-acp@0.64.0"
 # codex_acp_pkg = "@agentclientprotocol/codex-acp@1.1.7"
 # command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
+
+# ── Multi-host (optional) ───────────────────────────────────────────────────
+# Default is local Unix acp-host only. To run agents on another machine:
+#   1) On the remote host: acpbot host with [host_listen] token + port
+#   2) On the worker: [hosts.<id>] kind=wss url=… token=…
+#   3) Bind a repo: [repos.work] path=… host=<id>
+# Never silently falls back to local if a remote host is configured/unreachable.
+#
+# [host_listen]
+# port = 8790
+# host = "0.0.0.0"
+# token = "env:ACPBOT_HOST_TOKEN"
+#
+# [hosts.studio]
+# kind = "wss"
+# url = "wss://studio.example.com:8790"
+# token = "env:ACPBOT_HOST_TOKEN_STUDIO"
+#
+# [repos.work]
+# path = "/data/work"
+# host = "studio"
