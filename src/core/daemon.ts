@@ -1874,49 +1874,38 @@ export function createDaemon(
                 permissionMode: getDefaultPermissionMode(),
                 cwd: input.cwd,
               });
-              if (input.prompt?.trim()) {
-                const child = sessionIndex.byKey[input.sessionKey];
-                if (child) {
-                  child.status = "running";
-                  await persistIndex();
+              if (!input.prompt?.trim()) return {};
+              const child = sessionIndex.byKey[input.sessionKey];
+              if (child) {
+                child.status = "running";
+                await persistIndex();
+              }
+              let summary = "";
+              try {
+                const turn = await env.agents.runPromptTurn(handle, {
+                  text: input.prompt.trim(),
+                });
+                for await (const ev of turn.events) {
+                  if (ev.type === "agent_message_chunk" && ev.text) {
+                    summary += ev.text;
+                  }
                 }
-                try {
-                  const turn = await env.agents.runPromptTurn(handle, {
-                    text: input.prompt.trim(),
-                  });
-                  let summary = "";
-                  for await (const ev of turn.events) {
-                    if (ev.type === "agent_message_chunk" && ev.text) {
-                      summary += ev.text;
-                    }
-                  }
-                  await turn.done;
-                  if (summary.trim()) {
-                    await markChildResult(
-                      stateDir,
-                      input.sessionKey,
-                      summary.trim(),
-                      "idle",
-                    );
-                    if (child) {
-                      await sendInTopic(
-                        child,
-                        summary.trim().slice(0, 3500),
-                      );
-                    }
-                  } else {
-                    await markChildResult(
-                      stateDir,
-                      input.sessionKey,
-                      "(no text)",
-                      "idle",
-                    );
-                  }
-                } finally {
-                  if (child) {
-                    child.status = "idle";
-                    await persistIndex();
-                  }
+                await turn.done;
+                const text = summary.trim() || "(no text)";
+                await markChildResult(
+                  stateDir,
+                  input.sessionKey,
+                  text,
+                  "idle",
+                );
+                if (child && summary.trim()) {
+                  await sendInTopic(child, summary.trim().slice(0, 3500));
+                }
+                return { summary: text };
+              } finally {
+                if (child) {
+                  child.status = "idle";
+                  await persistIndex();
                 }
               }
             },

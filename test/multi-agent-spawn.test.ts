@@ -187,6 +187,14 @@ describe("agentSpawn orchestration", () => {
                 sessionKey: input.sessionKey,
                 message: input.prompt,
               });
+              // Simulate shipped path: mark result while child is registered
+              await markChildResult(
+                state,
+                input.sessionKey,
+                "implemented auth OK",
+                "idle",
+              );
+              return { summary: "implemented auth OK" };
             }
           },
           deliverMessage: async (input) => {
@@ -209,6 +217,9 @@ describe("agentSpawn orchestration", () => {
       expect(rec.parentSessionKey).toBe("demo/plan");
       expect(rec.childSessionKey).toBe("demo/plan--impl");
       expect(rec.worktreePath).not.toBe(root);
+      // Kickoff finished inside agentSpawn → terminal idle + durable summary
+      expect(rec.status).toBe("idle");
+      expect(rec.lastResultSummary).toContain("implemented auth OK");
       await access(join(rec.worktreePath, "README.md"), constants.F_OK);
       expect(sessions).toEqual(["demo/plan--impl"]);
       expect(prompts.some((p) => p.message.includes("implement auth"))).toBe(
@@ -218,9 +229,9 @@ describe("agentSpawn orchestration", () => {
       const listed = await agentList(state, "demo/plan");
       expect(listed).toHaveLength(1);
       expect(listed[0]!.worktreePath).toBe(rec.worktreePath);
+      expect(listed[0]!.status).toBe("idle");
 
-      // mark result + wait
-      await markChildResult(state, rec.childSessionKey, "all green", "idle");
+      // Real skill path: spawn({prompt}) then wait — no manual markChildResult
       const waited = await agentWait({
         stateDir: state,
         callerSessionKey: "demo/plan",
@@ -230,7 +241,7 @@ describe("agentSpawn orchestration", () => {
         isBusy: () => false,
       });
       expect(waited.status).toBe("idle");
-      expect(waited.summary).toContain("all green");
+      expect(waited.summary).toContain("implemented auth OK");
 
       // send authorized
       const sent = await agentSend(
@@ -248,8 +259,6 @@ describe("agentSpawn orchestration", () => {
       );
       expect(sent.to).toBe("demo/plan--impl");
 
-      // sibling denied via authorize in send would need second child — skip
-
       await agentKill({
         stateDir: state,
         parentRepoRoot: root,
@@ -264,9 +273,55 @@ describe("agentSpawn orchestration", () => {
       ).rejects.toBeTruthy();
       expect(await agentList(state, "demo/plan")).toHaveLength(0);
 
-      // registry file exists
       const raw = await readFile(join(state, "agent-spawns.json"), "utf8");
       expect(raw).toContain("byChild");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  test("spawn with prompt then wait without manual mark (shipped path)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "acpbot-spawn-wait-"));
+    const state = await mkdtemp(join(tmpdir(), "acpbot-spawn-wait-st-"));
+    try {
+      await initGitRepo(root);
+      let sawPrompt = false;
+      await agentSpawn(
+        {
+          stateDir: state,
+          parentRepoRoot: root,
+          parentSessionKey: "work/lead",
+          repoKey: "work",
+          createChildSession: async (input) => ({
+            sessionKey: input.sessionKey,
+          }),
+          ensureAndMaybePrompt: async (input) => {
+            expect(input.prompt).toContain("do the work");
+            sawPrompt = true;
+            // Only return summary — agentSpawn must persist it
+            return { summary: "kickoff complete: files touched" };
+          },
+        },
+        {
+          name: "worker",
+          agent: "codex",
+          prompt: "do the work",
+        },
+      );
+      expect(sawPrompt).toBe(true);
+
+      const waited = await agentWait({
+        stateDir: state,
+        callerSessionKey: "work/lead",
+        childSessionKey: "work/lead--worker",
+        timeoutSec: 3,
+        pollSec: 0.15,
+        isBusy: () => false,
+      });
+      expect(waited.status).not.toBe("timeout");
+      expect(waited.status).toBe("idle");
+      expect(waited.summary).toContain("kickoff complete");
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(state, { recursive: true, force: true });
