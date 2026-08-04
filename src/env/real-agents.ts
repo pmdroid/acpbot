@@ -186,6 +186,22 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       await hostFor(sessionKey).cancel(sessionKey, reason);
     },
 
+    async disposeSession(sessionKey) {
+      abortBySession.get(sessionKey)?.abort();
+      abortBySession.delete(sessionKey);
+      handles.delete(sessionKey);
+      const host = hostFor(sessionKey);
+      if (host.disposeSession) {
+        await host.disposeSession(sessionKey);
+      } else {
+        try {
+          await host.cancel(sessionKey, "disposeSession");
+        } catch {
+          /* */
+        }
+      }
+    },
+
     async setSessionMode(sessionKey, modeId) {
       const st = await hostFor(sessionKey).setMode(sessionKey, modeId);
       return {

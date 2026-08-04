@@ -144,7 +144,7 @@ On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash
 | type text | Start an ACP turn (or **queue** if a turn is already running) |
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` / `/unqueue` | List / remove waiting prompts |
-| `/status` | Agent, model, mode, effort, cwd, MCP |
+| `/status` | Agent, model, mode, effort, cwd, MCP; spawned children / parent link when multi-agent |
 | `/model` | LLM picker (or `/model <id>`) |
 | `/effort` | Reasoning effort (when the agent advertises it) |
 | `/permissions` | Tool policy: `ask` (default) or `bypass` |

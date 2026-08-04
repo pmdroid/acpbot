@@ -72,7 +72,7 @@ Usage:
 - `/model <value>` → set directly
 - Mid-turn cancels the turn, then applies
 
-`/status` shows **Agent**, **Launch**, **Mode**, **Model**, **Effort**, and **Permissions** as distinct fields.
+`/status` shows **Agent**, **Launch**, **Mode**, **Model**, **Effort**, and **Permissions** as distinct fields. With multi-agent spawn, parents also list **children** (status + age) and children show their **parent** link — see [Multi-agent](/docs/multi-agent).
 
 ## Tool permissions (ask vs bypass)
 

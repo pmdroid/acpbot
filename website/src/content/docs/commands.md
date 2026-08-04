@@ -25,7 +25,7 @@ Commands are registered in `src/core/commands.ts`.
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` | List messages waiting until the current turn ends |
 | `/unqueue` | Remove queued msgs: bare = last · `<n>` · `all` |
-| `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP |
+| `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP; multi-agent parent lists children / child shows parent |
 | `/model` | LLM picker buttons, or `/model <value>` |
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |

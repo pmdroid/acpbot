@@ -60,6 +60,16 @@ export type AcpbotConfig = {
    * When omitted, worker uses local Unix acp-host only.
    */
   hostsCatalog?: import("../acp-host/hosts").HostsCatalog;
+  /** Multi-agent spawn caps / idle reclaim ([agents.spawn]). */
+  agentSpawn?: {
+    maxChildrenPerParent?: number;
+    maxDepth?: number;
+    maxConcurrentSpawned?: number;
+    removeWorktreeOnKill?: boolean;
+    deleteBranchOnKill?: boolean;
+    /** Soft-close idle children after N hours (0 = off). Default 24. */
+    idleCloseHours?: number;
+  };
 };
 
 
@@ -425,6 +435,12 @@ export interface AgentsPort {
    * Cancel an in-flight turn for the session without destroying the session.
    */
   cancelTurn?(sessionKey: string, reason?: string): Promise<void>;
+
+  /**
+   * Kill host agent process for this slot (acp-host kill). Session may be
+   * re-ensured later (soft-close / idle reclaim).
+   */
+  disposeSession?(sessionKey: string): Promise<void>;
 
   /**
    * Wire permission interception. Handler is awaited unbounded until the

@@ -59,6 +59,16 @@ export type ProcessConfig = AcpbotConfig & {
   hostListenPort?: number;
   hostListenHost?: string;
   hostListenToken?: string;
+  /** Multi-agent spawn caps / idle reclaim ([agents.spawn]). */
+  agentSpawn?: {
+    maxChildrenPerParent?: number;
+    maxDepth?: number;
+    maxConcurrentSpawned?: number;
+    removeWorktreeOnKill?: boolean;
+    deleteBranchOnKill?: boolean;
+    /** Soft-close idle children after N hours (0 = off). Default 24 when unset. */
+    idleCloseHours?: number;
+  };
 };
 
 export type LoadConfigOptions = {
@@ -303,6 +313,45 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     }
     if (a.claude_acp_pkg !== undefined) out.claudeAcpPkg = String(a.claude_acp_pkg);
     if (a.codex_acp_pkg !== undefined) out.codexAcpPkg = String(a.codex_acp_pkg);
+    const spawn =
+      a.spawn && typeof a.spawn === "object" && !Array.isArray(a.spawn)
+        ? (a.spawn as Record<string, unknown>)
+        : undefined;
+    if (spawn) {
+      const spawnOut: NonNullable<ProcessConfig["agentSpawn"]> = {};
+      const num = (v: unknown): number | undefined => {
+        if (typeof v === "number" && Number.isFinite(v)) return v;
+        if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) {
+          return Number(v);
+        }
+        return undefined;
+      };
+      const maxChildren = num(
+        spawn.max_children_per_parent ?? spawn.maxChildrenPerParent,
+      );
+      if (maxChildren != null) spawnOut.maxChildrenPerParent = maxChildren;
+      const maxDepth = num(spawn.max_depth ?? spawn.maxDepth);
+      if (maxDepth != null) spawnOut.maxDepth = maxDepth;
+      const maxConcurrent = num(
+        spawn.max_concurrent_spawned ?? spawn.maxConcurrentSpawned,
+      );
+      if (maxConcurrent != null) spawnOut.maxConcurrentSpawned = maxConcurrent;
+      if (
+        spawn.remove_worktree_on_kill === false ||
+        spawn.removeWorktreeOnKill === false
+      ) {
+        spawnOut.removeWorktreeOnKill = false;
+      }
+      if (
+        spawn.delete_branch_on_kill === true ||
+        spawn.deleteBranchOnKill === true
+      ) {
+        spawnOut.deleteBranchOnKill = true;
+      }
+      const idleH = num(spawn.idle_close_hours ?? spawn.idleCloseHours);
+      if (idleH != null) spawnOut.idleCloseHours = idleH;
+      if (Object.keys(spawnOut).length > 0) out.agentSpawn = spawnOut;
+    }
   }
 
   return out as Partial<ProcessConfig> & { verbose?: boolean; sttEnabled?: boolean };
@@ -773,6 +822,33 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   config.claudeAcpPkg =
     str(file.claudeAcpPkg as string | undefined) ??
     firstEnv(env, "ACPBOT_CLAUDE_ACP_PKG", "TACP_CLAUDE_ACP_PKG");
+  if (file.agentSpawn && typeof file.agentSpawn === "object") {
+    config.agentSpawn = {
+      ...file.agentSpawn,
+    };
+  }
+  // Default idle soft-close 24h when spawn table omitted idle_close_hours
+  if (config.agentSpawn?.idleCloseHours === undefined) {
+    const envIdle = firstEnv(
+      env,
+      "ACPBOT_SPAWN_IDLE_CLOSE_HOURS",
+      "TACP_SPAWN_IDLE_CLOSE_HOURS",
+    );
+    if (envIdle != null && envIdle !== "") {
+      const n = Number(envIdle);
+      if (Number.isFinite(n)) {
+        config.agentSpawn = {
+          ...(config.agentSpawn ?? {}),
+          idleCloseHours: n,
+        };
+      }
+    } else {
+      config.agentSpawn = {
+        ...(config.agentSpawn ?? {}),
+        idleCloseHours: 24,
+      };
+    }
+  }
   config.codexAcpPkg =
     str(file.codexAcpPkg as string | undefined) ??
     firstEnv(env, "ACPBOT_CODEX_ACP_PKG", "TACP_CODEX_ACP_PKG");

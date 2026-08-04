@@ -112,8 +112,24 @@ Also listed under [Skills](/docs/skills).
 ## Operator UX
 
 - Spawn posts a short notice in the **parent** topic (child session key, worktree path, thread).  
-- Child is a normal forum topic: permissions, `/status`, free-text, etc.  
+- Close / kill posts a notice in the **parent** and **child** topics.  
+- **`/status`** on the parent lists children (status + age); on a child shows the parent link.  
+- Child is a normal forum topic: permissions, free-text, etc.  
 - Registry is durable under `$state_dir/agent-spawns.json`.
+
+### Soft-close vs hard cleanup
+
+| Action | Process | Worktree | Telegram session | How |
+|---|---|---|---|---|
+| Soft-close | stopped | kept | **kept** (restorable) | `agent_kill({ dispose: false })` or auto idle |
+| Hard kill | stopped | removed (default) | topic kept | `agent_kill({ dispose: true })` (default) |
+
+**Auto soft-close:** children idle for **`idle_close_hours`** (default **24**) are soft-closed. Message the child topic (or parent `agent_send`) to restore the process.
+
+```toml
+[agents.spawn]
+idle_close_hours = 24   # 0 = disable
+```
 
 ## Limits (v1)
 

@@ -146,11 +146,16 @@ import {
   agentSpawn as runAgentSpawn,
   agentList as runAgentList,
   agentKill as runAgentKill,
+  agentClose as runAgentClose,
+  agentMarkRestored,
   agentSend as runAgentSend,
   agentWait as runAgentWait,
+  listIdleCloseableChildren,
   markChildResult,
 } from "./agent-spawn";
 import {
+  formatSpawnAge,
+  listChildren,
   loadSpawnIndex,
   resolveAgentTarget,
 } from "./agent-spawn-registry";
@@ -572,6 +577,7 @@ export function createDaemon(
     session: PersistedSession,
     opts?: { forceRespawn?: boolean },
   ) {
+    await maybeRestoreClosedChild(session.sessionKey);
     let forceRespawn = opts?.forceRespawn === true;
     let firstAttach: string[] = [];
     if (!forceRespawn) {
@@ -593,6 +599,8 @@ export function createDaemon(
     }
     const handle = await env.agents.ensureSession(session.identity, {
       permissionMode: effectivePermissionMode(session),
+      // Child worktrees store absolute cwd on the session record
+      ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(forceRespawn ? { forceRespawn: true } : {}),
     });
     try {
@@ -1804,6 +1812,7 @@ export function createDaemon(
             parentRepoRoot,
             parentSessionKey: parent.sessionKey,
             repoKey,
+            config: env.config.agentSpawn,
             createChildSession: async (input) => {
               const slash = input.sessionKey.indexOf("/");
               if (slash < 0) throw new Error(`bad sessionKey ${input.sessionKey}`);
@@ -1870,6 +1879,7 @@ export function createDaemon(
                 name: namePart,
                 agent: input.agent,
               };
+              await maybeRestoreClosedChild(input.sessionKey);
               const handle = await env.agents.ensureSession(identity, {
                 permissionMode: getDefaultPermissionMode(),
                 cwd: input.cwd,
@@ -1943,23 +1953,43 @@ export function createDaemon(
         if (!index.byChild[target] && !target.includes("/")) {
           target = `${sessionKey}--${target}`;
         }
+        const hard = dispose !== false;
+        const slug = target.includes("--")
+          ? target.split("--").slice(-1)[0]!
+          : target;
         const killed = await runAgentKill({
           stateDir,
           parentRepoRoot: parent.cwd,
           callerSessionKey: sessionKey,
           childSessionKey: target,
-          dispose: dispose !== false,
+          dispose: hard,
+          reason: hard ? "agent_kill" : "agent_kill soft-close",
+          config: env.config.agentSpawn,
           killSession: async (key) => {
-            try {
-              await env.agents.cancelTurn?.(key, "agent_kill");
-            } catch {
-              /* */
-            }
+            await disposeHostSession(key);
           },
         });
         if (!killed) throw new Error(`unknown child ${target}`);
+        if (hard) {
+          await notifySpawnLifecycle(
+            sessionKey,
+            target,
+            `Killed child **${slug}** (\`${target}\`) — worktree disposed.`,
+            "This sub-agent was killed and cleaned up.",
+          );
+          return {
+            message: `Killed ${target} (worktree disposed)`,
+          };
+        }
+        await notifySpawnLifecycle(
+          sessionKey,
+          target,
+          `Closed child **${slug}** (\`${target}\`) — process stopped; session kept. Message the child topic or agent_send to restore.`,
+          "This sub-agent was closed (process stopped). Send a message to restore.",
+        );
         return {
-          message: `Killed ${target} (worktree dispose=${dispose !== false})`,
+          message: `Closed ${target} (soft — restorable)`,
+          record: killed,
         };
       },
       async agentSend({ sessionKey, to, message, mode }) {
@@ -1978,6 +2008,7 @@ export function createDaemon(
             deliverMessage: async (input) => {
               const sess = sessionIndex.byKey[input.sessionKey];
               if (!sess) throw new Error(`unknown session ${input.sessionKey}`);
+              await maybeRestoreClosedChild(input.sessionKey);
               const handle = await env.agents.ensureSession(sess.identity, {
                 permissionMode: sess.permissionMode ?? getDefaultPermissionMode(),
                 cwd: sess.cwd,
@@ -2549,6 +2580,59 @@ export function createDaemon(
       }
     }
 
+    // Multi-agent: parent children + child→parent link
+    let spawnParentKey: string | undefined;
+    let spawnRole: string | undefined;
+    let spawnStatus: string | undefined;
+    let spawnBranch: string | undefined;
+    let childLines:
+      | Array<{
+          slug: string;
+          sessionKey: string;
+          status: string;
+          ageLabel: string;
+          agent?: string;
+          role?: string;
+          closed?: boolean;
+        }>
+      | undefined;
+    let childrenTruncated: number | undefined;
+    try {
+      const idx = await loadSpawnIndex(stateDir);
+      const asChild = idx.byChild[session.sessionKey];
+      if (asChild) {
+        spawnParentKey = asChild.parentSessionKey;
+        spawnRole = asChild.role;
+        spawnStatus = asChild.status;
+        spawnBranch = asChild.branch;
+      }
+      const kids = listChildren(idx, session.sessionKey);
+      if (kids.length > 0) {
+        const now = env.clock.now();
+        const maxShow = 12;
+        const shown = kids.slice(0, maxShow);
+        childLines = shown.map((k) => {
+          const slug = k.childSessionKey.includes("--")
+            ? k.childSessionKey.split("--").slice(-1)[0]!
+            : k.childSessionKey;
+          return {
+            slug,
+            sessionKey: k.childSessionKey,
+            status: k.status,
+            ageLabel: formatSpawnAge(now - k.updatedAt),
+            agent: k.agent,
+            ...(k.role ? { role: k.role } : {}),
+            closed: k.status === "closed",
+          };
+        });
+        if (kids.length > maxShow) {
+          childrenTruncated = kids.length - maxShow;
+        }
+      }
+    } catch {
+      /* ignore spawn registry errors in status */
+    }
+
     await sendInTopic(
       session,
       formatSessionStatus({
@@ -2569,10 +2653,84 @@ export function createDaemon(
         mcpCount,
         mcpNames,
         acpHost: true, // worker always uses acp-host
+        ...(spawnParentKey ? { spawnParentKey } : {}),
+        ...(spawnRole ? { spawnRole } : {}),
+        ...(spawnStatus ? { spawnStatus } : {}),
+        ...(spawnBranch ? { spawnBranch } : {}),
+        ...(childLines ? { children: childLines } : {}),
+        ...(childrenTruncated != null ? { childrenTruncated } : {}),
       }),
       undefined,
       { html: true },
     );
+  }
+
+  async function disposeHostSession(sessionKey: string): Promise<void> {
+    try {
+      if (env.agents.disposeSession) {
+        await env.agents.disposeSession(sessionKey);
+        return;
+      }
+    } catch {
+      /* */
+    }
+    try {
+      await env.agents.cancelTurn?.(sessionKey, "spawn close");
+    } catch {
+      /* */
+    }
+  }
+
+  async function notifySpawnLifecycle(
+    parentKey: string,
+    childKey: string,
+    textParent: string,
+    textChild?: string,
+  ): Promise<void> {
+    const parent = sessionIndex.byKey[parentKey];
+    if (parent) {
+      try {
+        await sendInTopic(parent, textParent);
+      } catch {
+        /* */
+      }
+    }
+    if (textChild) {
+      const child = sessionIndex.byKey[childKey];
+      if (child) {
+        try {
+          await sendInTopic(child, textChild);
+        } catch {
+          /* */
+        }
+      }
+    }
+  }
+
+  async function maybeRestoreClosedChild(sessionKey: string): Promise<void> {
+    try {
+      const idx = await loadSpawnIndex(stateDir);
+      const rec = idx.byChild[sessionKey];
+      if (!rec || rec.status !== "closed") return;
+      const restored = await agentMarkRestored(stateDir, sessionKey, () =>
+        env.clock.now(),
+      );
+      if (!restored) return;
+      const slug = sessionKey.includes("--")
+        ? sessionKey.split("--").slice(-1)[0]!
+        : sessionKey;
+      await notifySpawnLifecycle(
+        rec.parentSessionKey,
+        sessionKey,
+        `Restored child **${slug}** (\`${sessionKey}\`) — process starting again.`,
+        "Sub-agent restored — process is starting again.",
+      );
+    } catch (err) {
+      log.warn("spawn restore failed", {
+        sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   async function handleModelCommand(
@@ -4223,7 +4381,74 @@ export function createDaemon(
       throw err;
     }
 
+    // Soft-close idle spawned children (default 24h). Keeps Telegram session.
+    const idleHours = env.config.agentSpawn?.idleCloseHours;
+    const idleCloseMs =
+      idleHours != null && idleHours > 0
+        ? idleHours * 60 * 60 * 1000
+        : idleHours === 0
+          ? 0
+          : 24 * 60 * 60 * 1000;
+    let idleSweepTimer: ReturnType<typeof setInterval> | undefined;
+    if (idleCloseMs > 0) {
+      const sweepMs = Math.min(
+        15 * 60 * 1000,
+        Math.max(60_000, Math.floor(idleCloseMs / 48)),
+      );
+      const sweepIdleChildren = async () => {
+        try {
+          const due = await listIdleCloseableChildren(
+            stateDir,
+            idleCloseMs,
+            env.clock.now(),
+          );
+          for (const rec of due) {
+            if (sessionTurnBusy(rec.childSessionKey)) continue;
+            const slug = rec.childSessionKey.includes("--")
+              ? rec.childSessionKey.split("--").slice(-1)[0]!
+              : rec.childSessionKey;
+            const closed = await runAgentClose({
+              stateDir,
+              callerSessionKey: rec.parentSessionKey,
+              childSessionKey: rec.childSessionKey,
+              reason: `auto-idle-${idleHours ?? 24}h`,
+              now: () => env.clock.now(),
+              killSession: async (key) => {
+                await disposeHostSession(key);
+              },
+            });
+            if (!closed) continue;
+            log.info("spawn auto soft-close", {
+              child: rec.childSessionKey,
+              parent: rec.parentSessionKey,
+              idleHours: idleHours ?? 24,
+            });
+            await notifySpawnLifecycle(
+              rec.parentSessionKey,
+              rec.childSessionKey,
+              `Closed child **${slug}** (idle ≥ ${idleHours ?? 24}h) — process stopped; session kept. Message the child topic to restore.`,
+              `This sub-agent was auto-closed after ${idleHours ?? 24}h idle. Send a message to restore.`,
+            );
+          }
+        } catch (err) {
+          log.warn("spawn idle sweep failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      };
+      idleSweepTimer = setInterval(() => {
+        void sweepIdleChildren();
+      }, sweepMs);
+      // First pass after boot (delayed)
+      setTimeout(() => void sweepIdleChildren(), 30_000);
+      log.info("spawn idle soft-close enabled", {
+        idleCloseHours: idleHours ?? 24,
+        sweepMs,
+      });
+    }
+
     const onAbort = () => {
+      if (idleSweepTimer) clearInterval(idleSweepTimer);
       void workerApi.close();
     };
     signal?.addEventListener("abort", onAbort, { once: true });

@@ -408,6 +408,17 @@ export function formatModeStatus(input: {
   return lines.join("\n");
 }
 
+/** One child line for /status multi-agent block. */
+export type StatusChildLine = {
+  slug: string;
+  sessionKey: string;
+  status: string;
+  ageLabel: string;
+  agent?: string;
+  role?: string;
+  closed?: boolean;
+};
+
 /** Session /status dump for the operator. */
 export function formatSessionStatus(input: {
   sessionKey: string;
@@ -432,6 +443,14 @@ export function formatSessionStatus(input: {
   mcpNames?: string[] | undefined;
   acpHost?: boolean | undefined;
   agentSessionId?: string | undefined;
+  /** When this session is a spawned child. */
+  spawnParentKey?: string | undefined;
+  spawnRole?: string | undefined;
+  spawnStatus?: string | undefined;
+  spawnBranch?: string | undefined;
+  /** Children of this session (parent hub). */
+  children?: StatusChildLine[] | undefined;
+  childrenTruncated?: number | undefined;
 }): string {
   const launch =
     input.launch != null
@@ -494,6 +513,43 @@ export function formatSessionStatus(input: {
   if (input.acpHost != null) {
     lines.push(`acp-host: ${input.acpHost ? "yes" : "no"}`);
   }
+
+  if (input.spawnParentKey) {
+    lines.push("", `**Parent** \`${input.spawnParentKey}\``);
+    const bits: string[] = [];
+    if (input.spawnStatus) bits.push(`status=\`${input.spawnStatus}\``);
+    if (input.spawnRole) bits.push(`role=\`${input.spawnRole}\``);
+    if (input.spawnBranch) bits.push(`branch=\`${input.spawnBranch}\``);
+    if (bits.length) lines.push(`Spawn: ${bits.join(" · ")}`);
+    if (input.spawnStatus === "closed") {
+      lines.push(
+        "_(closed — process stopped; send a message here or agent_send to restore)_",
+      );
+    }
+  }
+
+  if (input.children && input.children.length > 0) {
+    lines.push("", `**Children** (${input.children.length}${input.childrenTruncated ? `+` : ""})`);
+    for (const c of input.children) {
+      const extra = [
+        c.agent ? c.agent : null,
+        c.role ? c.role : null,
+        c.closed ? "restore on next msg" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      lines.push(
+        `· \`${c.slug}\` · \`${c.status}\` · ${c.ageLabel}${extra ? ` · ${extra}` : ""}`,
+      );
+    }
+    if (input.childrenTruncated && input.childrenTruncated > 0) {
+      lines.push(`· _…and ${input.childrenTruncated} more_`);
+    }
+    lines.push(
+      "Lifecycle: parent MCP `agent_kill` (dispose=true cleans worktree; false soft-closes).",
+    );
+  }
+
   lines.push(
     "",
     "Change: `/mode` · `/permissions` · `/effort` · `/model` · `/agent` · `/plan` · `/build`",
