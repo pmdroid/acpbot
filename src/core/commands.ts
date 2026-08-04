@@ -86,6 +86,12 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Session context: agent, model, mode, cwd, MCP",
   },
   {
+    name: "/compact",
+    scope: "topic",
+    summary:
+      "Write durable session memory (.acpbot/memory/…); optional focus: /compact <notes>",
+  },
+  {
     name: "/model",
     scope: "topic",
     summary: "Pick LLM model (ACP config) or /model <value>",

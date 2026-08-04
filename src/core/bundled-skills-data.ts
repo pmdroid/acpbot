@@ -159,6 +159,25 @@ schedule_run_now({ id: "…", all?: false })  // due on next host tick
 Write the fire prompt so a cold turn can succeed alone, e.g. generate asset → save under
 repo → send via \`telegram_send_photo\` / \`telegram_send_file\` if the operator should see it.
 
+## Memory-first (life-assistant / long-lived sessions)
+
+By default each fire tells the agent to **update \`.acpbot/memory/<session>.md\` before**
+running your prompt (\`write_memory_first: true\`). That keeps standing context across days.
+
+\`\`\`
+schedule_create({
+  name: "morning-brief",
+  kind: "cron",
+  cronExpr: "0 8 * * 1-5",
+  prompt: "Review calendar + open loops in memory; send a short Telegram brief.",
+  // write_memory_first: true  // default
+})
+\`\`\`
+
+Operator can also run **\`/compact\`** (or \`/compact <focus>\`) anytime to refresh memory without a schedule.
+
+Set \`write_memory_first: false\` only for pure fire-and-forget jobs that must not touch memory.
+
 ## Do not
 
 - Put secrets in prompts or committed scripts.
