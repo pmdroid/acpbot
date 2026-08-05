@@ -5,7 +5,6 @@
  * (HTTP over Unix socket). The daemon owns the bot token and topic map.
  * schedule_*: create / list / cancel / run-now durable delayed work.
  * agent_*: spawn / list / send / wait / kill parent-linked child agents (worktrees).
- * memory_*: repo-local durable notes (MEMORY.md, daily, USER.md).
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -15,12 +14,6 @@ import {
   listJobs,
   markJobDue,
 } from "../schedules/store";
-import {
-  memoryRead,
-  memoryStatus,
-  memoryWrite,
-  type MemorySection,
-} from "../core/memory";
 import {
   basenameOf,
   resolvePathUnderRepo,
@@ -688,140 +681,6 @@ server.tool(
       return ack.message ?? "killed";
     } catch (err) {
       return `agent_kill failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
-    }
-  },
-);
-
-const memorySectionSchema = z
-  .enum(["daily", "memory", "user", "session"])
-  .describe(
-    "daily=memory/YYYY-MM-DD.md · memory=MEMORY.md · user=USER.md · session=memory/sessions/<slug>.md",
-  );
-
-server.tool(
-  {
-    name: "memory_read",
-    description:
-      "Read durable memory from the session **git repo** (not host state_dir). " +
-      "Use before acting on standing context, preferences, or open loops. " +
-      "section: daily | memory | user | session.",
-    input: z.object({
-      section: memorySectionSchema,
-      date: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("For section=daily only: YYYY-MM-DD (default: today UTC)"),
-    }),
-  },
-  async (args) => {
-    const env = requireSessionEnv();
-    if (!env.ok) return `memory_read failed: ${env.error}`;
-    try {
-      const section = args.section as MemorySection;
-      const r = await memoryRead({
-        repoRoot: env.repoRoot,
-        section,
-        sessionKey: env.sessionKey,
-        ...(args.date ? { date: args.date } : {}),
-      });
-      if (!r.exists) {
-        return `No file yet: ${r.relPath} (repo ${env.repoRoot})`;
-      }
-      return (
-        `Read ${r.relPath} (${r.content.length} chars)\n` +
-        `path: ${r.path}\n\n` +
-        r.content
-      );
-    } catch (err) {
-      return `memory_read failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
-    }
-  },
-);
-
-server.tool(
-  {
-    name: "memory_write",
-    description:
-      "Write durable memory into the session **git repo**. " +
-      "Use whenever a fact should survive the next session or compact. " +
-      "Prefer append for daily notes; use replace only when carefully rewriting MEMORY.md/USER.md. " +
-      "section: daily | memory | user | session.",
-    input: z.object({
-      section: memorySectionSchema,
-      content: z.string().min(1).describe("Markdown body to store"),
-      mode: z
-        .enum(["append", "replace"])
-        .optional()
-        .describe("Default append. replace overwrites the whole file."),
-      date: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("For section=daily only: YYYY-MM-DD (default: today UTC)"),
-      heading: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("Optional heading when appending (default: ISO timestamp)"),
-    }),
-  },
-  async (args) => {
-    const env = requireSessionEnv();
-    if (!env.ok) return `memory_write failed: ${env.error}`;
-    try {
-      const section = args.section as MemorySection;
-      const r = await memoryWrite({
-        repoRoot: env.repoRoot,
-        section,
-        content: args.content,
-        sessionKey: env.sessionKey,
-        ...(args.mode ? { mode: args.mode } : {}),
-        ...(args.date ? { date: args.date } : {}),
-        ...(args.heading ? { heading: args.heading } : {}),
-      });
-      return (
-        `Wrote ${r.relPath} (${r.mode}, ${r.bytes} bytes)\n` +
-        `path: ${r.path}`
-      );
-    } catch (err) {
-      return `memory_write failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`;
-    }
-  },
-);
-
-server.tool(
-  {
-    name: "memory_status",
-    description:
-      "List which memory files exist in the repo (MEMORY.md, USER.md, today daily, session note).",
-    input: z.object({}),
-  },
-  async () => {
-    const env = requireSessionEnv();
-    if (!env.ok) return `memory_status failed: ${env.error}`;
-    try {
-      const rows = await memoryStatus({
-        repoRoot: env.repoRoot,
-        sessionKey: env.sessionKey,
-      });
-      const lines = rows.map(
-        (r) =>
-          `${r.exists ? "✓" : "·"} ${r.section.padEnd(8)} ${r.relPath}`,
-      );
-      return (
-        `Memory under ${env.repoRoot}\n` +
-        lines.join("\n") +
-        `\n\nUse memory_read / memory_write. Operator /compact also flushes via these tools.`
-      );
-    } catch (err) {
-      return `memory_status failed: ${
         err instanceof Error ? err.message : String(err)
       }`;
     }

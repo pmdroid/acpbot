@@ -26,7 +26,6 @@ Commands are registered in `src/core/commands.ts`.
 | `/queue` | List messages waiting until the current turn ends |
 | `/unqueue` | Remove queued msgs: bare = last · `<n>` · `all` |
 | `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP; multi-agent parent lists children / child shows parent |
-| `/compact` | Flush durable **repo** memory via agent (`memory_*` tools → `MEMORY.md` + `memory/YYYY-MM-DD.md`); optional focus: `/compact <notes>` |
 | `/model` | LLM picker buttons, or `/model <value>` |
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |

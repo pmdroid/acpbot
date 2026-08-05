@@ -94,7 +94,6 @@ import {
   type SkillInfo,
 } from "./skills";
 import { initialTopicName, topicName } from "./status";
-import { buildCompactPrompt } from "./compact";
 import {
   formatModeStatus,
   formatSessionStatus,
@@ -251,7 +250,10 @@ export function createDaemon(
     text: string;
     attachments: PromptAttachment[];
     kind: "prompt" | "steer";
-    /** Bot ack message with Remove button (for edit after remove). */
+    /**
+     * Bot "📥 Queued…" ack message id.
+     * Edited on Remove / /unqueue; deleted when the item is dequeued to run.
+     */
     botMessageId?: number;
   };
   const promptQueues = new Map<string, QueuedTopicPrompt[]>();
@@ -1582,6 +1584,22 @@ export function createDaemon(
     }
   }
 
+  /** Remove the "📥 Queued…" ack from chat when the item starts running. */
+  async function deleteQueueAck(
+    session: PersistedSession,
+    item: QueuedTopicPrompt,
+  ): Promise<void> {
+    if (item.botMessageId === undefined) return;
+    try {
+      await env.telegram.deleteMessage({
+        chatId: session.chatId,
+        messageId: item.botMessageId,
+      });
+    } catch {
+      /* ignore — message may already be gone */
+    }
+  }
+
   async function handleQueueCommand(session: PersistedSession): Promise<void> {
     await sendInTopic(session, formatQueueList(session.sessionKey), undefined, {
       html: true,
@@ -2837,81 +2855,6 @@ export function createDaemon(
     }
   }
 
-  /**
-   * /compact [focus…] — agent writes durable memory then short operator summary.
-   */
-  /** Primary git repo root for durable memory (never a child worktree). */
-  function repoRootForSession(session: PersistedSession): string {
-    const fromCatalog = env.config.repos?.[session.identity.repo]?.trim();
-    if (fromCatalog) return fromCatalog;
-    // Fallback: session cwd is usually the repo for non-spawned sessions
-    return session.cwd;
-  }
-
-  async function handleCompactCommand(
-    session: PersistedSession,
-    args: string[],
-  ): Promise<void> {
-    const focus = args.join(" ").trim();
-    const repoRoot = repoRootForSession(session);
-    if (sessionTurnBusy(session.sessionKey)) {
-      await sendInTopic(
-        session,
-        "A turn is already running — wait or `/cancel` first, then `/compact`.",
-      );
-      return;
-    }
-    try {
-      await ensureSessionWithPerms(session);
-    } catch (err) {
-      await sendInTopic(
-        session,
-        `Could not attach agent: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-    const handle = await ensureSessionWithPerms(session);
-    const prompt = buildCompactPrompt({
-      sessionKey: session.sessionKey,
-      repoRoot,
-      ...(focus ? { focus } : {}),
-    });
-    await sendInTopic(
-      session,
-      focus
-        ? `Compacting with focus (use memory_* tools → repo)…`
-        : `Compacting session memory (MEMORY.md + memory/daily via memory_* tools)…`,
-    );
-    try {
-      await setSessionStatus(session, "running");
-      const turn = await env.agents.runPromptTurn(handle, { text: prompt });
-      let summary = "";
-      for await (const ev of turn.events) {
-        if (ev.type === "agent_message_chunk" && ev.text) summary += ev.text;
-        if (ev.type === "process_died") {
-          throw new Error(ev.error ?? "agent process died");
-        }
-      }
-      await turn.done;
-      const text = summary.trim();
-      if (text) {
-        await sendInTopic(session, text.slice(0, 3500));
-      } else {
-        await sendInTopic(
-          session,
-          `Compact finished (empty reply). Check \`${memRel}\`.`,
-        );
-      }
-      await setSessionStatus(session, "idle");
-    } catch (err) {
-      await setSessionStatus(session, "failed");
-      await sendInTopic(
-        session,
-        `Compact failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
   async function handleModelCommand(
     session: PersistedSession,
     args: string[],
@@ -3875,10 +3818,6 @@ export function createDaemon(
         await handleStatusCommand(session);
         return;
       }
-      if (slash.name === "/compact") {
-        await handleCompactCommand(session, slash.args);
-        return;
-      }
       if (slash.name === "/model") {
         await handleModelCommand(session, slash.args);
         return;
@@ -4089,6 +4028,7 @@ export function createDaemon(
     }
     const next = q.shift()!;
     if (q.length === 0) promptQueues.delete(sessionKey);
+    queueItemSessions.delete(next.id);
     const remaining = q.length;
     log.info("action: dequeue prompt", {
       sessionKey,
@@ -4096,6 +4036,8 @@ export function createDaemon(
       textLen: next.text.length,
       attachments: next.attachments.length,
     });
+    // Drop the "📥 Queued…" ack so the chat does not keep stale queue UI.
+    await deleteQueueAck(session, next);
     if (remaining > 0) {
       await sendInTopic(
         session,
