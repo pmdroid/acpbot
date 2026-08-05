@@ -1,37 +1,30 @@
 /**
- * Session compact prompts — durable memory lives **in the git repo**.
+ * Session compact prompts — prefer MCP memory_* tools; files live in the **repo**.
  */
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import {
+  memoryAbsPath,
+  memoryFileSlug,
+  memoryRelPath,
+  todayUtcDate,
+} from "./memory";
 
-/** Safe filesystem segment from sessionKey (repo/name--child). */
-export function memoryFileSlug(sessionKey: string): string {
-  return (
-    sessionKey
-      .trim()
-      .replace(/[^A-Za-z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 120) || "session"
-  );
-}
+export { memoryFileSlug } from "./memory";
 
-/**
- * Relative path from **repo root** for durable notes.
- * Always inside the repository: `.acpbot/memory/<slug>.md`
- */
+/** Legacy path helper (session working notes). */
 export function sessionMemoryRelPath(sessionKey: string): string {
-  return `.acpbot/memory/${memoryFileSlug(sessionKey)}.md`;
+  return memoryRelPath("session", { sessionKey });
 }
 
-/** Absolute path under the configured repo root. */
 export function sessionMemoryAbsPath(
   repoRoot: string,
   sessionKey: string,
 ): string {
-  return join(resolve(repoRoot), sessionMemoryRelPath(sessionKey));
+  return memoryAbsPath(repoRoot, "session", { sessionKey });
 }
 
 /**
- * Operator /compact prompt. Optional focus steers what to prioritize.
+ * Operator /compact prompt. Prefer memory_write / memory_read tools.
  * `repoRoot` must be the primary git repo path (not a child worktree).
  */
 export function buildCompactPrompt(input: {
@@ -40,39 +33,60 @@ export function buildCompactPrompt(input: {
   repoRoot: string;
   focus?: string;
 }): string {
-  const rel = sessionMemoryRelPath(input.sessionKey);
-  const abs = sessionMemoryAbsPath(input.repoRoot, input.sessionKey);
+  const daily = memoryRelPath("daily", { date: todayUtcDate() });
+  const curated = memoryRelPath("memory");
+  const user = memoryRelPath("user");
+  const sessionNote = memoryRelPath("session", {
+    sessionKey: input.sessionKey,
+  });
+  const dailyAbs = memoryAbsPath(input.repoRoot, "daily", {
+    date: todayUtcDate(),
+  });
+  const curatedAbs = memoryAbsPath(input.repoRoot, "memory");
   const focus = input.focus?.trim();
   const lines = [
-    "You are compacting this acpbot session so a later turn can continue with a clean context.",
+    "You are compacting this acpbot session so later turns keep durable context.",
     "",
-    "## Required: write durable memory **in the repository**",
-    `1. Create or update this file **inside the git repo** (not a worktree-only or temp path):`,
-    `   - relative: \`${rel}\``,
-    `   - absolute: \`${abs}\``,
-    `2. Repo root: \`${resolve(input.repoRoot)}\``,
-    "3. Merge with any existing file — keep important facts, prune noise and one-off chatter.",
-    "4. Structure the file with short sections, for example:",
-    "   - Identity / purpose of this session",
-    "   - Preferences and standing decisions",
-    "   - People, projects, commitments",
-    "   - Open loops / next actions",
-    "   - Facts that must survive a new context window",
-    "5. Be concise (bullets). Do not invent facts.",
-    "6. After writing the file, reply to the operator with a short summary of what you stored (not the full file).",
+    "## Required: use acpbot memory tools (repo-local)",
+    "Call the **acpbot** MCP tools (not raw write to random paths):",
+    "- `memory_write` — persist facts",
+    "- `memory_read` — load existing notes before merging",
     "",
+    `Repo root: \`${resolve(input.repoRoot)}\``,
+    "",
+    "### Where to write (inside the git repo)",
+    "| Layer | section | File |",
+    "|---|---|---|",
+    `| Episodic / today | \`daily\` | \`${daily}\` |`,
+    `| Curated long-term | \`memory\` | \`${curated}\` |`,
+    `| Preferences | \`user\` | \`${user}\` |`,
+    `| This topic (optional) | \`session\` | \`${sessionNote}\` |`,
+    "",
+    "Absolute examples:",
+    `- \`${dailyAbs}\``,
+    `- \`${curatedAbs}\``,
+    "",
+    "### Steps",
+    "1. `memory_read` section=memory and section=daily (today).",
+    "2. `memory_write` section=daily — append a short session summary (mode=append).",
+    "3. `memory_write` section=memory — merge durable facts only (append bullets; use replace only when carefully rewriting).",
+    "4. If preferences changed: `memory_write` section=user.",
+    "5. Reply to the operator with a short summary of what you stored (paths + bullets), not the full files.",
+    "",
+    "Rules: concise; do not invent facts; do not dump full chat transcripts into MEMORY.md.",
   ];
   if (focus) {
-    lines.push(`## Operator focus for this compact`, focus, "");
+    lines.push("", `## Operator focus for this compact`, focus);
   } else {
     lines.push(
+      "",
       "## Scope",
       "Compact the full useful session context (no extra operator focus).",
-      "",
     );
   }
   lines.push(
-    "Do not ask questions. Do the write into the repo path above, then give the short summary.",
+    "",
+    "Do not ask questions. Use memory_write/read, then summarize.",
   );
   return lines.join("\n");
 }

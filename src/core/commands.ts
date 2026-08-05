@@ -89,7 +89,7 @@ export const COMMANDS: readonly CommandDef[] = [
     name: "/compact",
     scope: "topic",
     summary:
-      "Write durable session memory (.acpbot/memory/…); optional focus: /compact <notes>",
+      "Flush durable repo memory via agent (MEMORY.md + daily); optional: /compact <notes>",
   },
   {
     name: "/model",
