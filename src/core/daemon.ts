@@ -94,7 +94,7 @@ import {
   type SkillInfo,
 } from "./skills";
 import { initialTopicName, topicName } from "./status";
-import { buildCompactPrompt, sessionMemoryRelPath } from "./compact";
+import { buildCompactPrompt } from "./compact";
 import {
   formatModeStatus,
   formatSessionStatus,
@@ -2854,7 +2854,6 @@ export function createDaemon(
   ): Promise<void> {
     const focus = args.join(" ").trim();
     const repoRoot = repoRootForSession(session);
-    const memRel = sessionMemoryRelPath(session.sessionKey);
     if (sessionTurnBusy(session.sessionKey)) {
       await sendInTopic(
         session,
@@ -2880,8 +2879,8 @@ export function createDaemon(
     await sendInTopic(
       session,
       focus
-        ? `Compacting with focus → \`${memRel}\` (in repo)…`
-        : `Compacting session memory → \`${memRel}\` (in repo)…`,
+        ? `Compacting with focus (use memory_* tools → repo)…`
+        : `Compacting session memory (MEMORY.md + memory/daily via memory_* tools)…`,
     );
     try {
       await setSessionStatus(session, "running");

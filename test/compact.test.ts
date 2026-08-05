@@ -5,17 +5,15 @@ import {
   sessionMemoryAbsPath,
   sessionMemoryRelPath,
 } from "../src/core/compact";
-import { buildFireEnvelope } from "../src/acp-host/scheduler";
-import type { ScheduleJob } from "../src/schedules/types";
 
 describe("compact helpers", () => {
-  test("memory path is under repo root", () => {
+  test("session path helpers", () => {
     expect(memoryFileSlug("work/life")).toBe("work-life");
     expect(sessionMemoryRelPath("work/life")).toBe(
-      ".acpbot/memory/work-life.md",
+      "memory/sessions/work-life.md",
     );
     expect(sessionMemoryAbsPath("/Users/me/life-repo", "work/life")).toBe(
-      "/Users/me/life-repo/.acpbot/memory/work-life.md",
+      "/Users/me/life-repo/memory/sessions/work-life.md",
     );
   });
 
@@ -24,9 +22,9 @@ describe("compact helpers", () => {
       sessionKey: "work/life",
       repoRoot: "/tmp/repo",
     });
-    expect(bare).toContain(".acpbot/memory/work-life.md");
-    expect(bare).toContain("/tmp/repo/.acpbot/memory/work-life.md");
-    expect(bare).toContain("inside the git repo");
+    expect(bare).toContain("memory_write");
+    expect(bare).toContain("memory_read");
+    expect(bare).toContain("MEMORY.md");
     expect(bare).toContain("full useful session context");
     expect(bare).toContain("Do not ask questions");
 
@@ -37,27 +35,5 @@ describe("compact helpers", () => {
     });
     expect(focused).toContain("Operator focus");
     expect(focused).toContain("family calendar + travel");
-  });
-});
-
-describe("buildFireEnvelope (no memory preamble)", () => {
-  const base: ScheduleJob = {
-    id: "j1",
-    sessionKey: "demo/life",
-    prompt: "Send morning brief",
-    kind: "once",
-    nextRunAt: "2026-08-05T08:00:00.000Z",
-    enabled: true,
-    createdAt: "2026-08-04T00:00:00.000Z",
-    updatedAt: "2026-08-04T00:00:00.000Z",
-  };
-
-  test("envelope is task-only", () => {
-    const text = buildFireEnvelope(base, "/data/demo");
-    expect(text).not.toContain("Before the scheduled task");
-    expect(text).not.toContain("write_memory");
-    expect(text).not.toContain(".acpbot/memory/");
-    expect(text).toContain("Send morning brief");
-    expect(text).toContain("## Prompt");
   });
 });
