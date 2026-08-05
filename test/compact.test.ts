@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildCompactPrompt,
-  buildScheduleMemoryPreamble,
   memoryFileSlug,
   sessionMemoryAbsPath,
   sessionMemoryRelPath,
@@ -39,19 +38,9 @@ describe("compact helpers", () => {
     expect(focused).toContain("Operator focus");
     expect(focused).toContain("family calendar + travel");
   });
-
-  test("schedule memory preamble default on", () => {
-    const on = buildScheduleMemoryPreamble({ sessionKey: "a/b" });
-    expect(on.join("\n")).toContain(".acpbot/memory/");
-    const off = buildScheduleMemoryPreamble({
-      sessionKey: "a/b",
-      enabled: false,
-    });
-    expect(off).toEqual([]);
-  });
 });
 
-describe("buildFireEnvelope memory-first", () => {
+describe("buildFireEnvelope (no memory preamble)", () => {
   const base: ScheduleJob = {
     id: "j1",
     sessionKey: "demo/life",
@@ -63,19 +52,12 @@ describe("buildFireEnvelope memory-first", () => {
     updatedAt: "2026-08-04T00:00:00.000Z",
   };
 
-  test("default includes write-memory-first block", () => {
+  test("envelope is task-only", () => {
     const text = buildFireEnvelope(base, "/data/demo");
-    expect(text).toContain("Before the scheduled task");
-    expect(text).toContain(".acpbot/memory/demo-life.md");
-    expect(text).toContain("Send morning brief");
-  });
-
-  test("writeMemoryFirst false skips preamble", () => {
-    const text = buildFireEnvelope(
-      { ...base, writeMemoryFirst: false },
-      "/data/demo",
-    );
     expect(text).not.toContain("Before the scheduled task");
+    expect(text).not.toContain("write_memory");
+    expect(text).not.toContain(".acpbot/memory/");
     expect(text).toContain("Send morning brief");
+    expect(text).toContain("## Prompt");
   });
 });

@@ -332,12 +332,6 @@ server.tool(
         .min(1)
         .optional()
         .describe('Prefer "UTC" (firing uses UTC)'),
-      write_memory_first: z
-        .boolean()
-        .optional()
-        .describe(
-          "Default true: agent updates .acpbot/memory/… before the scheduled prompt",
-        ),
     }),
   },
   async (args) => {
@@ -353,9 +347,6 @@ server.tool(
         ...(args.cronExpr != null ? { cronExpr: args.cronExpr } : {}),
         ...(args.runAt != null ? { runAt: args.runAt } : {}),
         ...(args.timezone != null ? { timezone: args.timezone } : {}),
-        ...(args.write_memory_first != null
-          ? { writeMemoryFirst: args.write_memory_first }
-          : {}),
       });
       let msg = `Created schedule ${job.id}\n${JSON.stringify(job, null, 2)}`;
       const tz = job.timezone ?? "UTC";

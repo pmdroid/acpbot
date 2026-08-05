@@ -1,6 +1,5 @@
 /**
- * Session compact prompts — durable memory lives **in the git repo**, under
- * `.acpbot/memory/` (not under host state_dir or a child worktree).
+ * Session compact prompts — durable memory lives **in the git repo**.
  */
 import { join, resolve } from "node:path";
 
@@ -45,7 +44,7 @@ export function buildCompactPrompt(input: {
   const abs = sessionMemoryAbsPath(input.repoRoot, input.sessionKey);
   const focus = input.focus?.trim();
   const lines = [
-    "You are compacting this acpbot session so a later turn (or scheduled job) can continue with a clean context.",
+    "You are compacting this acpbot session so a later turn can continue with a clean context.",
     "",
     "## Required: write durable memory **in the repository**",
     `1. Create or update this file **inside the git repo** (not a worktree-only or temp path):`,
@@ -76,25 +75,4 @@ export function buildCompactPrompt(input: {
     "Do not ask questions. Do the write into the repo path above, then give the short summary.",
   );
   return lines.join("\n");
-}
-
-/**
- * Prefix scheduled fires so life-assistant / long-lived agents refresh memory first.
- * Paths are relative to the **repo root** used by the scheduler.
- */
-export function buildScheduleMemoryPreamble(input: {
-  sessionKey: string;
-  enabled?: boolean;
-}): string[] {
-  if (input.enabled === false) return [];
-  const mem = sessionMemoryRelPath(input.sessionKey);
-  return [
-    "## Before the scheduled task (required)",
-    "1. Read durable memory **in this repository** if it exists: `" +
-      mem +
-      "` (under the repo root, not a worktree-only path).",
-    "2. Update that file with anything important from this session that should survive (merge, prune stale).",
-    "3. Only after memory is written into the repo, execute the scheduled prompt below.",
-    "",
-  ];
 }

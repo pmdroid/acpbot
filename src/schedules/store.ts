@@ -226,8 +226,6 @@ export async function createJob(
     if (input.kind === "once" && input.runAt?.trim()) {
       job.runAt = new Date(input.runAt.trim()).toISOString();
     }
-    // Default true — durable memory before scheduled prompt (life-assistant).
-    job.writeMemoryFirst = input.writeMemoryFirst !== false;
 
     const validated = scheduleJobSchema.parse(job);
     try {
