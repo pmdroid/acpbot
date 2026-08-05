@@ -112,32 +112,17 @@ export function repoKeyFromSessionKey(sessionKey: string): string | null {
 
 /**
  * Build the agent prompt envelope for a scheduled fire.
- * By default prepends a write-memory-first block (life-assistant / long sessions).
  */
 export function buildFireEnvelope(job: ScheduleJob, cwd: string): string {
   const label = job.name?.trim() ? `${job.id} | ${job.name.trim()}` : job.id;
-  const writeMemoryFirst = job.writeMemoryFirst !== false;
-  const memSlug = job.sessionKey
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120) || "session";
-  const memPath = `.acpbot/memory/${memSlug}.md`;
   const lines = [
     `[scheduled job ${label}]`,
     `It is time to execute this scheduled task for session ${job.sessionKey}.`,
     `Repo: ${cwd}`,
     "",
+    "## Prompt",
+    job.prompt,
   ];
-  if (writeMemoryFirst) {
-    lines.push(
-      "## Before the scheduled task (required)",
-      `1. Read durable memory **in this repository** (repo root \`${cwd}\`) if present: \`${memPath}\`.`,
-      "2. Update that file under the **repo root** (not a child worktree-only path) with anything that should survive a fresh context.",
-      "3. Only after memory is written into the repo, execute the scheduled prompt below.",
-      "",
-    );
-  }
-  lines.push("## Prompt", job.prompt);
   if (job.script?.trim()) {
     lines.push(
       "",
