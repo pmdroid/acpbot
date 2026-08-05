@@ -26,7 +26,6 @@ The name `acpbot` is reserved.
 | `schedule_cancel` | Disable a job |
 | `schedule_run_now` | Mark due so the host fires on the next tick |
 | `agent_spawn` / `list` / `send` / `wait` / `kill` | Multi-agent children (worktrees + A2A) — [Multi-agent](/docs/multi-agent) |
-| `memory_read` / `memory_write` / `memory_status` | Repo-local durable notes (`MEMORY.md`, `USER.md`, `memory/YYYY-MM-DD.md`) |
 
 ### Working bubble vs permanent messages
 

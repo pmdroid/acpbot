@@ -145,7 +145,6 @@ On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` / `/unqueue` | List / remove waiting prompts |
 | `/status` | Agent, model, mode, effort, cwd, MCP; spawned children / parent link when multi-agent |
-| `/compact` | Flush durable repo memory via agent (`memory_*` → `MEMORY.md` + daily); optional focus |
 | `/model` | LLM picker (or `/model <id>`) |
 | `/effort` | Reasoning effort (when the agent advertises it) |
 | `/permissions` | Tool policy: `ask` (default) or `bypass` |

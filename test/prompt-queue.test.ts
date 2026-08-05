@@ -104,12 +104,29 @@ describe("prompt queue while turn busy", () => {
     expect(env.agents.turns.length).toBe(1);
     expect(env.agents.turns[0]!.input.text).toContain("hello one");
 
-    // Finish first turn → second should start
+    const queuedAck = env.telegram
+      .sentMessages()
+      .find((m) => /Queued/i.test(m.text ?? ""));
+    expect(queuedAck).toBeDefined();
+
+    // Finish first turn → second should start; queue ack deleted from chat
     releaseFirst();
     await settle(80);
 
     expect(env.agents.turns.length).toBeGreaterThanOrEqual(2);
     expect(env.agents.turns[1]!.input.text).toContain("hello two");
+
+    const deletes = env.telegram.outbound.filter(
+      (c) => c.method === "deleteMessage",
+    );
+    expect(deletes.length).toBeGreaterThanOrEqual(1);
+    expect(
+      deletes.some(
+        (c) =>
+          c.method === "deleteMessage" &&
+          c.params.messageId === queuedAck!.message_id,
+      ),
+    ).toBe(true);
 
     const later = env.telegram.sentMessages().map((m) => m.text ?? "");
     expect(later.some((t) => /first-reply/.test(t))).toBe(true);
