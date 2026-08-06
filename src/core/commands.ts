@@ -74,7 +74,7 @@ export const COMMANDS: readonly CommandDef[] = [
     aliases: ["/permission", "/yolo"],
     scope: "both",
     summary:
-      "Tool permissions: ask|bypass (topic) or default ask|bypass (new topics)",
+      "Tool permissions: Ask/Bypass buttons, or ask|bypass / default ask|bypass",
   },
   {
     name: "/plan",

@@ -98,9 +98,9 @@ permission_mode = "ask"            # or "bypass"
 
 | Command | Scope |
 |---|---|
-| `/permissions` | Status (default + this topic) |
+| `/permissions` | Status + **Ask** / **Bypass** buttons (topic = this session; lobby = default + config.toml) |
 | `/permissions ask\|bypass` | This topic only |
-| `/permissions default ask\|bypass` | New topics (persists under `state_dir/permission-mode.json`) |
+| `/permissions default ask\|bypass` | New topics — writes `config.toml` + `state_dir/permission-mode.json` |
 
 Changing a topic’s policy re-ensures the agent slot so Grok spawn flags apply.
 

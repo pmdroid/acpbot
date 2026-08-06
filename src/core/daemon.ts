@@ -23,6 +23,7 @@ import {
   encodeModeCallback,
   encodeModelCallback,
   encodeNewRepoCallback,
+  encodePermissionModeCallback,
   encodeQueueRemoveCallback,
   keyboardFromButtons,
   newToken,
@@ -34,6 +35,7 @@ import {
   parseModelCallback,
   parseNewRepoCallback,
   parsePermissionCallback,
+  parsePermissionModeCallback,
   parseQueueRemoveCallback,
   parseSkillCallback,
 } from "./callbacks";
@@ -184,7 +186,9 @@ import {
   formatPermissionStatus,
   parsePermissionMode,
   permissionModeLabel,
+  PERMISSION_MODE_OPTIONS,
 } from "../acp/permission-mode";
+import { writePermissionModeToConfig } from "../setup/permission-toml";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -319,6 +323,20 @@ export function createDaemon(
   const agentPicks = new Map<
     string,
     { sessionKey: string; agents: string[] }
+  >();
+  /**
+   * Permission policy picker (ask|bypass).
+   * - topic: set this session's permissionMode
+   * - lobby / default: set runtime default + config.toml
+   */
+  const permissionModePicks = new Map<
+    string,
+    {
+      scope: "topic" | "default";
+      sessionKey?: string;
+      /** chatId for lobby replies when no session */
+      chatId?: number;
+    }
   >();
   /**
    * In-memory only — never persisted. Restart always exits naming mode.
@@ -690,12 +708,41 @@ export function createDaemon(
     mode: PermissionMode,
   ): Promise<void> {
     runtimePermissionDefault = mode;
+    // Keep live config in sync so ensure/status use the new default immediately.
+    env.config.permissionMode = mode;
     await mkdir(dirname(permissionDefaultPath), { recursive: true });
     await writeFile(
       permissionDefaultPath,
       `${JSON.stringify({ permissionMode: mode }, null, 2)}\n`,
       "utf8",
     );
+    // Persist into config.toml so restarts (and config watch) keep the choice.
+    if (configPath) {
+      try {
+        writePermissionModeToConfig(configPath, mode);
+        log.info("permission_mode written to config.toml", {
+          mode,
+          path: configPath,
+        });
+      } catch (err) {
+        log.warn("could not write permission_mode to config.toml", {
+          path: configPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  /** Two-button Ask | Bypass keyboard for /permissions. */
+  function permissionModeKeyboard(
+    token: string,
+    current: PermissionMode,
+  ): ReturnType<typeof keyboardFromButtons> {
+    const buttons = PERMISSION_MODE_OPTIONS.map((opt, i) => ({
+      text: (opt.mode === current ? "✓ " : "") + opt.label,
+      callback_data: encodePermissionModeCallback(token, i),
+    }));
+    return keyboardFromButtons(buttons);
   }
 
   async function createSession(
@@ -1403,6 +1450,7 @@ export function createDaemon(
       case "/permissions":
         await handlePermissionsCommand(slash.args, {
           scope: "lobby",
+          chatId,
           reply: (text, replyMarkup, extra) =>
             lobbyReply(text, replyMarkup, extra),
         });
@@ -4039,9 +4087,81 @@ export function createDaemon(
   }
 
   /**
+   * Apply topic-level ask|bypass: persist session, re-ensure agent slot.
+   */
+  async function applyTopicPermissionMode(
+    session: PersistedSession,
+    mode: PermissionMode,
+  ): Promise<{ prev: PermissionMode }> {
+    const prev = effectivePermissionMode(session);
+    session.permissionMode = mode;
+    session.updatedAt = env.clock.now();
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+
+    // Respawn agent so Grok --always-approve / yoloMode and ACP modes apply.
+    if (prev !== mode) {
+      try {
+        if (session.status === "running") {
+          await env.agents.cancelTurn?.(
+            session.sessionKey,
+            "operator /permissions change",
+          );
+        }
+        // forceRespawn: session-host also keys on permissionMode, but force
+        // guarantees a clean spawn with the new policy flags.
+        await ensureSessionWithPerms(session, { forceRespawn: true });
+      } catch (err) {
+        log.warn("permissions: re-ensure after change failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    log.info("session permission mode set", {
+      sessionKey: session.sessionKey,
+      mode,
+      prev,
+    });
+    return { prev };
+  }
+
+  function topicPermissionAppliedText(mode: PermissionMode): string {
+    return (
+      `This topic → **\`${permissionModeLabel(mode)}\`**\n\n` +
+      (mode === "bypass"
+        ? "_Tools auto-approve until you switch back to ask._\n\n"
+        : "_You will get approve/reject buttons for tools._\n\n") +
+      formatPermissionStatus({
+        defaultMode: getDefaultPermissionMode(),
+        session: mode,
+      })
+    );
+  }
+
+  function defaultPermissionAppliedText(
+    mode: PermissionMode,
+    session?: PersistedSession,
+  ): string {
+    return (
+      `Default for **new topics** → \`${permissionModeLabel(mode)}\`` +
+      (configPath ? ` _(saved to config.toml)_` : "") +
+      `\n\n` +
+      (mode === "bypass"
+        ? "_Tools will auto-approve. Deny rules / hooks may still apply in some agents._\n\n"
+        : "") +
+      formatPermissionStatus({
+        defaultMode: mode,
+        session: session?.permissionMode,
+      })
+    );
+  }
+
+  /**
    * /permissions — tool auto-approve policy (not session plan/build mode).
-   * Topic: this session · `default <mode>`: new topics · bare: status.
-   * Lobby: status + `default` only.
+   * Topic: this session · `default <mode>`: new topics · bare: status + Ask/Bypass buttons.
+   * Lobby: status + buttons set the default (and config.toml).
    */
   async function handlePermissionsCommand(
     args: string[],
@@ -4053,22 +4173,31 @@ export function createDaemon(
         extra?: { html?: boolean },
       ) => Promise<unknown>;
       scope: "lobby" | "topic";
+      /** Lobby chat id for default-picker callbacks. */
+      chatId?: number;
     },
   ): Promise<void> {
     const { session, reply, scope } = opts;
     const a0 = args[0]?.toLowerCase();
     const a1 = args[1]?.toLowerCase();
 
-    // /permissions default ask|bypass
+    // /permissions default [ask|bypass]
     if (a0 === "default") {
       if (!a1) {
+        // Picker for default
+        const token = newToken();
+        permissionModePicks.set(token, {
+          scope: "default",
+          ...(session ? { sessionKey: session.sessionKey } : {}),
+          ...(opts.chatId !== undefined ? { chatId: opts.chatId } : {}),
+        });
+        const current = getDefaultPermissionMode();
         await reply(
           formatPermissionStatus({
-            defaultMode: getDefaultPermissionMode(),
+            defaultMode: current,
             session: session?.permissionMode,
-          }) +
-            "\n\nSet default: `/permissions default ask` or `/permissions default bypass`",
-          undefined,
+          }) + "\n\n_Pick default for **new topics** (writes config):_",
+          permissionModeKeyboard(token, current),
           { html: true },
         );
         return;
@@ -4084,29 +4213,42 @@ export function createDaemon(
       }
       await saveRuntimePermissionDefault(mode);
       log.info("permission default updated", { mode, via: "slash" });
-      await reply(
-        `Default for **new topics** → \`${permissionModeLabel(mode)}\`\n\n` +
-          (mode === "bypass"
-            ? "_Tools will auto-approve. Deny rules / hooks may still apply in some agents._\n\n"
-            : "") +
-          formatPermissionStatus({
-            defaultMode: mode,
-            session: session?.permissionMode,
-          }),
-        undefined,
-        { html: true },
-      );
+      await reply(defaultPermissionAppliedText(mode, session), undefined, {
+        html: true,
+      });
       return;
     }
 
-    // Bare /permissions — status
+    // Bare /permissions — status + two buttons
     if (!a0) {
+      const token = newToken();
+      if (scope === "topic" && session) {
+        permissionModePicks.set(token, {
+          scope: "topic",
+          sessionKey: session.sessionKey,
+        });
+        const current = effectivePermissionMode(session);
+        await reply(
+          formatPermissionStatus({
+            defaultMode: getDefaultPermissionMode(),
+            session: session.permissionMode,
+          }) + "\n\n_Pick policy for **this topic**:_",
+          permissionModeKeyboard(token, current),
+          { html: true },
+        );
+        return;
+      }
+      // Lobby: buttons set default
+      permissionModePicks.set(token, {
+        scope: "default",
+        ...(opts.chatId !== undefined ? { chatId: opts.chatId } : {}),
+      });
+      const current = getDefaultPermissionMode();
       await reply(
         formatPermissionStatus({
-          defaultMode: getDefaultPermissionMode(),
-          session: session?.permissionMode,
-        }),
-        undefined,
+          defaultMode: current,
+        }) + "\n\n_Pick default for **new topics** (writes config):_",
+        permissionModeKeyboard(token, current),
         { html: true },
       );
       return;
@@ -4115,7 +4257,7 @@ export function createDaemon(
     // Topic-only: /permissions ask|bypass
     if (scope === "lobby") {
       await reply(
-        "Change the default with `/permissions default ask|bypass`.\n" +
+        "Use the **Ask** / **Bypass** buttons, or `/permissions default ask|bypass`.\n" +
           "Per-topic overrides only work inside a session topic.",
         undefined,
         { html: true },
@@ -4130,64 +4272,151 @@ export function createDaemon(
 
     const mode = parsePermissionMode(a0);
     if (!mode) {
+      const token = newToken();
+      permissionModePicks.set(token, {
+        scope: "topic",
+        sessionKey: session.sessionKey,
+      });
       await reply(
         `Unknown mode \`${a0}\`.\n\n` +
           formatPermissionStatus({
             defaultMode: getDefaultPermissionMode(),
             session: session.permissionMode,
-          }),
-        undefined,
+          }) +
+          "\n\n_Pick policy for **this topic**:_",
+        permissionModeKeyboard(token, effectivePermissionMode(session)),
         { html: true },
       );
       return;
     }
 
-    const prev = effectivePermissionMode(session);
-    session.permissionMode = mode;
-    session.updatedAt = env.clock.now();
-    sessionIndex.byKey[session.sessionKey] = session;
-    await persistIndex();
+    await applyTopicPermissionMode(session, mode);
+    await reply(topicPermissionAppliedText(mode), undefined, { html: true });
+  }
 
-    // Respawn agent slot so Grok --always-approve / yoloMode apply cleanly.
-    if (prev !== mode) {
+  async function handlePermissionModeCallback(
+    data: string,
+    callbackQueryId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    const parsed = parsePermissionModeCallback(data);
+    if (!parsed) return;
+
+    const pick = permissionModePicks.get(parsed.token);
+    if (!pick) {
       try {
-        if (session.status === "running") {
-          await env.agents.cancelTurn?.(
-            session.sessionKey,
-            "operator /permissions change",
-          );
-        }
-        // dispose via switch-like path: ensure with new mode after kill
-        if (env.agents.switchSessionAgent) {
-          // Prefer dispose through ensure by killing host slot
-        }
-        // Re-ensure with new policy (host recreates if permissionMode differs)
-        await ensureSessionWithPerms(session);
-      } catch (err) {
-        log.warn("permissions: re-ensure after change failed", {
-          sessionKey: session.sessionKey,
-          error: err instanceof Error ? err.message : String(err),
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Picker expired — run /permissions again",
         });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    // Cancel not used (two-button only), but accept -1 if present
+    if (parsed.modeIndex < 0) {
+      permissionModePicks.delete(parsed.token);
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Cancelled",
+        });
+      } catch {
+        /* ignore */
+      }
+      if (message) {
+        try {
+          await env.telegram.editMessageText({
+            chatId: message.chat.id,
+            messageId: message.message_id,
+            text: "Permission picker cancelled.",
+            replyMarkup: { inline_keyboard: [] },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
+    const opt = PERMISSION_MODE_OPTIONS[parsed.modeIndex];
+    if (!opt) {
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: "Invalid choice",
+        });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    permissionModePicks.delete(parsed.token);
+    const mode = opt.mode;
+
+    try {
+      await env.telegram.answerCallbackQuery({
+        callbackQueryId,
+        text: `→ ${permissionModeLabel(mode)}`,
+      });
+    } catch {
+      /* ignore */
+    }
+
+    let resultText: string;
+    if (pick.scope === "topic") {
+      const session = pick.sessionKey
+        ? sessionIndex.byKey[pick.sessionKey]
+        : undefined;
+      if (!session) {
+        resultText = "Session gone — open the topic and run /permissions again.";
+      } else {
+        await applyTopicPermissionMode(session, mode);
+        resultText = topicPermissionAppliedText(mode);
+      }
+    } else {
+      await saveRuntimePermissionDefault(mode);
+      log.info("permission default updated", { mode, via: "button" });
+      const session = pick.sessionKey
+        ? sessionIndex.byKey[pick.sessionKey]
+        : undefined;
+      resultText = defaultPermissionAppliedText(mode, session);
+    }
+
+    const formatted = formatForTelegram(resultText);
+    if (message) {
+      try {
+        await env.telegram.editMessageText({
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          text: formatted.text,
+          replyMarkup: { inline_keyboard: [] },
+          ...(formatted.parseMode
+            ? { parseMode: formatted.parseMode }
+            : {}),
+        });
+        return;
+      } catch {
+        /* fall through to send new message */
       }
     }
 
-    log.info("session permission mode set", {
-      sessionKey: session.sessionKey,
-      mode,
-      prev,
-    });
-    await reply(
-      `This topic → **\`${permissionModeLabel(mode)}\`**\n\n` +
-        (mode === "bypass"
-          ? "_Tools auto-approve until you switch back to ask._\n\n"
-          : "_You will get approve/reject buttons for tools._\n\n") +
-        formatPermissionStatus({
-          defaultMode: getDefaultPermissionMode(),
-          session: mode,
-        }),
-      undefined,
-      { html: true },
-    );
+    // Fallback: send a new message
+    if (pick.scope === "topic" && pick.sessionKey) {
+      const session = sessionIndex.byKey[pick.sessionKey];
+      if (session) {
+        await sendInTopic(session, resultText, undefined, { html: true });
+        return;
+      }
+    }
+    const chatId =
+      pick.chatId ?? message?.chat.id ?? operatorChatId ?? undefined;
+    if (chatId !== undefined) {
+      await replyInRoot(chatId, resultText, undefined, { html: true });
+    }
   }
 
   async function handleTopicMessage(msg: TelegramMessage): Promise<void> {
@@ -4825,6 +5054,12 @@ export function createDaemon(
     const agentCb = parseAgentCallback(cq.data);
     if (agentCb) {
       await handleAgentCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const permModeCb = parsePermissionModeCallback(cq.data);
+    if (permModeCb) {
+      await handlePermissionModeCallback(cq.data, cq.id, cq.message);
       return;
     }
 

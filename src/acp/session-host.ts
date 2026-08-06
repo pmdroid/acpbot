@@ -1289,21 +1289,30 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           }
         }
       } else if (existing) {
-        // Agent/cwd change or force (post-OAuth MCP rebuild) → kill and respawn.
+        const nextPerm =
+          input.permissionMode === "bypass" ? "bypass" : "ask";
+        const prevPerm = existing.permissionMode ?? "ask";
+        // Agent/cwd/permission change or force (post-OAuth MCP rebuild) → kill and respawn.
+        // Permission mode must respawn: Grok --always-approve / yoloMode are spawn-time.
         if (
           input.forceRespawn ||
           existing.agent !== input.agent ||
-          existing.cwd !== input.cwd
+          existing.cwd !== input.cwd ||
+          prevPerm !== nextPerm
         ) {
           log.info(
             input.forceRespawn
               ? "ensureSession: forceRespawn; rebuilding MCP"
-              : "ensureSession: agent/cwd changed; respawning",
+              : prevPerm !== nextPerm
+                ? "ensureSession: permissionMode changed; respawning"
+                : "ensureSession: agent/cwd changed; respawning",
             {
               sessionKey: input.sessionKey,
               fromAgent: existing.agent,
               toAgent: input.agent,
               forceRespawn: Boolean(input.forceRespawn),
+              permissionMode: nextPerm,
+              prevPermissionMode: prevPerm,
             },
           );
           await killLiveSession(input.sessionKey);

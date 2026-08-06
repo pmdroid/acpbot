@@ -31,7 +31,7 @@ Commands are registered in `src/core/commands.ts`.
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
 | `/mode` | Session mode picker (plan/build/ask), or `/mode <id>` / toggle |
-| `/permissions` | Tool policy: `/permissions ask|bypass` (topic) or `default ask|bypass` (new topics). See below. |
+| `/permissions` | Tool policy picker (**Ask** / **Bypass** buttons). Topic sets this session; lobby sets default + config.toml. Also `/permissions ask\|bypass` or `default ask\|bypass`. |
 
 ### Permission mode vs agent tools
 
