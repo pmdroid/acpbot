@@ -69,6 +69,19 @@ export type ProcessConfig = AcpbotConfig & {
     /** Soft-close idle children after N hours (0 = off). Default 24 when unset. */
     idleCloseHours?: number;
   };
+  /**
+   * EVE — Extraterrestrial Vegetation Evaluator.
+   * Background multi-agent directives ([eve] in config.toml).
+   */
+  eve?: {
+    enabled?: boolean;
+    maxAgentsPerRun?: number;
+    maxConcurrent?: number;
+    schemaRetries?: number;
+    requireApproval?: boolean;
+    digestIntervalSec?: number;
+    defaultAgent?: string;
+  };
 };
 
 export type LoadConfigOptions = {
@@ -352,6 +365,52 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
       if (idleH != null) spawnOut.idleCloseHours = idleH;
       if (Object.keys(spawnOut).length > 0) out.agentSpawn = spawnOut;
     }
+  }
+
+  // [eve] — background multi-agent directives (WALL-E)
+  const eve = raw.eve;
+  if (eve && typeof eve === "object" && !Array.isArray(eve)) {
+    const e = eve as Record<string, unknown>;
+    const eveOut: NonNullable<ProcessConfig["eve"]> = {};
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) {
+        return Number(v);
+      }
+      return undefined;
+    };
+    if (e.enabled === false || e.enabled === "false" || e.enabled === 0) {
+      eveOut.enabled = false;
+    }
+    if (e.enabled === true || e.enabled === "true" || e.enabled === 1) {
+      eveOut.enabled = true;
+    }
+    const maxAgents = num(e.max_agents_per_run ?? e.maxAgentsPerRun);
+    if (maxAgents != null) eveOut.maxAgentsPerRun = maxAgents;
+    const maxConc = num(e.max_concurrent ?? e.maxConcurrent);
+    if (maxConc != null) eveOut.maxConcurrent = maxConc;
+    const retries = num(e.schema_retries ?? e.schemaRetries);
+    if (retries != null) eveOut.schemaRetries = retries;
+    if (
+      e.require_approval === false ||
+      e.requireApproval === false ||
+      e.require_approval === "false"
+    ) {
+      eveOut.requireApproval = false;
+    }
+    if (
+      e.require_approval === true ||
+      e.requireApproval === true ||
+      e.require_approval === "true"
+    ) {
+      eveOut.requireApproval = true;
+    }
+    const digest = num(e.digest_interval_sec ?? e.digestIntervalSec);
+    if (digest != null) eveOut.digestIntervalSec = digest;
+    if (e.default_agent !== undefined || e.defaultAgent !== undefined) {
+      eveOut.defaultAgent = String(e.default_agent ?? e.defaultAgent).trim();
+    }
+    if (Object.keys(eveOut).length > 0) out.eve = eveOut;
   }
 
   return out as Partial<ProcessConfig> & { verbose?: boolean; sttEnabled?: boolean };
@@ -826,6 +885,9 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
     config.agentSpawn = {
       ...file.agentSpawn,
     };
+  }
+  if (file.eve && typeof file.eve === "object") {
+    config.eve = { ...file.eve };
   }
   // Default idle soft-close 24h when spawn table omitted idle_close_hours
   if (config.agentSpawn?.idleCloseHours === undefined) {

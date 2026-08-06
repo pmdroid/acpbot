@@ -56,6 +56,7 @@ describe("command registry", () => {
       "/build",
       "/cancel",
       "/effort",
+      "/eve",
       "/fresh",
       "/help",
       "/linear",

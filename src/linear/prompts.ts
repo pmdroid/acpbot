@@ -172,4 +172,5 @@ export const LINEAR_COMMAND_USAGE = [
   "`/linear next` — agent: **one** next open issue (In Progress → implement → Done)",
   "`/linear work <ISSUE>` — agent: focus one issue",
   "`/linear fanout` — agent: multi-agent one child per open issue",
+  "`/linear drain` — **EVE** background directive: ready-set issues until dry",
 ].join("\n");

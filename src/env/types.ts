@@ -70,6 +70,16 @@ export type AcpbotConfig = {
     /** Soft-close idle children after N hours (0 = off). Default 24. */
     idleCloseHours?: number;
   };
+  /** EVE background directives ([eve]). */
+  eve?: {
+    enabled?: boolean;
+    maxAgentsPerRun?: number;
+    maxConcurrent?: number;
+    schemaRetries?: number;
+    requireApproval?: boolean;
+    digestIntervalSec?: number;
+    defaultAgent?: string;
+  };
 };
 
 
