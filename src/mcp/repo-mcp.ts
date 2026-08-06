@@ -1060,47 +1060,33 @@ export function formatMcpRegistryStatus(
   const tokenSet = new Set(auth?.tokenIds ?? []);
   const showAuth = auth?.oauthEnabled === true;
   if (config.mcpServers.length === 0) {
-    return (
-      `No MCP servers in \`.acpbot/mcp.json\`.${rootNote}\n\n` +
-      `Add a remote gateway:\n\`/mcp add <id> <url>\``
-    );
+    return `No MCP gateways.${rootNote}\n\`/mcp add <id> <url>\``;
   }
 
   const lines = config.mcpServers.map((s) => {
     const name = typeof s.name === "string" ? s.name : "?";
     if (typeof s.url === "string") {
-      const type =
-        typeof s.type === "string" && s.type.trim()
-          ? s.type.trim()
-          : "http";
       let authNote = "";
       if (showAuth) {
-        authNote = tokenSet.has(name)
-          ? " · auth: ok"
-          : " · auth: missing (run `/mcp auth " + name + "`)";
+        authNote = tokenSet.has(name) ? " · ✓" : " · auth?";
       }
-      return `• **${name}** (${type}) ${s.url}${authNote}`;
+      const url =
+        s.url.length > 48 ? `${s.url.slice(0, 47)}…` : s.url;
+      return `· **${name}** ${url}${authNote}`;
     }
     if (typeof s.command === "string") {
-      return `• **${name}** (stdio) \`${s.command}\``;
+      return `· **${name}** stdio \`${s.command}\``;
     }
-    return `• **${name}**`;
+    return `· **${name}**`;
   });
 
   return (
-    `MCP gateways for this repo (${config.mcpServers.length}):${rootNote}\n\n` +
-    lines.join("\n") +
-    `\n\n\`/mcp add <id> <url>\` · \`/mcp remove <id>\` · \`/mcp auth <id>\``
+    `**MCP** (${config.mcpServers.length})${rootNote}\n` +
+    lines.join("\n")
   );
 }
 
 export const MCP_COMMAND_USAGE =
-  "Usage:\n" +
-  "`/mcp` or `/mcp status` — list gateways + OAuth status\n" +
-  "`/mcp add <id> <url>` — register remote http MCP (id + url only)\n" +
-  "`/mcp remove <id>` — remove entry\n" +
-  "`/mcp auth <id>` — start OAuth (Telegram link; tokens on host)\n" +
-  "`/mcp code <callback-url-or-code> [id]` — paste fallback if redirect cannot reach host\n\n" +
-  "Tokens are never written to the repo (no user:pass@ in URLs).\n" +
-  "Same id replaces an existing remote entry; stdio entries require `/mcp remove` first.";
+  "`/mcp status` · `/mcp add <id> <url>` · `/mcp remove <id>`\n" +
+  "`/mcp auth <id>` · `/mcp code <url-or-code> [id]`";
 

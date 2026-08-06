@@ -2581,8 +2581,7 @@ export function createDaemon(
       const avail = next.availableModeIds ?? [];
       await sendInTopic(
         session,
-        `Mode → **\`${cur}\`**\n\n` +
-          formatModeStatus({ current: cur, available: avail }),
+        `Mode → **\`${cur}\`**`,
         undefined,
         { html: true },
       );
@@ -2657,7 +2656,7 @@ export function createDaemon(
       formatModeStatus({
         current: state.currentModeId,
         available,
-      }) + "\n\n_Pick a mode:_",
+      }),
       keyboardFromButtons(buttons),
       { html: true },
     );
@@ -3386,9 +3385,7 @@ export function createDaemon(
     if (!modelOpt || modelOpt.options.length === 0) {
       await sendInTopic(
         session,
-        formatModelStatus({ configOptions: options }) +
-          "\n\n_Tip: models come from the agent via ACP (`session.models` / " +
-          "configOptions). If empty, the agent does not advertise a model list._",
+        formatModelStatus({ configOptions: options }),
         undefined,
         { html: true },
       );
@@ -3433,10 +3430,7 @@ export function createDaemon(
           currentModelLabel(next as SessionConfigOptionView[]) ?? hit.value;
         await sendInTopic(
           session,
-          `Model → **\`${label}\`**\n\n` +
-            formatModelStatus({
-              configOptions: next as SessionConfigOptionView[],
-            }),
+          `Model → **\`${label}\`**`,
           undefined,
           { html: true },
         );
@@ -3473,7 +3467,7 @@ export function createDaemon(
     });
     await sendInTopic(
       session,
-      formatModelStatus({ configOptions: options }) + "\n\n_Pick a model:_",
+      formatModelStatus({ configOptions: options }),
       keyboardFromButtons(buttons),
       { html: true },
     );
@@ -3563,10 +3557,7 @@ export function createDaemon(
         );
         await sendInTopic(
           session,
-          `Effort → **\`${hit.value}\`**\n\n` +
-            formatEffortStatus({
-              configOptions: next as SessionConfigOptionView[],
-            }),
+          `Effort → **\`${hit.value}\`**`,
           undefined,
           { html: true },
         );
@@ -3603,7 +3594,7 @@ export function createDaemon(
     });
     await sendInTopic(
       session,
-      formatEffortStatus({ configOptions: options }) + "\n\n_Pick effort:_",
+      formatEffortStatus({ configOptions: options }),
       keyboardFromButtons(buttons),
       { html: true },
     );
@@ -3655,9 +3646,7 @@ export function createDaemon(
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
-        `Agent → **\`${agentDisplayName(agentId)}\`** (\`${agentId}\`)\n` +
-          `Launch: \`${launch.command}${launch.args.length ? " " + launch.args.join(" ") : ""}\`\n\n` +
-          `_Process restarted for this topic. In-flight turn was cancelled._`,
+        `Agent → **\`${agentDisplayName(agentId)}\`** · restarted`,
         undefined,
         { html: true },
       );
@@ -3713,10 +3702,7 @@ export function createDaemon(
     });
     await sendInTopic(
       session,
-      `**Agent process** for \`${session.sessionKey}\`\n` +
-        `Current: \`${agentDisplayName(cur)}\`\n` +
-        `Installed: ${agents.map((a) => `\`${agentDisplayName(a)}\``).join(", ")}\n\n` +
-        `_Switching restarts the agent for this topic only._\n\n_Pick an agent:_`,
+      `**Agent:** \`${agentDisplayName(cur)}\` · restart on switch`,
       keyboardFromButtons(buttons),
       { html: true },
     );
@@ -3797,10 +3783,7 @@ export function createDaemon(
         currentModelLabel(next as SessionConfigOptionView[]) ?? choice.value;
       await sendInTopic(
         session,
-        `Model → **\`${label}\`**\n\n` +
-          formatModelStatus({
-            configOptions: next as SessionConfigOptionView[],
-          }),
+        `Model → **\`${label}\`**`,
         undefined,
         { html: true },
       );
@@ -3885,10 +3868,7 @@ export function createDaemon(
       );
       await sendInTopic(
         session,
-        `Effort → **\`${choice.value}\`**\n\n` +
-          formatEffortStatus({
-            configOptions: next as SessionConfigOptionView[],
-          }),
+        `Effort → **\`${choice.value}\`**`,
         undefined,
         { html: true },
       );
@@ -3981,9 +3961,7 @@ export function createDaemon(
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
-        `Agent → **\`${agentId}\`**\n` +
-          `Launch: \`${launch.command}${launch.args.length ? " " + launch.args.join(" ") : ""}\`\n\n` +
-          `_Process restarted for this topic._`,
+        `Agent → **\`${agentId}\`** · restarted`,
         undefined,
         { html: true },
       );
@@ -4128,33 +4106,16 @@ export function createDaemon(
   }
 
   function topicPermissionAppliedText(mode: PermissionMode): string {
-    return (
-      `This topic → **\`${permissionModeLabel(mode)}\`**\n\n` +
-      (mode === "bypass"
-        ? "_Tools auto-approve until you switch back to ask._\n\n"
-        : "_You will get approve/reject buttons for tools._\n\n") +
-      formatPermissionStatus({
-        defaultMode: getDefaultPermissionMode(),
-        session: mode,
-      })
-    );
+    return `Permissions → **\`${permissionModeLabel(mode)}\`** (this topic)`;
   }
 
   function defaultPermissionAppliedText(
     mode: PermissionMode,
-    session?: PersistedSession,
+    _session?: PersistedSession,
   ): string {
     return (
-      `Default for **new topics** → \`${permissionModeLabel(mode)}\`` +
-      (configPath ? ` _(saved to config.toml)_` : "") +
-      `\n\n` +
-      (mode === "bypass"
-        ? "_Tools will auto-approve. Deny rules / hooks may still apply in some agents._\n\n"
-        : "") +
-      formatPermissionStatus({
-        defaultMode: mode,
-        session: session?.permissionMode,
-      })
+      `Default permissions → **\`${permissionModeLabel(mode)}\`**` +
+      (configPath ? " · config saved" : "")
     );
   }
 
@@ -4196,7 +4157,7 @@ export function createDaemon(
           formatPermissionStatus({
             defaultMode: current,
             session: session?.permissionMode,
-          }) + "\n\n_Pick default for **new topics** (writes config):_",
+          }) + "\n_Default for new topics:_",
           permissionModeKeyboard(token, current),
           { html: true },
         );
@@ -4205,7 +4166,7 @@ export function createDaemon(
       const mode = parsePermissionMode(a1);
       if (!mode) {
         await reply(
-          `Unknown mode \`${a1}\`. Use \`ask\` or \`bypass\`.`,
+          `Unknown \`${a1}\` — use \`ask\` or \`bypass\`.`,
           undefined,
           { html: true },
         );
@@ -4232,7 +4193,7 @@ export function createDaemon(
           formatPermissionStatus({
             defaultMode: getDefaultPermissionMode(),
             session: session.permissionMode,
-          }) + "\n\n_Pick policy for **this topic**:_",
+          }),
           permissionModeKeyboard(token, current),
           { html: true },
         );
@@ -4247,7 +4208,7 @@ export function createDaemon(
       await reply(
         formatPermissionStatus({
           defaultMode: current,
-        }) + "\n\n_Pick default for **new topics** (writes config):_",
+        }) + "\n_Default for new topics:_",
         permissionModeKeyboard(token, current),
         { html: true },
       );
@@ -4257,8 +4218,8 @@ export function createDaemon(
     // Topic-only: /permissions ask|bypass
     if (scope === "lobby") {
       await reply(
-        "Use the **Ask** / **Bypass** buttons, or `/permissions default ask|bypass`.\n" +
-          "Per-topic overrides only work inside a session topic.",
+        "Lobby sets the **default** — use buttons, or `/permissions default ask|bypass`.\n" +
+          "Per-topic: run `/permissions` inside a session topic.",
         undefined,
         { html: true },
       );
@@ -4278,12 +4239,11 @@ export function createDaemon(
         sessionKey: session.sessionKey,
       });
       await reply(
-        `Unknown mode \`${a0}\`.\n\n` +
+        `Unknown \`${a0}\`.\n` +
           formatPermissionStatus({
             defaultMode: getDefaultPermissionMode(),
             session: session.permissionMode,
-          }) +
-          "\n\n_Pick policy for **this topic**:_",
+          }),
         permissionModeKeyboard(token, effectivePermissionMode(session)),
         { html: true },
       );
@@ -4957,10 +4917,7 @@ export function createDaemon(
     if (!skill) return;
 
     const promptText = formatForTelegram(
-      `**Skill selected:** \`${skill.id}\`\n` +
-        `${skill.description.slice(0, 160)}\n\n` +
-        "Send your **prompt text** now in this topic.\n" +
-        "_(/cancel aborts)_",
+      `**Skill:** \`${skill.id}\` — send your prompt now.`,
     ).text;
 
     if (message) {

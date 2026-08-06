@@ -380,32 +380,13 @@ export function formatModeStatus(input: {
   available: string[];
 }): string {
   const { current, available } = input;
-  const lines = [
-    `**Session mode:** \`${current ?? "—"}\``,
-    "",
-  ];
   if (available.length === 0) {
-    lines.push(
-      "_This agent did not advertise ACP permission modes._",
-      "_Reasoning level: `/effort` (when advertised)._",
-    );
-  } else {
-    lines.push("Available:");
-    for (const id of available) {
-      const mark = id === current ? " ← current" : "";
-      const tag = isPlanLikeMode(id)
-        ? " (plan-like)"
-        : isBuildLikeMode(id)
-          ? " (build-like)"
-          : "";
-      lines.push(`• \`${id}\`${tag}${mark}`);
-    }
+    return `**Mode:** \`${current ?? "—"}\` · _(not advertised — try \`/effort\`)_`;
   }
-  lines.push(
-    "",
-    "Commands: `/mode` (picker) · `/mode toggle` · `/mode <id>` · `/plan` · `/build`",
-  );
-  return lines.join("\n");
+  const list = available
+    .map((id) => (id === current ? `**\`${id}\`**` : `\`${id}\``))
+    .join(" · ");
+  return `**Mode:** \`${current ?? "—"}\`\n${list}`;
 }
 
 /** One child line for /status multi-agent block. */
@@ -458,35 +439,29 @@ export function formatSessionStatus(input: {
   const launch =
     input.launch != null
       ? `${input.launch.command}${input.launch.args.length ? " " + input.launch.args.join(" ") : ""}`
-      : "(unknown)";
+      : undefined;
   const agentLine =
     input.agentLabel && input.agentLabel !== input.agent
-      ? `Agent: \`${input.agentLabel}\` (\`${input.agent}\`)`
-      : `Agent: \`${input.agent}\``;
+      ? `\`${input.agentLabel}\` (\`${input.agent}\`)`
+      : `\`${input.agent}\``;
   const lines = [
-    `**Session** \`${input.sessionKey}\``,
-    `Status: \`${input.status}\``,
-    agentLine,
-    `Launch: \`${launch}\``,
+    `**${input.sessionKey}** · \`${input.status}\` · ${agentLine}`,
   ];
-  // Permission mode (ACP session.modes / OpenCode config / Grok builtin) — not effort.
+  if (launch) {
+    const short =
+      launch.length > 72 ? `${launch.slice(0, 71)}…` : launch;
+    lines.push(`Launch: \`${short}\``);
+  }
+  // Only show fields that exist — skip noisy "not advertised" rows.
   if (input.mode) {
     lines.push(`Mode: \`${input.mode}\``);
   } else if (input.availableModes && input.availableModes.length > 0) {
-    lines.push(`Mode: _(none selected)_`);
+    lines.push(`Mode: —`);
   } else {
     lines.push(`Mode: _(not advertised)_`);
   }
-  if (input.model) {
-    lines.push(`Model: \`${input.model}\``);
-  } else {
-    lines.push(`Model: _(not advertised)_`);
-  }
-  if (input.effort) {
-    lines.push(`Effort: \`${input.effort}\``);
-  } else {
-    lines.push(`Effort: _(not advertised)_`);
-  }
+  if (input.model) lines.push(`Model: \`${input.model}\``);
+  if (input.effort) lines.push(`Effort: \`${input.effort}\``);
   if (input.permissionMode) {
     lines.push(`Permissions: \`${input.permissionMode}\``);
   }
@@ -495,52 +470,40 @@ export function formatSessionStatus(input: {
       `Modes: ${input.availableModes.map((m) => (m === input.mode ? `**${m}**` : m)).join(", ")}`,
     );
   }
-  lines.push(
-    `Thread: \`${input.threadId}\` · chat \`${input.chatId}\``,
-    `Cwd: \`${input.cwd}\``,
-  );
-  if (input.agentSessionId) {
-    lines.push(`ACP session id: \`${input.agentSessionId}\``);
-  }
+  lines.push(`Cwd: \`${input.cwd}\``);
   if (input.mcpEnabled === false) {
     lines.push("MCP: off");
   } else {
     const names =
       input.mcpNames && input.mcpNames.length > 0
         ? input.mcpNames.join(", ")
-        : "(none listed)";
-    lines.push(
-      `MCP: on · ${input.mcpCount ?? 0} server(s): ${names}`,
-    );
+        : "—";
+    lines.push(`MCP: ${input.mcpCount ?? 0} · ${names}`);
   }
-  if (input.linearLine) {
-    lines.push(input.linearLine);
-  }
-  if (input.acpHost != null) {
-    lines.push(`acp-host: ${input.acpHost ? "yes" : "no"}`);
-  }
+  if (input.linearLine) lines.push(input.linearLine);
 
   if (input.spawnParentKey) {
-    lines.push("", `**Parent** \`${input.spawnParentKey}\``);
-    const bits: string[] = [];
-    if (input.spawnStatus) bits.push(`status=\`${input.spawnStatus}\``);
-    if (input.spawnRole) bits.push(`role=\`${input.spawnRole}\``);
-    if (input.spawnBranch) bits.push(`branch=\`${input.spawnBranch}\``);
-    if (bits.length) lines.push(`Spawn: ${bits.join(" · ")}`);
+    const bits = [
+      `parent \`${input.spawnParentKey}\``,
+      input.spawnStatus ? `\`${input.spawnStatus}\`` : null,
+      input.spawnRole ? input.spawnRole : null,
+      input.spawnBranch ? `\`${input.spawnBranch}\`` : null,
+    ].filter(Boolean);
+    lines.push(bits.join(" · "));
     if (input.spawnStatus === "closed") {
-      lines.push(
-        "_(closed — process stopped; send a message here or agent_send to restore)_",
-      );
+      lines.push("_(closed — message restores)_");
     }
   }
 
   if (input.children && input.children.length > 0) {
-    lines.push("", `**Children** (${input.children.length}${input.childrenTruncated ? `+` : ""})`);
+    lines.push(
+      `**Children** (${input.children.length}${input.childrenTruncated ? `+` : ""})`,
+    );
     for (const c of input.children) {
       const extra = [
         c.headless ? "headless" : null,
-        c.agent ? c.agent : null,
-        c.role ? c.role : null,
+        c.agent ?? null,
+        c.role ?? null,
         c.closed ? "restore on next msg" : null,
       ]
         .filter(Boolean)
@@ -550,16 +513,9 @@ export function formatSessionStatus(input: {
       );
     }
     if (input.childrenTruncated && input.childrenTruncated > 0) {
-      lines.push(`· _…and ${input.childrenTruncated} more_`);
+      lines.push(`· _…+${input.childrenTruncated}_`);
     }
-    lines.push(
-      "Lifecycle: `agent_kill` — dispose=false soft-closes; dispose=true removes registry (worktree kept unless remove_worktree=true).",
-    );
   }
 
-  lines.push(
-    "",
-    "Change: `/mode` · `/permissions` · `/effort` · `/model` · `/agent` · `/plan` · `/build`",
-  );
   return lines.join("\n");
 }

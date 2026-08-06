@@ -25,8 +25,8 @@ describe("formatPermissionStatus", () => {
       defaultMode: "ask",
       session: "bypass",
     });
-    expect(t).toMatch(/Default.*`ask`/);
-    expect(t).toMatch(/This topic.*`bypass`/);
+    expect(t).toMatch(/default `ask`/);
+    expect(t).toMatch(/topic `bypass`/);
   });
 });
 

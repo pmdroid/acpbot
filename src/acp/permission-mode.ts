@@ -51,27 +51,11 @@ export function formatPermissionStatus(input: {
   defaultMode: PermissionMode;
 }): string {
   const def = permissionModeLabel(input.defaultMode);
-  const lines = [
-    `**Permissions**`,
-    ``,
-    `Default (new topics): \`${def}\``,
-  ];
-  if (input.session) {
-    lines.push(`This topic: \`${permissionModeLabel(input.session)}\``);
-  } else {
-    lines.push(`This topic: _(follows default — \`${def}\`)_`);
-  }
-  lines.push(
-    ``,
-    `• \`ask\` — Telegram approve / reject on each tool (safe default)`,
-    `• \`bypass\` — auto-allow tools (deny rules / hooks may still apply)`,
-    ``,
-    `Commands:`,
-    `• \`/permissions\` — status + **Ask** / **Bypass** buttons`,
-    `• \`/permissions ask|bypass\` — this topic`,
-    `• \`/permissions default ask|bypass\` — new topics (writes config.toml)`,
-  );
-  return lines.join("\n");
+  const topic = input.session
+    ? permissionModeLabel(input.session)
+    : `default (${def})`;
+  // Compact: buttons carry the action; no docs dump.
+  return `**Permissions** · topic \`${topic}\` · default \`${def}\``;
 }
 
 /** Inline keyboard labels for the ask|bypass picker (index 0/1). */

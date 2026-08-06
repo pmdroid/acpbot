@@ -51,7 +51,9 @@ describe("/status and /mode picker", () => {
 
     await d.handleUpdate(topic(tid, "/status", 2));
     const texts = env.telegram.sentMessages().map((m) => m.text);
-    const status = texts.find((t) => /Session/i.test(t) && /Agent/i.test(t));
+    const status = texts.find(
+      (t) => /demo\//i.test(t) && (/Mode:/i.test(t) || /codex|grok/i.test(t)),
+    );
     expect(status).toBeDefined();
     expect(status).toMatch(/grok-build/);
     expect(status).toMatch(/demo\/st/);
@@ -75,7 +77,9 @@ describe("/status and /mode picker", () => {
     // Status must ensure so a cold host slot is launched/reattached.
     expect(env.agents.ensureCalls.length).toBeGreaterThan(before);
     const texts = env.telegram.sentMessages().map((m) => m.text);
-    const status = texts.find((t) => /Session/i.test(t) && /Model:/i.test(t));
+    const status = texts.find(
+      (t) => /demo\//i.test(t) && (/Model:/i.test(t) || /Mode:/i.test(t)),
+    );
     expect(status).toBeDefined();
     expect(status).toMatch(/Model:/i);
   });
@@ -201,8 +205,8 @@ describe("/status and /mode picker", () => {
       spawnBranch: "acpbot/plan--impl",
       spawnRole: "implementer",
     });
-    expect(child).toContain("**Parent** `work/plan`");
-    expect(child).toContain("status=`closed`");
+    expect(child).toContain("parent `work/plan`");
+    expect(child).toContain("`closed`");
     expect(child).toContain("restore");
   });
 });

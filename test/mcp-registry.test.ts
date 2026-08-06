@@ -382,7 +382,7 @@ describe("/mcp slash command wiring", () => {
           .filter((m) => m.messageThreadId === thread)
           .map((m) => m.text ?? "");
 
-        expect(texts.some((t) => t.includes("No MCP servers"))).toBe(true);
+        expect(texts.some((t) => /No MCP/i.test(t))).toBe(true);
         expect(texts.some((t) => t.includes("Added MCP"))).toBe(true);
         expect(
           texts.some(
@@ -391,17 +391,14 @@ describe("/mcp slash command wiring", () => {
           ),
         ).toBe(true);
         // formatForTelegram may wrap usage in HTML <code>; match command text.
-        expect(texts.some((t) => /Usage:.*\/mcp add/s.test(t))).toBe(true);
-        expect(
-          texts.some((t) => /credentials|user:pass@|tokens are never/i.test(t)),
-        ).toBe(true);
+        expect(texts.some((t) => /\/mcp add/i.test(t))).toBe(true);
         // Userinfo secret must never appear in Telegram replies either.
         expect(texts.every((t) => !t.includes("SECRET_TOKEN"))).toBe(true);
         expect(texts.some((t) => /Removed MCP.*linear/.test(t))).toBe(true);
         expect(texts.some((t) => /No MCP entry named.*missing/.test(t))).toBe(
           true,
         );
-        expect(texts.some((t) => /Usage:.*\/mcp remove/s.test(t))).toBe(true);
+        expect(texts.some((t) => /\/mcp remove/i.test(t))).toBe(true);
 
         // After remove: linear gone; no secret residue on disk.
         const finalRaw = await readFile(onDiskPath, "utf8");

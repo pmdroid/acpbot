@@ -381,27 +381,19 @@ export function formatModelStatus(input: {
 }): string {
   const m = findModelConfigOption(input.configOptions);
   if (!m) {
-    return (
-      "**Model:** _(this agent does not advertise LLM models via ACP)_\n\n" +
-      "Use `/agent` to switch the agent process, or configure models in the agent CLI."
-    );
+    return "**Model:** _(not advertised)_";
   }
   const cur =
     currentModelLabel(input.configOptions) ??
     String(m.currentValue ?? "unknown");
-  const lines = [
-    `**Model:** \`${cur}\` (config \`${m.id}\`)`,
-    "",
-    "Available:",
-  ];
-  for (const o of m.options) {
-    const mark = o.value === m.currentValue ? " ← current" : "";
-    lines.push(
-      `• \`${o.value}\`${o.name && o.name !== o.value ? ` — ${o.name}` : ""}${mark}`,
-    );
-  }
-  lines.push("", "Commands: `/model` (picker) · `/model <value>`");
-  return lines.join("\n");
+  const list = m.options
+    .map((o) =>
+      o.value === m.currentValue
+        ? `**\`${o.value}\`**`
+        : `\`${o.value}\``,
+    )
+    .join(" · ");
+  return `**Model:** \`${cur}\`\n${list}`;
 }
 
 export function formatEffortStatus(input: {
@@ -409,29 +401,15 @@ export function formatEffortStatus(input: {
 }): string {
   const e = findEffortConfigOption(input.configOptions);
   if (!e) {
-    return (
-      "**Effort:** _(this agent does not advertise reasoning effort)_\n\n" +
-      "Use `/mode` for permission / session modes when the agent supports them."
-    );
+    return "**Effort:** _(not advertised)_";
   }
   const cur = String(e.currentValue ?? "unknown");
-  const lines = [
-    `**Effort:** \`${cur}\``,
-    "",
-    "Available:",
-  ];
-  for (const o of e.options) {
-    const mark = o.value === e.currentValue ? " ← current" : "";
-    // Prefer value id (high/medium/low); only show name when it adds detail
-    // and is not a redundant "High Effort" style label.
-    const nameExtra =
-      o.name &&
-      o.name !== o.value &&
-      o.name.toLowerCase().replace(/\s*effort\s*/g, "") !== o.value.toLowerCase()
-        ? ` — ${o.name}`
-        : "";
-    lines.push(`• \`${o.value}\`${nameExtra}${mark}`);
-  }
-  lines.push("", "Commands: `/effort` (picker) · `/effort <level>`");
-  return lines.join("\n");
+  const list = e.options
+    .map((o) =>
+      o.value === e.currentValue
+        ? `**\`${o.value}\`**`
+        : `\`${o.value}\``,
+    )
+    .join(" · ");
+  return `**Effort:** \`${cur}\`\n${list}`;
 }
