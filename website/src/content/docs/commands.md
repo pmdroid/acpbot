@@ -14,7 +14,7 @@ Commands are registered in `src/core/commands.ts`.
 |---|---|
 | `/ping` | Liveness → `pong` |
 | `/new` | Create a session (repo picker, or `/new <repo> <name>`) |
-| `/sessions` | List sessions from the acpbot store |
+| `/sessions` | List sessions from the acpbot store (shows Linear project when bound) |
 | `/help` | Lobby help |
 
 ## Topic (session)
@@ -22,6 +22,7 @@ Commands are registered in `src/core/commands.ts`.
 | Command | Description |
 |---|---|
 | `/cancel` | Stop the current turn **and clear the prompt queue** (session kept) |
+| `/fresh` | **Fresh agent session** — clear conversation history, keep the topic (alias `/reset`; like Grok **new**) |
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` | List messages waiting until the current turn ends |
 | `/unqueue` | Remove queued msgs: bare = last · `<n>` · `all` |
@@ -53,6 +54,7 @@ To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.tx
 | `/build` | Switch to build/code mode (tools on) |
 | `/skills` | Pick a skill, then send a prompt |
 | `/mcp` | Remote MCP registry + OAuth (see below) |
+| `/linear` | Linear OAuth MCP + topic↔project bind / export / next / work / fanout — [Linear](/docs/linear) |
 | `/help` | Topic help (includes queue vs steer notes) |
 
 ### Live “working” bubble
@@ -77,6 +79,7 @@ While a turn is in flight, the topic shows one **⏳** status message. It update
 | **Remove** on the queue ack | Remove that one item. |
 | Delete your own Telegram message | **Not supported** — Bot API does not notify deletes. Use Remove or `/unqueue`. |
 | `/cancel` | Abort turn **and** clear the whole queue. |
+| `/fresh` / `/reset` | Abort turn + clear queue, then **session/new** (no history resume). Telegram topic and repo/name stay. |
 
 Cap: 32 items per session (oldest dropped when full).
 

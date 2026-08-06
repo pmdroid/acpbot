@@ -129,12 +129,32 @@ import {
 } from "../mcp/oauth-flow";
 import {
   clearMcpProxyAttachPending,
+  deleteOAuthToken,
   listOAuthTokenIds,
   markMcpProxyAttachPending,
   remoteIdsNeedingProxyAttach,
   repoKeyForOAuth,
   resolveOAuthStateDir,
 } from "../mcp/oauth-store";
+import { LINEAR_MCP, LINEAR_MCP_ID } from "../mcp/known-remotes";
+import {
+  deleteLinearBinding,
+  formatLinearBindingLine,
+  formatLinearSessionListLabel,
+  formatLinearTopicTitle,
+  loadLinearBinding,
+  parseLinearProjectRef,
+  saveLinearBinding,
+} from "../linear/bindings";
+import {
+  applyLinearTurnContext,
+  LINEAR_COMMAND_USAGE,
+  linearExportPrompt,
+  linearFanoutPrompt,
+  linearNextPrompt,
+  linearProjectPickPrompt,
+  linearWorkPrompt,
+} from "../linear/prompts";
 import {
   issuePairingCode,
   pairingMessageForUser,
@@ -617,12 +637,13 @@ export function createDaemon(
 
   async function ensureSessionWithPerms(
     session: PersistedSession,
-    opts?: { forceRespawn?: boolean },
+    opts?: { forceRespawn?: boolean; forceNewSession?: boolean },
   ) {
     await maybeRestoreClosedChild(session.sessionKey);
     let forceRespawn = opts?.forceRespawn === true;
+    const forceNewSession = opts?.forceNewSession === true;
     let firstAttach: string[] = [];
-    if (!forceRespawn) {
+    if (!forceRespawn && !forceNewSession) {
       try {
         firstAttach = await sessionNeedsFirstProxyAttach(session);
         if (firstAttach.length > 0) {
@@ -644,6 +665,7 @@ export function createDaemon(
       // Child worktrees store absolute cwd on the session record
       ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(forceRespawn ? { forceRespawn: true } : {}),
+      ...(forceNewSession ? { forceNewSession: true } : {}),
     });
     try {
       await refreshAttachedMcpProxyTracking(session);
@@ -1412,10 +1434,18 @@ export function createDaemon(
           await lobbyReply("No sessions.");
           return;
         }
-        const lines = sessions.map(
-          (s) =>
-            `${topicName(s.identity.repo, s.identity.name)} · ${s.status}  (thread ${s.messageThreadId})`,
-        );
+        const lines: string[] = [];
+        for (const s of sessions) {
+          let linearLabel: string | undefined;
+          try {
+            const b = await loadLinearBinding(stateDir, s.sessionKey);
+            linearLabel = formatLinearSessionListLabel(b);
+          } catch {
+            /* ignore */
+          }
+          const base = `${topicName(s.identity.repo, s.identity.name)} · ${s.status}  (thread ${s.messageThreadId})`;
+          lines.push(linearLabel ? `${base}\n  ${linearLabel}` : base);
+        }
         await lobbyReply(lines.join("\n"));
         return;
       }
@@ -1764,6 +1794,54 @@ export function createDaemon(
       undefined,
       { html: true },
     );
+  }
+
+  /**
+   * Topic `/fresh` (alias `/reset`): cancel turn + queue, then session/new
+   * with no history resume. Telegram topic + repo/name mapping stay.
+   */
+  async function handleFreshCommand(session: PersistedSession): Promise<void> {
+    log.info("action: /fresh", { sessionKey: session.sessionKey });
+    clearSkillFlow(session.sessionKey, "/fresh");
+    const queued = clearPromptQueue(session.sessionKey);
+    permissions.cancelAllForSession(session.sessionKey, {
+      outcome: "cancel",
+    });
+    elicitations.cancelAllForSession(session.sessionKey);
+    askQuestions.cancelAllForSession(session.sessionKey);
+    const ac = turnAbort.get(session.sessionKey);
+    ac?.abort();
+    turnAbort.delete(session.sessionKey);
+    if (env.agents.cancelTurn) {
+      try {
+        await env.agents.cancelTurn(session.sessionKey, "operator /fresh");
+      } catch {
+        /* */
+      }
+    }
+    await working.clear(session);
+
+    try {
+      await ensureSessionWithPerms(session, { forceNewSession: true });
+      await setSessionStatus(session, "idle");
+      const extra =
+        queued > 0
+          ? ` · cleared ${queued} queued message${queued === 1 ? "" : "s"}`
+          : "";
+      await sendInTopic(
+        session,
+        `✨ **Fresh session** — agent history cleared; topic kept${extra}\n` +
+          `Send a message to start a new conversation.`,
+        undefined,
+        { html: true },
+      );
+    } catch (err) {
+      await setSessionStatus(session, "idle");
+      await sendInTopic(
+        session,
+        `Failed to start fresh session:\n\n${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** Resolve session for worker-api / MCP tools or throw. */
@@ -2700,6 +2778,14 @@ export function createDaemon(
       }
     }
 
+    let linearLine: string | undefined;
+    try {
+      const binding = await loadLinearBinding(stateDir, session.sessionKey);
+      linearLine = formatLinearBindingLine(binding);
+    } catch {
+      /* ignore */
+    }
+
     // Multi-agent: parent children + child→parent link
     let spawnParentKey: string | undefined;
     let spawnRole: string | undefined;
@@ -2776,6 +2862,7 @@ export function createDaemon(
         mcpCount,
         mcpNames,
         acpHost: true, // worker always uses acp-host
+        ...(linearLine ? { linearLine } : {}),
         ...(spawnParentKey ? { spawnParentKey } : {}),
         ...(spawnRole ? { spawnRole } : {}),
         ...(spawnStatus ? { spawnStatus } : {}),
@@ -2786,6 +2873,364 @@ export function createDaemon(
       undefined,
       { html: true },
     );
+  }
+
+  /** Best-effort: show Linear project name on the Telegram forum topic. */
+  async function maybeRenameTopicForLinear(
+    session: PersistedSession,
+    binding: {
+      projectId: string;
+      projectName?: string;
+    },
+  ): Promise<void> {
+    try {
+      const base = topicName(session.identity.repo, session.identity.name);
+      const name = formatLinearTopicTitle(base, {
+        sessionKey: session.sessionKey,
+        repoKey: session.identity.repo,
+        projectId: binding.projectId,
+        projectName: binding.projectName,
+        boundAt: new Date().toISOString(),
+        boundBy: "command",
+      });
+      await env.telegram.editForumTopic({
+        chatId: session.chatId,
+        messageThreadId: session.messageThreadId,
+        name,
+      });
+    } catch (err) {
+      log.warn("linear topic rename failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * /linear — connect OAuth Linear MCP, bind topic↔project, work-through prompts.
+   */
+  async function handleLinearCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const repoRoot = session.cwd;
+    const repoKey = repoKeyForOAuth(session.identity.repo, repoRoot);
+    const oauthStateDir = stateDir;
+    const oauthConfigured = Boolean(
+      process.env.ACPBOT_OAUTH_CALLBACK_BASE?.trim() ||
+        process.env.TACP_OAUTH_CALLBACK_BASE?.trim(),
+    );
+    const sub = (args[0] ?? "status").toLowerCase();
+
+    const startAgentPrompt = async (text: string): Promise<void> => {
+      if (sessionTurnBusy(session.sessionKey)) {
+        const { item, depth, dropped } = enqueueTopicPrompt(
+          session.sessionKey,
+          { text, attachments: [], kind: "prompt" },
+        );
+        const dropNote = dropped
+          ? "\n_(oldest queued message dropped — queue full)_"
+          : "";
+        const sent = await sendInTopic(
+          session,
+          `📥 Queued Linear action (#${depth}). Will run after the current turn.${dropNote}`,
+          keyboardFromButtons([
+            {
+              text: "Remove",
+              callback_data: encodeQueueRemoveCallback(item.id),
+            },
+          ]),
+          { html: true },
+        );
+        item.botMessageId = sent.message_id;
+        return;
+      }
+      await beginTopicTurn(session, text, []);
+    };
+
+    try {
+      if (args.length === 0 || sub === "status" || sub === "help") {
+        if (sub === "help" || (args.length > 1 && sub === "status")) {
+          await sendInTopic(session, LINEAR_COMMAND_USAGE);
+          return;
+        }
+        const config = await readMcpConfig(repoRoot);
+        const hasRemote = config.mcpServers.some(
+          (s) =>
+            typeof s.name === "string" &&
+            s.name.trim() === LINEAR_MCP_ID &&
+            typeof s.url === "string",
+        );
+        const tokenIds = oauthConfigured
+          ? await listOAuthTokenIds(oauthStateDir, repoKey)
+          : [];
+        const authOk = tokenIds.includes(LINEAR_MCP_ID);
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        const lines = [
+          "**Linear**",
+          `MCP registry: ${hasRemote ? `**${LINEAR_MCP_ID}** registered` : "not registered — `/linear connect`"}`,
+          oauthConfigured
+            ? `OAuth: ${authOk ? "**connected**" : "missing — `/linear connect`"}`
+            : "OAuth: callback not configured (set `[oauth].callback_base`)",
+          formatLinearBindingLine(binding),
+          "",
+          `Official URL: \`${LINEAR_MCP.url}\``,
+          "",
+          "Commands: `connect` · `disconnect` · `project` · `unbind` · `export` · `next` · `work` · `fanout` · `help`",
+        ];
+        await sendInTopic(session, lines.join("\n"));
+        return;
+      }
+
+      if (sub === "connect") {
+        // Ensure official Linear remote is in mcp.json, attach proxy, start OAuth.
+        const entry = await writeRemoteMcpServer(repoRoot, {
+          name: LINEAR_MCP_ID,
+          url: LINEAR_MCP.url,
+        });
+        log.info("linear connect registry", {
+          sessionKey: session.sessionKey,
+          name: entry.name,
+          url: entry.url,
+        });
+        let attachedNow = false;
+        try {
+          await ensureSessionWithPerms(session, { forceRespawn: true });
+          attachedNow = true;
+        } catch (err) {
+          log.warn("linear connect proxy attach failed", {
+            sessionKey: session.sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        if (!oauthConfigured) {
+          await sendInTopic(
+            session,
+            `Added Linear MCP **${entry.name}**\n${entry.url}\n\n` +
+              (attachedNow
+                ? "Per-topic **mcp-proxy** attached.\n"
+                : "Proxy will attach on the next message.\n") +
+              "OAuth callback is **not** configured — set `[oauth].callback_base` " +
+              "(see `acpbot setup`) then run `/linear connect` again, or `/mcp auth linear`.",
+          );
+          return;
+        }
+
+        const started = await startMcpOAuth({
+          id: LINEAR_MCP_ID,
+          resourceUrl: entry.url,
+          repoRoot,
+          repoKey,
+          stateDir: oauthStateDir,
+        });
+        log.info("linear oauth auth started", {
+          sessionKey: session.sessionKey,
+          id: started.id,
+          repoKey: started.repoKey,
+        });
+        await sendInTopic(
+          session,
+          `Linear MCP registered + authorize (open on your phone):\n\n` +
+            `${started.authorizeUrl}\n\n` +
+            `Redirect: \`${started.redirectUri}\`\n` +
+            `Tokens stay on the host (not in the repo).\n` +
+            (attachedNow
+              ? "Proxy is attached (empty tools until auth completes).\n"
+              : "Proxy attaches on next message after auth.\n") +
+            `\nAfter auth: bind a project with \`/linear project <id|url>\` or \`/linear export\`.\n` +
+            `Paste fallback: \`/mcp code <callback-url>\``,
+        );
+        return;
+      }
+
+      if (sub === "disconnect") {
+        const alsoRemove = (args[1] ?? "").toLowerCase() === "remove";
+        const deleted = await deleteOAuthToken(
+          oauthStateDir,
+          repoKey,
+          LINEAR_MCP_ID,
+        );
+        let removedReg = false;
+        if (alsoRemove) {
+          removedReg = await removeMcpServer(repoRoot, LINEAR_MCP_ID);
+        }
+        await sendInTopic(
+          session,
+          [
+            deleted
+              ? "Linear OAuth token **removed** from host state."
+              : "No Linear OAuth token was stored.",
+            alsoRemove
+              ? removedReg
+                ? "Removed **linear** from `.acpbot/mcp.json`."
+                : "No **linear** entry in `.acpbot/mcp.json`."
+              : "Registry entry kept (run `/linear disconnect remove` to drop it).",
+            "Topic project binding is unchanged — `/linear unbind` to clear.",
+          ].join("\n"),
+        );
+        return;
+      }
+
+      if (sub === "unbind") {
+        const removed = await deleteLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        await sendInTopic(
+          session,
+          removed
+            ? "Unbound Linear project from this topic."
+            : "No Linear project was bound to this topic.",
+        );
+        return;
+      }
+
+      if (sub === "project") {
+        const rest = args.slice(1).join(" ").trim();
+        if (!rest) {
+          const binding = await loadLinearBinding(
+            oauthStateDir,
+            session.sessionKey,
+          );
+          if (binding) {
+            await sendInTopic(
+              session,
+              [
+                formatLinearBindingLine(binding),
+                "",
+                "Rebind: `/linear project <id|url|name>`",
+                "Clear: `/linear unbind`",
+                "List/switch via agent: say “list Linear projects” or `/skills` → linear",
+              ].join("\n"),
+            );
+            return;
+          }
+          await sendInTopic(
+            session,
+            "No project bound — asking the agent to list Linear projects…",
+          );
+          await startAgentPrompt(linearProjectPickPrompt());
+          return;
+        }
+        const parsed = parseLinearProjectRef(rest);
+        const record = await saveLinearBinding(oauthStateDir, {
+          sessionKey: session.sessionKey,
+          repoKey,
+          projectId: parsed.projectId,
+          ...(parsed.projectName ? { projectName: parsed.projectName } : {}),
+          ...(parsed.projectUrl ? { projectUrl: parsed.projectUrl } : {}),
+          boundBy: "command",
+        });
+        await maybeRenameTopicForLinear(session, record);
+        await sendInTopic(
+          session,
+          `Bound this topic to Linear project **${record.projectName ?? record.projectId}**` +
+            ` (\`${record.projectId}\`).\n` +
+            (record.projectUrl ? `${record.projectUrl}\n` : "") +
+            `Next: \`/linear next\` · \`/linear work <ISSUE>\` · \`/linear fanout\`.`,
+        );
+        return;
+      }
+
+      if (sub === "export") {
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        await sendInTopic(
+          session,
+          "Exporting plan → Linear project (agent turn)…",
+        );
+        await startAgentPrompt(linearExportPrompt(binding));
+        return;
+      }
+
+      if (sub === "next") {
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        if (!binding) {
+          await sendInTopic(
+            session,
+            "No Linear project bound. " +
+              "Run `/linear project <id|url>` or `/linear export` first.",
+          );
+          return;
+        }
+        await sendInTopic(session, "Working next open issue (agent turn)…");
+        await startAgentPrompt(linearNextPrompt(binding));
+        return;
+      }
+
+      if (sub === "work") {
+        const issueRef = args.slice(1).join(" ").trim();
+        if (!issueRef) {
+          await sendInTopic(session, "Usage: `/linear work <ISSUE>` (e.g. ENG-123)");
+          return;
+        }
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        // Remember last issue even if not fully bound
+        if (binding) {
+          await saveLinearBinding(oauthStateDir, {
+            sessionKey: binding.sessionKey,
+            repoKey: binding.repoKey,
+            projectId: binding.projectId,
+            projectName: binding.projectName,
+            projectUrl: binding.projectUrl,
+            teamId: binding.teamId,
+            teamKey: binding.teamKey,
+            lastIssueId: issueRef,
+            boundBy: binding.boundBy,
+          });
+        }
+        await sendInTopic(
+          session,
+          `Focusing Linear issue **${issueRef}** (agent turn)…`,
+        );
+        await startAgentPrompt(linearWorkPrompt(issueRef, binding));
+        return;
+      }
+
+      if (sub === "fanout" || sub === "fan-out") {
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        if (!binding) {
+          await sendInTopic(
+            session,
+            "No Linear project bound. " +
+              "Run `/linear project <id|url>` or `/linear export` first.",
+          );
+          return;
+        }
+        await sendInTopic(
+          session,
+          "Multi-agent fan-out for bound project (agent turn)…",
+        );
+        await startAgentPrompt(linearFanoutPrompt(binding));
+        return;
+      }
+
+      await sendInTopic(session, LINEAR_COMMAND_USAGE);
+    } catch (err) {
+      log.warn("linear command failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await sendInTopic(
+        session,
+        `Linear command failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async function disposeHostSession(sessionKey: string): Promise<void> {
@@ -3789,6 +4234,10 @@ export function createDaemon(
         await cancelSessionTurn(session);
         return;
       }
+      if (slash.name === "/fresh") {
+        await handleFreshCommand(session);
+        return;
+      }
       if (slash.name === "/steer") {
         await handleSteerCommand(session, slash.args);
         return;
@@ -3841,6 +4290,10 @@ export function createDaemon(
       }
       if (slash.name === "/mcp") {
         await handleMcpCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/linear") {
+        await handleLinearCommand(session, slash.args);
         return;
       }
       if (slash.name === "/help") {
@@ -3964,10 +4417,20 @@ export function createDaemon(
     attachments: PromptAttachment[],
     skillId?: string,
   ): Promise<void> {
+    // Sticky Linear context on free-text turns when topic is bound.
+    let textForAgent = agentText;
+    try {
+      const binding = await loadLinearBinding(stateDir, session.sessionKey);
+      textForAgent = applyLinearTurnContext(agentText, binding);
+    } catch {
+      /* ignore */
+    }
+
     log.info("action: start turn", {
       sessionKey: session.sessionKey,
       mode: session.status === "running" ? "steer" : "prompt",
-      textLen: agentText.length,
+      textLen: textForAgent.length,
+      stickyLinear: textForAgent !== agentText,
       attachments: attachments.length,
       skillId,
     });
@@ -3979,7 +4442,7 @@ export function createDaemon(
       turnAbort.set(session.sessionKey, ac);
 
       const turn = await env.agents.runPromptTurn(handle, {
-        text: agentText,
+        text: textForAgent,
         ...(attachments.length > 0 ? { attachments } : {}),
         mode: session.status === "running" ? "steer" : "prompt",
         signal: ac.signal,

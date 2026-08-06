@@ -111,6 +111,8 @@ If bind fails (port in use), **acp-host exits** with a clear error when `callbac
 
 Remotes are always served via **`acpbot mcp-proxy`** (stdio, **per session slot**). Details: [MCP](/docs/mcp#remote-oauth-mcp--per-slot-stdio-proxy).
 
+For **Linear**, use `/linear connect` (official MCP URL + OAuth sugar) and bind a topic to a project — [Linear](/docs/linear).
+
 Before auth the agent still sees the MCP server name, but with **zero tools**. After auth (or reauth), tools appear without respawning the agent.
 
 ### Paste fallback

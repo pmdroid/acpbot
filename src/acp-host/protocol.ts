@@ -29,6 +29,11 @@ export type HostAgentConfig = {
    * with current OAuth tokens). Used after `/mcp auth` / token refresh.
    */
   forceRespawn?: boolean;
+  /**
+   * Drop durable agentSessionId and call session/new (no session/load).
+   * Used by topic `/fresh`.
+   */
+  forceNewSession?: boolean;
 };
 
 export type WorkerToHost =

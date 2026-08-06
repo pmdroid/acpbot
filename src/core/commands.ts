@@ -38,6 +38,12 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Stop the current turn and clear the prompt queue",
   },
   {
+    name: "/fresh",
+    aliases: ["/reset"],
+    scope: "topic",
+    summary: "Fresh agent session (clear history; keep topic) — like Grok new",
+  },
+  {
     name: "/steer",
     scope: "topic",
     summary:
@@ -105,6 +111,12 @@ export const COMMANDS: readonly CommandDef[] = [
     scope: "topic",
     summary:
       "MCP gateways: status|add|remove|auth|code (tokens on host, not in repo)",
+  },
+  {
+    name: "/linear",
+    scope: "topic",
+    summary:
+      "Linear: connect|project|export|next|work|fanout (topic ↔ project)",
   },
   {
     name: "/help",

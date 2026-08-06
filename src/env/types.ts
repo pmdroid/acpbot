@@ -415,6 +415,11 @@ export interface AgentsPort {
       /** Rebuild agent + MCP (after OAuth / token change). */
       forceRespawn?: boolean;
       /**
+       * Brand-new ACP conversation (session/new, no history resume).
+       * Used by topic `/fresh`.
+       */
+      forceNewSession?: boolean;
+      /**
        * Override working directory (multi-agent child worktree).
        * When set, used instead of config.repos[repo].
        */

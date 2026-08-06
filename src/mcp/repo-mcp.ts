@@ -34,6 +34,10 @@ import {
 } from "./oauth-flow";
 import { repoKeyForOAuth, resolveOAuthStateDir } from "./oauth-store";
 import { resolveRepoConfigDir } from "../env/repo-config-dir";
+import {
+  linearBindingEnvVars,
+  loadLinearBinding,
+} from "../linear/bindings";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
 export type AcpbotMcpRemoteServer = {
@@ -574,6 +578,8 @@ export function injectSessionEnv(
     repoRoot: string;
     /** Per-repo state dir (`<cwd>/.acpbot`). */
     repoStateDir: string;
+    /** Extra env (e.g. Linear project binding — not secrets). */
+    extraEnv?: Array<{ name: string; value: string }>;
   },
 ): SessionMcpServer {
   if (!isStdioServer(server)) return server;
@@ -585,6 +591,13 @@ export function injectSessionEnv(
   envMap.set("ACPBOT_REPO_ROOT", resolve(input.repoRoot));
   // Per-repo config tree (`.acpbot`: schedules, mcp.json, …) — not the host ACPBOT_STATE_DIR.
   envMap.set("ACPBOT_REPO_STATE_DIR", resolve(input.repoStateDir));
+  for (const e of input.extraEnv ?? []) {
+    const n = e.name.trim();
+    const v = e.value;
+    if (n && v != null && String(v).length > 0) {
+      envMap.set(n, String(v));
+    }
+  }
 
   return {
     name: server.name,
@@ -749,16 +762,38 @@ export async function buildSessionMcpServers(
     ...(options.stateDir !== undefined ? { stateDir: options.stateDir } : {}),
   });
 
+  const oauthStateDir = resolveOAuthStateDir(
+    options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
+  );
+
+  // Inject bound Linear project ids into MCP children (non-secret context).
+  let linearEnv: Array<{ name: string; value: string }> = [];
+  if (options.sessionKey?.trim()) {
+    try {
+      const binding = await loadLinearBinding(
+        oauthStateDir,
+        options.sessionKey.trim(),
+      );
+      linearEnv = linearBindingEnvVars(binding);
+    } catch {
+      /* ignore binding read errors */
+    }
+  }
+
   const injectCtx: {
     sessionKey?: string;
     repoRoot: string;
     repoStateDir: string;
+    extraEnv?: Array<{ name: string; value: string }>;
   } = {
     repoRoot,
     repoStateDir,
   };
   if (options.sessionKey !== undefined) {
     injectCtx.sessionKey = options.sessionKey;
+  }
+  if (linearEnv.length > 0) {
+    injectCtx.extraEnv = linearEnv;
   }
 
   let merged: SessionMcpServer[] = [
@@ -769,9 +804,6 @@ export async function buildSessionMcpServers(
   // Remotes always become per-slot stdio proxies (agent never sees type:http).
   // Tokens are loaded inside mcp-proxy — missing/unauthed gateways still get a
   // proxy process that advertises an empty tool list until /mcp auth.
-  const oauthStateDir = resolveOAuthStateDir(
-    options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
-  );
   const repoKey = repoKeyForOAuth(options.repoKey, repoRoot);
   const { rewriteRemotesAsStdioProxies } = await import("./proxy-rewrite");
   const remoteCount = merged.filter(

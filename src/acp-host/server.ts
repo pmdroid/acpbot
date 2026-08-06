@@ -290,9 +290,12 @@ export async function startAcpHostServer(
     const { slotKey, config } = msg;
     let slot = slots.get(slotKey);
 
-    // Post-OAuth: force kill so MCP servers pick up new Bearer tokens.
-    if (slot && config.forceRespawn) {
-      log.info("ensure forceRespawn", { slotKey });
+    // Post-OAuth or operator /fresh: force kill so we respawn cleanly.
+    if (slot && (config.forceRespawn || config.forceNewSession)) {
+      log.info(
+        config.forceNewSession ? "ensure forceNewSession" : "ensure forceRespawn",
+        { slotKey },
+      );
       try {
         await slot.host.dispose();
       } catch {
@@ -319,6 +322,7 @@ export async function startAcpHostServer(
               ? { permissionMode: config.permissionMode }
               : {}),
             ...(config.forceRespawn ? { forceRespawn: true } : {}),
+            ...(config.forceNewSession ? { forceNewSession: true } : {}),
           });
           slot.agentSessionId = hs.agentSessionId;
           const mode = await slot.host.getModeState(slotKey);
@@ -327,7 +331,7 @@ export async function startAcpHostServer(
             reqId: msg.reqId,
             slotKey,
             agentSessionId: hs.agentSessionId,
-            wasNew: false,
+            wasNew: Boolean(config.forceNewSession),
             ...(mode?.currentModeId
               ? { currentModeId: mode.currentModeId }
               : {}),
@@ -378,6 +382,7 @@ export async function startAcpHostServer(
 
     try {
       // Resume via durable store is inside createSessionHost using sessionKey
+      // (skipped when forceNewSession deletes the prior record first).
       const hs = await host.ensureSession({
         sessionKey: slotKey,
         agent: config.agent,
@@ -385,6 +390,7 @@ export async function startAcpHostServer(
         ...(config.permissionMode
           ? { permissionMode: config.permissionMode }
           : {}),
+        ...(config.forceNewSession ? { forceNewSession: true } : {}),
       });
       const mode = await host.getModeState(slotKey);
       slots.set(slotKey, {

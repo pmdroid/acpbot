@@ -56,7 +56,9 @@ describe("command registry", () => {
       "/build",
       "/cancel",
       "/effort",
+      "/fresh",
       "/help",
+      "/linear",
       "/mcp",
       "/mode",
       "/model",
@@ -89,6 +91,9 @@ describe("command registry", () => {
     expect(commandAllowedIn("/ping", "topic")).toBe(false);
     expect(commandAllowedIn("/cancel", "topic")).toBe(true);
     expect(commandAllowedIn("/cancel", "lobby")).toBe(false);
+    expect(commandAllowedIn("/fresh", "topic")).toBe(true);
+    expect(commandAllowedIn("/fresh", "lobby")).toBe(false);
+    expect(resolveCanonicalName("/reset")).toBe("/fresh");
     expect(commandAllowedIn("/steer", "topic")).toBe(true);
     expect(commandAllowedIn("/queue", "topic")).toBe(true);
     expect(commandAllowedIn("/unqueue", "topic")).toBe(true);
@@ -111,6 +116,7 @@ describe("command registry", () => {
 
     const topic = topicHelpText();
     expect(topic).toContain("/cancel");
+    expect(topic).toContain("/fresh");
     expect(topic).toContain("/steer");
     expect(topic).toContain("/queue");
     expect(topic).toContain("/unqueue");
@@ -193,9 +199,64 @@ describe("command routing cleanup", () => {
     expect(msg).toBeDefined();
   });
 
+  test("topic /fresh requests forceNewSession and keeps topic", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: { demo: "/configured/repos/demo" },
+      },
+    });
+    const daemon = createDaemon(env);
+    await daemon.handleUpdate(root("/new demo keep", 1));
+    const session = (await daemon.listSessions())[0]!;
+    const beforeCalls = env.agents.ensureCalls.length;
+    const beforeOpts = env.agents.ensureOpts.length;
+
+    await daemon.handleUpdate(topic(session.messageThreadId, "/fresh", 2));
+
+    expect(env.agents.ensureCalls.length).toBeGreaterThan(beforeCalls);
+    const opts = env.agents.ensureOpts.slice(beforeOpts);
+    expect(opts.some((o) => o.forceNewSession === true)).toBe(true);
+
+    const after = (await daemon.listSessions())[0]!;
+    expect(after.sessionKey).toBe(session.sessionKey);
+    expect(after.messageThreadId).toBe(session.messageThreadId);
+
+    const reply = env.telegram
+      .sentMessages()
+      .filter((m) => m.messageThreadId === session.messageThreadId)
+      .map((m) => m.text ?? "")
+      .find((t) => /Fresh session/i.test(t));
+    expect(reply).toBeDefined();
+
+    // Alias /reset resolves to the same command.
+    await daemon.handleUpdate(topic(session.messageThreadId, "/reset", 3));
+    expect(
+      env.agents.ensureOpts.filter((o) => o.forceNewSession).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  test("lobby rejects /fresh with scope message", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: { demo: "/configured/repos/demo" },
+      },
+    });
+    const daemon = createDaemon(env);
+    await daemon.handleUpdate(root("/fresh", 1));
+    const msg = env.telegram.sentMessages().find((m) =>
+      m.text?.includes("session topic"),
+    );
+    expect(msg).toBeDefined();
+  });
+
   test("isKnownCommand", () => {
     expect(isKnownCommand("/ping")).toBe(true);
     expect(isKnownCommand("/list")).toBe(true);
+    expect(isKnownCommand("/fresh")).toBe(true);
     expect(isKnownCommand("/nope")).toBe(false);
   });
 });

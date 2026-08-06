@@ -144,6 +144,12 @@ export type SessionHost = {
      * Bearer headers after `/mcp auth`).
      */
     forceRespawn?: boolean;
+    /**
+     * Start a brand-new ACP conversation (session/new, no session/load).
+     * Drops the durable agentSessionId so history is not resumed.
+     * Used by topic `/fresh` (Grok-style new session).
+     */
+    forceNewSession?: boolean;
   }): Promise<HostSession>;
   startTurn(input: {
     sessionKey: string;
@@ -1264,7 +1270,25 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     async ensureSession(input) {
       const existing = live.get(input.sessionKey);
-      if (existing) {
+
+      // Operator /fresh: kill live + drop durable id so we never session/load.
+      if (input.forceNewSession) {
+        log.info("ensureSession: forceNewSession; discarding history", {
+          sessionKey: input.sessionKey,
+          hadLive: Boolean(existing),
+        });
+        if (existing) await killLiveSession(input.sessionKey);
+        if (sessionStore) {
+          try {
+            await sessionStore.delete(input.sessionKey);
+          } catch (err) {
+            log.warn("forceNewSession: session store delete failed", {
+              sessionKey: input.sessionKey,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      } else if (existing) {
         // Agent/cwd change or force (post-OAuth MCP rebuild) → kill and respawn.
         if (
           input.forceRespawn ||
