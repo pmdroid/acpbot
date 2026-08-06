@@ -50,6 +50,9 @@ schedule_run_now({ id: "…", all?: false })  // due on next host tick
 Write the fire prompt so a cold turn can succeed alone, e.g. generate asset → save under
 repo → send via `telegram_send_photo` / `telegram_send_file` if the operator should see it.
 
+For **background multi-agent work**, prefer an **EVE** directive at fire time, e.g.
+`Call eve_run({ name: "linear-drain" })` (see **eve** skill) instead of a long chatty plan.
+
 ## Do not
 
 - Put secrets in prompts or committed scripts.

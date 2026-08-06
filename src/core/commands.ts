@@ -116,7 +116,14 @@ export const COMMANDS: readonly CommandDef[] = [
     name: "/linear",
     scope: "topic",
     summary:
-      "Linear: connect|project|export|next|work|fanout (topic ↔ project)",
+      "Linear: connect|project|export|next|work|fanout|drain (topic ↔ project)",
+  },
+  {
+    name: "/eve",
+    scope: "topic",
+    summary:
+      "EVE directives: run|approve|status|list|pause|resume|kill (background multi-agent)",
+    aliases: ["/directive"],
   },
   {
     name: "/help",

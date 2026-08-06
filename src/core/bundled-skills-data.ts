@@ -248,7 +248,46 @@ prefix when bound — honor it.
 
 ## Operator commands
 
-\`/linear\` · \`connect\` · \`project\` · \`export\` · \`next\` · \`work\` · \`fanout\` · \`unbind\`
+\`/linear\` · \`connect\` · \`project\` · \`export\` · \`next\` · \`work\` · \`fanout\` · \`drain\` · \`unbind\`
+`,
+  },
+  eve: {
+    description:
+      "EVE (Extraterrestrial Vegetation Evaluator): background multi-agent directives — JS graphs, zero-token orchestration, leaf worktrees. Not ultracode.",
+    body: `# EVE — background directives
+
+Named after WALL-E's probe. **EVE runs the fleet; you wait for the plant.**
+
+## Tools (host MCP \`acpbot\`)
+
+| Tool | Purpose |
+|---|---|
+| \`eve_list\` | Scripts + runs |
+| \`eve_run\` | Start by name / path / inline source |
+| \`eve_approve\` / \`eve_status\` / \`eve_pause\` / \`eve_resume\` / \`eve_kill\` | Control |
+| \`eve_write\` | Save \`.acpbot/eve/<name>.js\` |
+
+Operator: \`/eve\` · \`/linear drain\` · alias \`/directive\`
+
+## When
+
+- Long parallel jobs, Linear project drain, multi-file audits → **EVE**
+- One implementer / one issue → multi-agent or \`/linear next\`
+
+## Script
+
+\`\`\`js
+export const meta = { name: 'x', description: '…', phases: [{ title: 'A' }] }
+phase('A')
+const r = await agent('…', { schema: { type: 'object', required: ['ok'], properties: { ok: { type: 'boolean' } } } })
+return r
+\`\`\`
+
+Injected: \`agent\` · \`parallel\` · \`pipeline\` · \`phase\` · \`log\` · \`args\` · \`budget\` · \`host\` · \`workflow\`
+
+Rules: no fs in orchestrator; schemas on edges; \`budget.ok()\` on loops; \`.filter(Boolean)\`; no secrets; never call it ultracode.
+
+Bundled: \`linear-drain\`, \`audit-routes\`.
 `,
   },
 };

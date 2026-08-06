@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **EVE** (*Extraterrestrial Vegetation Evaluator*) — background multi-agent
+  **directives**: agent-authored JS graphs with zero-token orchestration,
+  leaf `agent()` via worktrees. Commands `/eve` (alias `/directive`),
+  `/linear drain`, MCP `eve_*` tools, bundled `linear-drain` + `audit-routes`,
+  skill `eve`, docs page. WALL·E-inspired; not ultracode.
+
 ## [0.1.0] — 2026-08-01
 
 First public release as **acpbot**.

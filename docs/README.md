@@ -17,3 +17,4 @@ Parked ideas and future work under [`docs/ideas/`](ideas/):
 | Doc | Topic |
 |---|---|
 | [multi-agent-spawn.md](ideas/multi-agent-spawn.md) | Parent spawns children via MCP; parent-linked slots; always new git worktree; A2A |
+| [workflows.md](ideas/workflows.md) | **EVE** (shipped): agent-authored JS directives, zero-token orchestration, Linear drain |

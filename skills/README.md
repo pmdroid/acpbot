@@ -9,6 +9,7 @@ Operator skills shipped with acpbot and installed **globally** for coding agents
 | [`schedules`](./schedules/SKILL.md) | Delayed / recurring jobs via `schedule_*` tools |
 | [`multi-agent`](./multi-agent/SKILL.md) | Spawn child agents in git worktrees |
 | [`linear`](./linear/SKILL.md) | Linear MCP + topic↔project binding |
+| [`eve`](./eve/SKILL.md) | EVE background multi-agent directives (JS graphs) |
 
 ## Install
 

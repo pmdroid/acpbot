@@ -75,6 +75,49 @@ export type WorkerApiHandlers = {
     summary?: string;
     sessionKey?: string;
   }>;
+  /** EVE background directives (optional). */
+  eveRun?(input: {
+    sessionKey: string;
+    name?: string;
+    path?: string;
+    source?: string;
+    args?: unknown;
+    skip_approval?: boolean;
+    agents_max?: number;
+  }): Promise<{ message?: string; run?: unknown; runId?: string }>;
+  eveApprove?(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<{ message?: string; run?: unknown }>;
+  eveStatus?(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<{ message?: string; run?: unknown; text?: string }>;
+  eveList?(input: {
+    sessionKey: string;
+  }): Promise<{
+    message?: string;
+    runs?: unknown[];
+    scripts?: unknown[];
+  }>;
+  evePause?(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<{ message?: string; run?: unknown }>;
+  eveResume?(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<{ message?: string; run?: unknown }>;
+  eveKill?(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<{ message?: string; run?: unknown }>;
+  eveWrite?(input: {
+    sessionKey: string;
+    name: string;
+    source: string;
+    scope?: "project" | "user";
+  }): Promise<{ message?: string; path?: string; meta?: unknown }>;
 };
 
 export type WorkerApiServer = {
@@ -336,6 +379,130 @@ export function createWorkerApiServer(options: {
             : {}),
           ...(typeof body.poll_sec === "number"
             ? { poll_sec: body.poll_sec }
+            : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+
+      // ── EVE ────────────────────────────────────────────────────────────
+      if (pathname === "/v1/eve/run") {
+        if (!options.handlers.eveRun) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const out = await options.handlers.eveRun({
+          sessionKey,
+          ...(typeof body.name === "string" ? { name: body.name } : {}),
+          ...(typeof body.path === "string" ? { path: body.path } : {}),
+          ...(typeof body.source === "string" ? { source: body.source } : {}),
+          ...(body.args !== undefined ? { args: body.args } : {}),
+          ...(typeof body.skip_approval === "boolean"
+            ? { skip_approval: body.skip_approval }
+            : {}),
+          ...(typeof body.agents_max === "number"
+            ? { agents_max: body.agents_max }
+            : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/approve") {
+        if (!options.handlers.eveApprove) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        if (!runId) {
+          sendJson(res, 400, { ok: false, error: "runId required" });
+          return;
+        }
+        const out = await options.handlers.eveApprove({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/status") {
+        if (!options.handlers.eveStatus) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        if (!runId) {
+          sendJson(res, 400, { ok: false, error: "runId required" });
+          return;
+        }
+        const out = await options.handlers.eveStatus({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/list") {
+        if (!options.handlers.eveList) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const out = await options.handlers.eveList({ sessionKey });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/pause") {
+        if (!options.handlers.evePause) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        if (!runId) {
+          sendJson(res, 400, { ok: false, error: "runId required" });
+          return;
+        }
+        const out = await options.handlers.evePause({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/resume") {
+        if (!options.handlers.eveResume) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        if (!runId) {
+          sendJson(res, 400, { ok: false, error: "runId required" });
+          return;
+        }
+        const out = await options.handlers.eveResume({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/kill") {
+        if (!options.handlers.eveKill) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        if (!runId) {
+          sendJson(res, 400, { ok: false, error: "runId required" });
+          return;
+        }
+        const out = await options.handlers.eveKill({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/write") {
+        if (!options.handlers.eveWrite) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const name = typeof body.name === "string" ? body.name : "";
+        const source = typeof body.source === "string" ? body.source : "";
+        if (!name.trim() || !source.trim()) {
+          sendJson(res, 400, { ok: false, error: "name and source required" });
+          return;
+        }
+        const out = await options.handlers.eveWrite({
+          sessionKey,
+          name: name.trim(),
+          source,
+          ...(body.scope === "user" || body.scope === "project"
+            ? { scope: body.scope }
             : {}),
         });
         sendJson(res, 200, { ok: true, ...out });

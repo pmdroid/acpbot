@@ -176,6 +176,12 @@ import {
   markChildResult,
 } from "./agent-spawn";
 import {
+  createEveDaemonService,
+  bindEveRuntimeDeps,
+  markEveAbort,
+} from "../eve/daemon-bridge";
+import { EVE_TAGLINE } from "../eve/types";
+import {
   formatSpawnAge,
   listChildren,
   loadSpawnIndex,
@@ -1903,11 +1909,13 @@ export function createDaemon(
     return session;
   }
 
+  const eveService = createEveDaemonService({
+    stateDir,
+    eveConfig: env.config.eve,
+  });
+
   /** MCP → worker Unix API (token + topics stay on the daemon). */
-  const workerApi = createWorkerApiServer({
-    stateDir: stateDir,
-    log,
-    handlers: {
+  const workerHandlers = {
       async sendMessage({ sessionKey, text, kind }) {
         const session = requireSession(sessionKey);
         if (kind === "update") {
@@ -2333,8 +2341,312 @@ export function createDaemon(
           sessionKey: out.sessionKey,
         };
       },
-    },
+      // ── EVE (background directives) ───────────────────────────────────
+      async eveRun({
+        sessionKey,
+        name,
+        path,
+        source,
+        args,
+        skip_approval,
+        agents_max,
+      }) {
+        const session = requireSession(sessionKey);
+        const created = await eveService.createRun({
+          sessionKey,
+          repoKey: session.identity.repo,
+          repoRoot: session.cwd,
+          name,
+          path,
+          source,
+          args,
+          skipApproval: skip_approval === true,
+          agentsMax: agents_max,
+        });
+        if (created.status === "pending_approval") {
+          await sendInTopic(
+            session,
+            [
+              `🛰 **EVE** · \`${created.name}\` ready`,
+              EVE_TAGLINE,
+              "",
+              `run \`${created.runId}\``,
+              created.phases.length
+                ? `phases: ${created.phases.map((p) => p.title).join(" → ")}`
+                : "",
+              "",
+              "Approve with `/eve approve " +
+                created.runId +
+                "` or deny with `/eve kill " +
+                created.runId +
+                "`.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          );
+          return {
+            message: `pending approval: ${created.runId}`,
+            runId: created.runId,
+            run: created,
+          };
+        }
+        // Start in background so worker API returns quickly
+        void startEveExecution(created.runId, sessionKey);
+        return {
+          message: `EVE started: ${created.runId}`,
+          runId: created.runId,
+          run: created,
+        };
+      },
+      async eveApprove({ sessionKey, runId }) {
+        requireSession(sessionKey);
+        markEveAbort(runId, false);
+        void startEveExecution(runId, sessionKey);
+        return { message: `EVE approve/start: ${runId}` };
+      },
+      async eveStatus({ sessionKey, runId }) {
+        requireSession(sessionKey);
+        const run = await eveService.status(runId);
+        if (!run) throw new Error(`unknown EVE run ${runId}`);
+        return {
+          message: run.status,
+          run,
+          text: eveService.formatStatus(run),
+        };
+      },
+      async eveList({ sessionKey }) {
+        const session = requireSession(sessionKey);
+        const runs = await eveService.listRuns(sessionKey);
+        const scripts = await eveService.listScripts(session.cwd);
+        return {
+          message: `${runs.length} run(s), ${scripts.length} script(s)`,
+          runs,
+          scripts,
+        };
+      },
+      async evePause({ sessionKey, runId }) {
+        requireSession(sessionKey);
+        markEveAbort(runId, true);
+        const run = await eveService.pause(runId);
+        return { message: `paused ${runId}`, run };
+      },
+      async eveResume({ sessionKey, runId }) {
+        requireSession(sessionKey);
+        markEveAbort(runId, false);
+        void startEveExecution(runId, sessionKey, true);
+        return { message: `resume ${runId}` };
+      },
+      async eveKill({ sessionKey, runId }) {
+        requireSession(sessionKey);
+        markEveAbort(runId, true);
+        const run = await eveService.kill(runId);
+        return { message: `killed ${runId}`, run };
+      },
+      async eveWrite({ sessionKey, name, source, scope }) {
+        const session = requireSession(sessionKey);
+        const out = await eveService.writeScript({
+          repoRoot: session.cwd,
+          name,
+          source,
+          scope,
+        });
+        return {
+          message: `wrote ${out.path}`,
+          path: out.path,
+          meta: out.meta,
+        };
+      },
+  };
+
+  const workerApi = createWorkerApiServer({
+    stateDir: stateDir,
+    log,
+    handlers: workerHandlers,
   });
+
+  /** Fire EVE execution using existing agent spawn/wait handlers. */
+  function startEveExecution(
+    runId: string,
+    sessionKey: string,
+    resume = false,
+  ): void {
+    const session = sessionIndex.byKey[sessionKey];
+    if (!session) return;
+    const deps = bindEveRuntimeDeps({
+      parentSessionKey: sessionKey,
+      defaultAgent:
+        env.config.eve?.defaultAgent ||
+        session.identity.agent ||
+        env.config.defaultAgent ||
+        "codex",
+      notify: async (sk, text) => {
+        const s = sessionIndex.byKey[sk];
+        if (s) await sendInTopic(s, text);
+      },
+      agentSpawn: async (input) => {
+        return workerHandlers.agentSpawn(input);
+      },
+      agentWait: async (input) => {
+        return workerHandlers.agentWait(input);
+      },
+      agentKill: async (input) => {
+        return workerHandlers.agentKill({
+          sessionKey: input.sessionKey,
+          childSessionKey: input.childSessionKey,
+          dispose: input.dispose,
+        });
+      },
+      service: eveService,
+    });
+    const go = resume
+      ? eveService.resume(runId, deps)
+      : eveService.approveAndStart(runId, deps);
+    void go.catch((err) => {
+      log.warn("EVE run failed", {
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  async function handleEveCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const sub = (args[0] ?? "status").toLowerCase();
+    try {
+      if (sub === "help" || args.length === 0 || sub === "status") {
+        if (sub === "status" && args[1]) {
+          const run = await eveService.status(args[1]!);
+          if (!run) {
+            await sendInTopic(session, `Unknown EVE run \`${args[1]}\``);
+            return;
+          }
+          await sendInTopic(session, eveService.formatStatus(run));
+          return;
+        }
+        const runs = await eveService.listRuns(session.sessionKey);
+        const scripts = await eveService.listScripts(session.cwd);
+        const lines = [
+          `🛰 **EVE** — ${EVE_TAGLINE}`,
+          "",
+          "`/eve run <name>` · `/eve approve <id>` · `/eve status [id]`",
+          "`/eve pause|resume|kill <id>` · `/eve list` · `/eve save` via agent",
+          "`/linear drain` — bundled linear-drain directive",
+          "",
+          `Scripts (${scripts.length}):`,
+          ...scripts.slice(0, 12).map(
+            (s) => `· \`${s.name}\` (${s.origin}) — ${s.description.slice(0, 80)}`,
+          ),
+          "",
+          `Recent runs (${runs.length}):`,
+          ...runs.slice(0, 8).map(
+            (r) =>
+              `· \`${r.runId.slice(0, 8)}\` **${r.name}** ${r.status} · agents ${r.budget.agentsUsed}`,
+          ),
+        ];
+        await sendInTopic(session, lines.join("\n"));
+        return;
+      }
+
+      if (sub === "list") {
+        const runs = await eveService.listRuns(session.sessionKey);
+        const scripts = await eveService.listScripts(session.cwd);
+        await sendInTopic(
+          session,
+          [
+            "**Scripts**",
+            ...scripts.map((s) => `· \`${s.name}\` (${s.origin})`),
+            "",
+            "**Runs**",
+            ...runs.map(
+              (r) =>
+                `· \`${r.runId}\` ${r.name} · ${r.status}`,
+            ),
+          ].join("\n") || "No EVE scripts or runs.",
+        );
+        return;
+      }
+
+      if (sub === "run") {
+        const name = args[1];
+        if (!name) {
+          await sendInTopic(
+            session,
+            "Usage: `/eve run <name>` (e.g. `linear-drain`, `audit-routes`)",
+          );
+          return;
+        }
+        const out = await workerHandlers.eveRun({
+          sessionKey: session.sessionKey,
+          name,
+          skip_approval: false,
+        });
+        if (out.runId && out.message && !/pending/i.test(out.message)) {
+          await sendInTopic(
+            session,
+            `🛰 EVE started **${name}** · \`${out.runId}\`\n` +
+              `Watch with \`/eve status ${out.runId}\``,
+          );
+        }
+        return;
+      }
+
+      if (sub === "approve") {
+        const runId = args[1];
+        if (!runId) {
+          await sendInTopic(session, "Usage: `/eve approve <runId>`");
+          return;
+        }
+        await workerHandlers.eveApprove({
+          sessionKey: session.sessionKey,
+          runId,
+        });
+        await sendInTopic(session, `🛰 EVE approved · starting \`${runId}\``);
+        return;
+      }
+
+      if (sub === "pause" || sub === "resume" || sub === "kill") {
+        const runId = args[1];
+        if (!runId) {
+          await sendInTopic(session, `Usage: \`/eve ${sub} <runId>\``);
+          return;
+        }
+        if (sub === "pause") {
+          await workerHandlers.evePause({
+            sessionKey: session.sessionKey,
+            runId,
+          });
+        } else if (sub === "resume") {
+          await workerHandlers.eveResume({
+            sessionKey: session.sessionKey,
+            runId,
+          });
+        } else {
+          await workerHandlers.eveKill({
+            sessionKey: session.sessionKey,
+            runId,
+          });
+        }
+        await sendInTopic(session, `EVE ${sub} · \`${runId}\``);
+        return;
+      }
+
+      await sendInTopic(
+        session,
+        "EVE commands: run · approve · status · list · pause · resume · kill",
+      );
+    } catch (err) {
+      log.warn("eve command failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await sendInTopic(
+        session,
+        `EVE failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   /**
    * /mcp [status|add|remove|auth|code] — repo `.tacp/mcp.json` registry + host OAuth.
@@ -3264,6 +3576,42 @@ export function createDaemon(
           "Multi-agent fan-out for bound project (agent turn)…",
         );
         await startAgentPrompt(linearFanoutPrompt(binding));
+        return;
+      }
+
+      if (sub === "drain" || sub === "run") {
+        const binding = await loadLinearBinding(
+          oauthStateDir,
+          session.sessionKey,
+        );
+        if (!binding) {
+          await sendInTopic(
+            session,
+            "No Linear project bound. " +
+              "Run `/linear project <id|url>` or `/linear export` first.",
+          );
+          return;
+        }
+        await sendInTopic(
+          session,
+          "🛰 **EVE** · starting bundled `linear-drain` for the bound project…",
+        );
+        const out = await workerHandlers.eveRun({
+          sessionKey: session.sessionKey,
+          name: "linear-drain",
+          args: {
+            projectId: binding.projectId,
+            projectName: binding.projectName,
+            sequential: args.includes("--sequential"),
+          },
+          skip_approval: env.config.eve?.requireApproval === false,
+        });
+        if (out.runId) {
+          await sendInTopic(
+            session,
+            `EVE run \`${out.runId}\` · \`/eve status ${out.runId}\` · \`/eve approve ${out.runId}\` if pending`,
+          );
+        }
         return;
       }
 
@@ -4483,6 +4831,10 @@ export function createDaemon(
       }
       if (slash.name === "/linear") {
         await handleLinearCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/eve") {
+        await handleEveCommand(session, slash.args);
         return;
       }
       if (slash.name === "/help") {

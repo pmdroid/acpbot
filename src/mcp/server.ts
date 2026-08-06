@@ -39,6 +39,14 @@ import {
   workerAgentKill,
   workerAgentSend,
   workerAgentWait,
+  workerEveRun,
+  workerEveApprove,
+  workerEveStatus,
+  workerEveList,
+  workerEvePause,
+  workerEveResume,
+  workerEveKill,
+  workerEveWrite,
 } from "./worker-api";
 
 function linearStateDir(): string {
@@ -834,5 +842,219 @@ server.tool(
   },
 );
 
+// ── EVE — Extraterrestrial Vegetation Evaluator (background directives) ────
+
+server.tool(
+  {
+    name: "eve_list",
+    description:
+      "List EVE directive scripts (project/user/bundled) and recent runs for this session. " +
+      "EVE runs multi-agent graphs in the background from JS scripts (not ultracode).",
+    input: z.object({}),
+  },
+  async () => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_list failed: ${env.error}`;
+    try {
+      const ack = await workerEveList({ sessionKey: env.sessionKey });
+      if (!ack.ok) return `eve_list failed: ${ack.error}`;
+      return (
+        (ack.message ?? "EVE list") +
+        `\n${JSON.stringify({ scripts: ack.scripts, runs: ack.runs }, null, 2)}`
+      );
+    } catch (err) {
+      return `eve_list failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_run",
+    description:
+      "Start an EVE directive by name (e.g. linear-drain, audit-routes), path, or inline source. " +
+      "May return pending_approval — operator approves with /eve approve or eve_approve. " +
+      "Runs in the background; leaf work uses agent_spawn worktrees.",
+    input: z.object({
+      name: z.string().min(1).optional().describe("Bundled/project directive name"),
+      path: z.string().min(1).optional().describe("Path under .acpbot/eve/"),
+      source: z.string().min(1).optional().describe("Inline JS directive source"),
+      args: z.unknown().optional().describe("Args object for the script"),
+      skip_approval: z.boolean().optional(),
+      agents_max: z.number().optional(),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_run failed: ${env.error}`;
+    try {
+      const ack = await workerEveRun({
+        sessionKey: env.sessionKey,
+        ...(args.name ? { name: args.name } : {}),
+        ...(args.path ? { path: args.path } : {}),
+        ...(args.source ? { source: args.source } : {}),
+        ...(args.args !== undefined ? { args: args.args } : {}),
+        ...(args.skip_approval != null
+          ? { skip_approval: args.skip_approval }
+          : {}),
+        ...(args.agents_max != null ? { agents_max: args.agents_max } : {}),
+      });
+      if (!ack.ok) return `eve_run failed: ${ack.error}`;
+      return (
+        (ack.message ?? "started") +
+        (ack.runId ? `\nrunId: ${ack.runId}` : "") +
+        (ack.run ? `\n${JSON.stringify(ack.run, null, 2)}` : "")
+      );
+    } catch (err) {
+      return `eve_run failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_approve",
+    description: "Approve and start a pending EVE run.",
+    input: z.object({ runId: z.string().min(1) }),
+  },
+  async ({ runId }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_approve failed: ${env.error}`;
+    try {
+      const ack = await workerEveApprove({
+        sessionKey: env.sessionKey,
+        runId,
+      });
+      if (!ack.ok) return `eve_approve failed: ${ack.error}`;
+      return ack.message ?? "approved";
+    } catch (err) {
+      return `eve_approve failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_status",
+    description: "Status + log summary for an EVE run.",
+    input: z.object({ runId: z.string().min(1) }),
+  },
+  async ({ runId }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_status failed: ${env.error}`;
+    try {
+      const ack = await workerEveStatus({
+        sessionKey: env.sessionKey,
+        runId,
+      });
+      if (!ack.ok) return `eve_status failed: ${ack.error}`;
+      return ack.text ?? ack.message ?? JSON.stringify(ack.run, null, 2);
+    } catch (err) {
+      return `eve_status failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_pause",
+    description: "Pause a running EVE directive.",
+    input: z.object({ runId: z.string().min(1) }),
+  },
+  async ({ runId }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_pause failed: ${env.error}`;
+    try {
+      const ack = await workerEvePause({
+        sessionKey: env.sessionKey,
+        runId,
+      });
+      if (!ack.ok) return `eve_pause failed: ${ack.error}`;
+      return ack.message ?? "paused";
+    } catch (err) {
+      return `eve_pause failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_resume",
+    description: "Resume a paused EVE directive.",
+    input: z.object({ runId: z.string().min(1) }),
+  },
+  async ({ runId }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_resume failed: ${env.error}`;
+    try {
+      const ack = await workerEveResume({
+        sessionKey: env.sessionKey,
+        runId,
+      });
+      if (!ack.ok) return `eve_resume failed: ${ack.error}`;
+      return ack.message ?? "resumed";
+    } catch (err) {
+      return `eve_resume failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_kill",
+    description: "Stop an EVE run.",
+    input: z.object({ runId: z.string().min(1) }),
+  },
+  async ({ runId }) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_kill failed: ${env.error}`;
+    try {
+      const ack = await workerEveKill({
+        sessionKey: env.sessionKey,
+        runId,
+      });
+      if (!ack.ok) return `eve_kill failed: ${ack.error}`;
+      return ack.message ?? "killed";
+    } catch (err) {
+      return `eve_kill failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "eve_write",
+    description:
+      "Write an EVE directive JS script to .acpbot/eve/<name>.js (project) or user scope. " +
+      "Must export const meta = { name, description } and body with agent/parallel/pipeline.",
+    input: z.object({
+      name: z.string().min(1),
+      source: z.string().min(1),
+      scope: z.enum(["project", "user"]).optional(),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `eve_write failed: ${env.error}`;
+    try {
+      const ack = await workerEveWrite({
+        sessionKey: env.sessionKey,
+        name: args.name,
+        source: args.source,
+        ...(args.scope ? { scope: args.scope } : {}),
+      });
+      if (!ack.ok) return `eve_write failed: ${ack.error}`;
+      return (
+        (ack.message ?? "wrote") +
+        (ack.path ? `\npath: ${ack.path}` : "") +
+        (ack.meta ? `\n${JSON.stringify(ack.meta, null, 2)}` : "")
+      );
+    } catch (err) {
+      return `eve_write failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
 await server.run();
+
 
