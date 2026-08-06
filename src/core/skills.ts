@@ -196,11 +196,7 @@ export function formatSkillsList(
   const title = opts?.title ?? "Available skills";
   const pageSize = opts?.pageSize ?? SKILL_PAGE_SIZE;
   if (skills.length === 0) {
-    return (
-      `${title}\n\n` +
-      "_No SKILL.md trees found under configured roots or this session cwd._\n" +
-      "Grok also loads user skills from its own config; ask the agent in chat."
-    );
+    return `${title}\n_No SKILL.md under roots/cwd._`;
   }
 
   const page =
@@ -214,29 +210,26 @@ export function formatSkillsList(
     opts?.page !== undefined ? start + pageSize : skills.length;
   const slice = skills.slice(start, end);
 
-  const lines = [
+  const header =
     opts?.page !== undefined
-      ? `${title} (${skills.length}) · page ${page + 1}/${pages}`
-      : `${title} (${skills.length})`,
-    "",
-    ...slice.map(
-      (s) =>
-        `• **${s.id}** — ${s.description.slice(0, 100)}${s.description.length > 100 ? "…" : ""}`,
-    ),
+      ? `${title} (${skills.length}) · ${page + 1}/${pages}`
+      : `${title} (${skills.length})`;
+
+  // Buttons already show skill ids — don't dump descriptions (huge on mobile).
+  if (opts?.withButtons) {
+    return `${header}\nTap a skill, then send your prompt.`;
+  }
+
+  const lines = [
+    header,
+    ...slice.map((s) => {
+      const desc = s.description.slice(0, 60);
+      const ellip = s.description.length > 60 ? "…" : "";
+      return `· \`${s.id}\` — ${desc}${ellip}`;
+    }),
   ];
   if (opts?.page === undefined && skills.length > pageSize) {
-    lines.push("", `_Showing all ${skills.length} — use buttons in-topic for paging._`);
-  }
-  if (opts?.withButtons) {
-    lines.push(
-      "",
-      "Tap a skill, then **send your prompt text** in this topic.",
-    );
-  } else {
-    lines.push(
-      "",
-      "In a session topic use /skills for buttons, or type a prompt that names the skill.",
-    );
+    lines.push(`_…${skills.length} total — /skills for buttons_`);
   }
   return lines.join("\n");
 }

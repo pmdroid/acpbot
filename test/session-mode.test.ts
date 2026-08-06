@@ -256,7 +256,7 @@ describe("formatSessionStatus mode line", () => {
       chatId: 2,
     });
     expect(t).toMatch(/Mode: _\(not advertised\)_/);
-    expect(t).toMatch(/Effort: _\(not advertised\)_/);
+    expect(t).not.toMatch(/Effort:/);
     expect(t).not.toMatch(/Mode: `unknown`/);
   });
 });

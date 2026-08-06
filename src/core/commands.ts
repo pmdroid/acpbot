@@ -187,30 +187,24 @@ export function commandAllowedIn(
 
 export function lobbyHelpText(): string {
   const lines = [
-    "acpbot lobby — commands only (no agent output here).",
-    "",
+    "**Lobby** (commands only)",
     ...COMMANDS.filter((c) => c.scope === "lobby" || c.scope === "both").map(
       (c) => `${c.name} — ${c.summary}`,
     ),
     "",
-    "In a session topic: type to prompt the agent; use topic /help for session commands.",
+    "Prompt the agent in a session topic · topic `/help` for more.",
   ];
   return lines.join("\n");
 }
 
 export function topicHelpText(): string {
   return [
-    "Session topic — messages go to the agent.",
-    "",
+    "**Topic** — messages go to the agent.",
     ...COMMANDS.filter((c) => c.scope === "topic" || c.scope === "both").map(
       (c) => `${c.name} — ${c.summary}`,
     ),
     "",
-    "While a turn is running, free-text is **queued** (runs after the turn).",
-    "`/steer <text>` **interrupts** the current turn and injects guidance now.",
-    "Telegram does not notify deletes — use **Remove** on the queue ack or `/unqueue`.",
-    "",
-    "Lobby commands (/new, /sessions, /ping) only work in the main chat.",
+    "Busy turn: free-text **queues** · `/steer` interrupts · `/unqueue` removes.",
   ].join("\n");
 }
 

@@ -81,16 +81,8 @@ export function formatPermissionPrompt(
     raw?.toolCall?.title ??
     raw?.title ??
     `Permission request (${req.toolCallId || "unknown"})`;
-  const lines = [
-    "❓ Agent needs permission",
-    "",
-    title,
-    `toolCallId: ${req.toolCallId || "—"}`,
-    "",
-    "Choose an option:",
-    ...options.map((o, i) => `${i + 1}. ${o.name}`),
-  ];
-  return lines.join("\n");
+  // Buttons carry options — keep body to the action title only.
+  return `❓ Permission\n${title}`;
 }
 
 export type BuiltPermissionUi = {

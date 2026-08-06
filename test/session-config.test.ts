@@ -50,7 +50,7 @@ describe("session-config", () => {
 
   test("empty when no model options", () => {
     expect(findModelConfigOption([])).toBeUndefined();
-    expect(formatModelStatus({ configOptions: [] })).toMatch(/does not advertise/);
+    expect(formatModelStatus({ configOptions: [] })).toMatch(/not advertised/);
   });
 
   test("Grok sessionConfig category mode → effort config options", () => {
@@ -101,7 +101,7 @@ describe("session-config", () => {
   test("empty effort when not advertised", () => {
     expect(findEffortConfigOption([])).toBeUndefined();
     expect(formatEffortStatus({ configOptions: [] })).toMatch(
-      /does not advertise/,
+      /not advertised/,
     );
   });
 

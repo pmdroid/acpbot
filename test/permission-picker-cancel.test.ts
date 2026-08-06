@@ -204,7 +204,11 @@ describe("permission inline keyboard round-trip", () => {
       await settle(20);
       permMsg = env.telegram
         .sentMessages()
-        .find((m) => m.text?.includes("Agent needs permission"));
+        .find(
+          (m) =>
+            m.text?.includes("❓ Permission") ||
+            m.text?.includes("Agent needs permission"),
+        );
     }
     expect(permMsg).toBeDefined();
 

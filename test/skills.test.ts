@@ -245,8 +245,14 @@ description: Visible in topic /skills
       pageSize: SKILL_PAGE_SIZE,
       withButtons: true,
     });
-    expect(list).toContain("page 2/3");
-    expect(list).toContain("skill-8");
+    // Buttons carry skill ids — body is header + short prompt only.
+    expect(list).toContain("2/3");
+    expect(list).toMatch(/Tap a skill/i);
     expect(list).not.toContain("skill-0");
+    // Skill ids live on the keyboard, not the message body.
+    const page1Labels = flat1
+      .map((b) => b.text)
+      .filter((t) => t.startsWith("skill-"));
+    expect(page1Labels.some((t) => t.includes("skill-8"))).toBe(true);
   });
 });
