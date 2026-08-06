@@ -5,6 +5,7 @@
  * (HTTP over Unix socket). The daemon owns the bot token and topic map.
  * schedule_*: create / list / cancel / run-now durable delayed work.
  * agent_*: spawn / list / send / wait / kill parent-linked child agents (worktrees).
+ * linear_*: topic ↔ Linear project binding (state dir; Linear data via Linear MCP).
  */
 import { FastMCP } from "@prefecthq/fastmcp-ts/server";
 import { z } from "zod";
@@ -14,6 +15,14 @@ import {
   listJobs,
   markJobDue,
 } from "../schedules/store";
+import {
+  deleteLinearBinding,
+  formatLinearBindingContext,
+  loadLinearBinding,
+  saveLinearBinding,
+  type LinearBoundBy,
+} from "../linear/bindings";
+import { resolveStateDir } from "../env/state-dir";
 import {
   basenameOf,
   resolvePathUnderRepo,
@@ -31,6 +40,19 @@ import {
   workerAgentSend,
   workerAgentWait,
 } from "./worker-api";
+
+function linearStateDir(): string {
+  return resolveStateDir(process.env.ACPBOT_STATE_DIR);
+}
+
+/** repoKey from sessionKey `repo/name` or env. */
+function repoKeyFromSession(sessionKey: string): string {
+  const fromEnv = process.env.ACPBOT_REPO_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  const slash = sessionKey.indexOf("/");
+  if (slash > 0) return sessionKey.slice(0, slash);
+  return sessionKey;
+}
 
 const server = new FastMCP({
   name: "acpbot",
@@ -681,6 +703,131 @@ server.tool(
       return ack.message ?? "killed";
     } catch (err) {
       return `agent_kill failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "linear_get_binding",
+    description:
+      "Return the Linear project bound to this Telegram topic (session), if any. " +
+      "Use before listing/creating issues so work stays scoped to the bound project. " +
+      "Does not call Linear APIs — only host state.",
+    input: z.object({}),
+  },
+  async () => {
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "linear_get_binding failed: ACPBOT_SESSION_KEY not set on MCP server"
+      );
+    }
+    try {
+      const binding = await loadLinearBinding(linearStateDir(), sessionKey);
+      if (!binding) {
+        return (
+          "No Linear project bound to this topic. " +
+          "Create/attach one then call linear_bind_project, or ask the operator " +
+          "to run `/linear project <id|url>`."
+        );
+      }
+      return [
+        formatLinearBindingContext(binding),
+        "",
+        "JSON:",
+        JSON.stringify(binding, null, 2),
+      ].join("\n");
+    } catch (err) {
+      return `linear_get_binding failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "linear_bind_project",
+    description:
+      "Bind this Telegram topic to a Linear project (durable host state). " +
+      "Call after creating a project via Linear MCP, or when the operator chose a project. " +
+      "Does not create Linear objects — only saves the topic↔project link.",
+    input: z.object({
+      projectId: z
+        .string()
+        .min(1)
+        .describe("Linear project id (UUID preferred) or stable slug"),
+      projectName: z.string().optional().describe("Display name"),
+      projectUrl: z.string().optional().describe("https://linear.app/… URL"),
+      teamId: z.string().optional(),
+      teamKey: z.string().optional().describe("Team key e.g. ENG"),
+      lastIssueId: z
+        .string()
+        .optional()
+        .describe("Optional last-focused issue identifier (ENG-123)"),
+      boundBy: z
+        .enum(["export", "attach", "agent", "command"])
+        .optional()
+        .describe("Who initiated the bind (default agent)"),
+    }),
+  },
+  async (args) => {
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "linear_bind_project failed: ACPBOT_SESSION_KEY not set on MCP server"
+      );
+    }
+    try {
+      const boundBy = (args.boundBy ?? "agent") as LinearBoundBy;
+      const record = await saveLinearBinding(linearStateDir(), {
+        sessionKey,
+        repoKey: repoKeyFromSession(sessionKey),
+        projectId: args.projectId,
+        ...(args.projectName ? { projectName: args.projectName } : {}),
+        ...(args.projectUrl ? { projectUrl: args.projectUrl } : {}),
+        ...(args.teamId ? { teamId: args.teamId } : {}),
+        ...(args.teamKey ? { teamKey: args.teamKey } : {}),
+        ...(args.lastIssueId ? { lastIssueId: args.lastIssueId } : {}),
+        boundBy,
+      });
+      return (
+        `Bound topic \`${sessionKey}\` to Linear project ` +
+        `**${record.projectName ?? record.projectId}** (\`${record.projectId}\`).`
+      );
+    } catch (err) {
+      return `linear_bind_project failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "linear_unbind_project",
+    description:
+      "Clear the Linear project binding for this Telegram topic. " +
+      "Does not delete the Linear project or issues.",
+    input: z.object({}),
+  },
+  async () => {
+    const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
+    if (!sessionKey) {
+      return (
+        "linear_unbind_project failed: ACPBOT_SESSION_KEY not set on MCP server"
+      );
+    }
+    try {
+      const removed = await deleteLinearBinding(linearStateDir(), sessionKey);
+      return removed
+        ? `Unbound Linear project from topic \`${sessionKey}\`.`
+        : `No Linear binding was set for topic \`${sessionKey}\`.`;
+    } catch (err) {
+      return `linear_unbind_project failed: ${
         err instanceof Error ? err.message : String(err)
       }`;
     }

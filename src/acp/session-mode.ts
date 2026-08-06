@@ -452,6 +452,8 @@ export function formatSessionStatus(input: {
   /** Children of this session (parent hub). */
   children?: StatusChildLine[] | undefined;
   childrenTruncated?: number | undefined;
+  /** Linear topic↔project binding summary line(s). */
+  linearLine?: string | undefined;
 }): string {
   const launch =
     input.launch != null
@@ -510,6 +512,9 @@ export function formatSessionStatus(input: {
     lines.push(
       `MCP: on · ${input.mcpCount ?? 0} server(s): ${names}`,
     );
+  }
+  if (input.linearLine) {
+    lines.push(input.linearLine);
   }
   if (input.acpHost != null) {
     lines.push(`acp-host: ${input.acpHost ? "yes" : "no"}`);

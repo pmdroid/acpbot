@@ -63,6 +63,11 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   efforts: Map<string, string>;
   /** Record of ensureSession calls. */
   ensureCalls: SessionIdentity[];
+  /** ensureSession opts flags (parallel to ensureCalls). */
+  ensureOpts: Array<{
+    forceRespawn?: boolean;
+    forceNewSession?: boolean;
+  }>;
 } {
   const sessions = new Map<string, AgentSessionHandle>();
   const turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }> =
@@ -72,6 +77,10 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   const models = new Map<string, string>();
   const efforts = new Map<string, string>();
   const ensureCalls: SessionIdentity[] = [];
+  const ensureOpts: Array<{
+    forceRespawn?: boolean;
+    forceNewSession?: boolean;
+  }> = [];
   const abortBySession = new Map<string, AbortController>();
   let sawTimeoutMs = false;
   let permissionHandler:
@@ -115,6 +124,10 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     efforts: Map<string, string>;
     setMode(sessionKey: string, modeId: string): void;
     ensureCalls: SessionIdentity[];
+    ensureOpts: Array<{
+      forceRespawn?: boolean;
+      forceNewSession?: boolean;
+    }>;
   } = {
     sessions,
     turns,
@@ -125,6 +138,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     models,
     efforts,
     ensureCalls,
+    ensureOpts,
 
     queueTurn(sessionKey, script) {
       const list = scripts.get(sessionKey) ?? [];
@@ -248,16 +262,25 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       return handle;
     },
 
-    async ensureSession(identity) {
+    async ensureSession(identity, opts) {
       ensureCalls.push({ ...identity });
+      ensureOpts.push({
+        ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
+        ...(opts?.forceNewSession ? { forceNewSession: true } : {}),
+      });
       const key = sessionKeyOf(identity);
       const existing = sessions.get(key);
-      if (existing && existing.identity.agent === identity.agent) {
+      if (
+        existing &&
+        existing.identity.agent === identity.agent &&
+        !opts?.forceNewSession &&
+        !opts?.forceRespawn
+      ) {
         return existing;
       }
 
       const repos = options.repos ?? {};
-      const cwd = repos[identity.repo];
+      const cwd = opts?.cwd?.trim() || repos[identity.repo];
       if (!cwd) {
         throw new Error(
           `unknown repo "${identity.repo}" — configure it before creating a session`,
@@ -272,8 +295,8 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       sessions.set(key, handle);
       // Simulate read-only mode being applied immediately after create.
       modes.set(key, "read-only");
-      if (!models.has(key)) models.set(key, "fast");
-      if (!efforts.has(key)) efforts.set(key, "high");
+      if (!models.has(key) || opts?.forceNewSession) models.set(key, "fast");
+      if (!efforts.has(key) || opts?.forceNewSession) efforts.set(key, "high");
       return handle;
     },
 

@@ -30,6 +30,7 @@ describe("telegram menu commands", () => {
     // Topic commands must appear so operators can discover them in “/”
     expect(names).toContain("skills");
     expect(names).toContain("cancel");
+    expect(names).toContain("fresh");
     expect(names).toContain("mode");
     expect(names).toContain("plan");
     expect(names).toContain("build");

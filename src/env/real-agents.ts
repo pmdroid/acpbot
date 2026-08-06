@@ -312,11 +312,17 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         cwd,
         permissionMode,
         forceRespawn: Boolean(opts?.forceRespawn),
+        forceNewSession: Boolean(opts?.forceNewSession),
       });
       try {
-        if (opts?.forceRespawn) {
+        if (opts?.forceRespawn || opts?.forceNewSession) {
           try {
-            await hostFor(key).cancel?.(key, "forceRespawn MCP rebuild");
+            await hostFor(key).cancel?.(
+              key,
+              opts?.forceNewSession
+                ? "forceNewSession /fresh"
+                : "forceRespawn MCP rebuild",
+            );
           } catch {
             /* */
           }
@@ -335,6 +341,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           cwd,
           permissionMode,
           ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
+          ...(opts?.forceNewSession ? { forceNewSession: true } : {}),
         });
         if (options.forceReadOnly) {
           const modes = await hostFor(key).getAvailableModes(key);
@@ -351,6 +358,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           sessionKey: key,
           agentSessionId: hs.agentSessionId,
           forceRespawn: Boolean(opts?.forceRespawn),
+          forceNewSession: Boolean(opts?.forceNewSession),
         });
         return {
           sessionKey: key,

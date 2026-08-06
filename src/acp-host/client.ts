@@ -522,6 +522,7 @@ export function createAcpHostClient(
           ? { permissionMode: input.permissionMode }
           : {}),
         ...(input.forceRespawn ? { forceRespawn: true } : {}),
+        ...(input.forceNewSession ? { forceNewSession: true } : {}),
       };
       const msg = await request({
         type: "ensure",

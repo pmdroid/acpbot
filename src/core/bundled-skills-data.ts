@@ -1,6 +1,6 @@
 /**
  * Embedded operator skills shipped inside the acpbot binary.
- * Keep in sync with package `skills/{telegram,schedules,multi-agent}/SKILL.md`.
+ * Keep in sync with package `skills/{telegram,schedules,multi-agent,linear}/SKILL.md`.
  *
  * Binary installs materialize these under ~/.local/share/acpbot/bundled-skills/
  * via `acpbot skills install` (and on demand for skillRoots discovery).
@@ -202,6 +202,53 @@ Host MCP server: **\`acpbot\`**. Tools (no CLI in v1):
 3. \`agent_wait({ to: "impl" })\`
 4. Optionally spawn a reviewer; or merge/PR from the child branch
 5. Summarize to the operator
+
+## Linear project fan-out
+
+When this topic is bound to a Linear project (see **linear** skill / \`/linear fanout\`):
+
+1. List open issues in the bound project only
+2. Confirm spawn plan with the operator
+3. One \`agent_spawn\` per issue (slug from issue id); kickoff = issue body + acceptance criteria
+4. Parent waits; on success update Linear (comment + Done)
+5. Do not share parent cwd; respect spawn caps
+`,
+  },
+  linear: {
+    "SKILL.md": `---
+name: linear
+description: >
+  Linear via acpbot: OAuth MCP tools for issues/projects, plus host binding so
+  this Telegram topic is tied to one Linear project. Use when exporting a plan
+  to Linear, working the bound project's backlog, fan-out, or updating issue status.
+---
+
+# Linear (acpbot)
+
+This topic can be **bound** to one Linear project. That project is the backlog
+you work through. Free-text turns may include a sticky \`[Linear] Bound project …\`
+prefix when bound — honor it.
+
+## Setup (operator)
+
+1. \`[oauth].callback_base\` configured (\`acpbot setup\`)
+2. \`/linear connect\` — official MCP + OAuth
+3. \`/linear project <id|url>\` or export + \`linear_bind_project\`
+
+## Host tools
+
+\`linear_get_binding\` · \`linear_bind_project\` (set \`lastIssueId\`) · \`linear_unbind_project\`
+
+## Rules
+
+- Scope to bound project only
+- **One issue per turn** unless \`/linear fanout\`
+- In Progress → implement → comment → Done (or blocked)
+- Prefer Linear MCP over shell/curl
+
+## Operator commands
+
+\`/linear\` · \`connect\` · \`project\` · \`export\` · \`next\` · \`work\` · \`fanout\` · \`unbind\`
 `,
   },
 };

@@ -111,8 +111,9 @@ Bare `acpbot` prints help. Use `acpbot setup` for the TUI when config is missing
 /new demo hello
 # open the topic → type a prompt
 
-/status  /model  /effort  /agent  /mode  /skills  /mcp  /cancel
+/status  /model  /effort  /agent  /mode  /skills  /mcp  /cancel  /fresh
 # while busy: free-text is queued; /steer <text> interrupts
+# /fresh = new agent conversation (history cleared; topic kept)
 ```
 
 More: [acpbot.app/docs](https://acpbot.app/docs)
