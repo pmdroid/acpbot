@@ -38,6 +38,9 @@ export function createFakeEnvironment(
     },
     defaultAgent: options.config?.defaultAgent ?? "codex",
     skillRoots: options.config?.skillRoots,
+    ...(options.config?.permissionMode !== undefined
+      ? { permissionMode: options.config.permissionMode }
+      : {}),
   };
 
   const agents = fakeAgents({

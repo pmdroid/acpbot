@@ -67,9 +67,18 @@ export function formatPermissionStatus(input: {
     `• \`bypass\` — auto-allow tools (deny rules / hooks may still apply)`,
     ``,
     `Commands:`,
-    `• \`/permissions\` — show`,
+    `• \`/permissions\` — status + **Ask** / **Bypass** buttons`,
     `• \`/permissions ask|bypass\` — this topic`,
-    `• \`/permissions default ask|bypass\` — new topics only`,
+    `• \`/permissions default ask|bypass\` — new topics (writes config.toml)`,
   );
   return lines.join("\n");
 }
+
+/** Inline keyboard labels for the ask|bypass picker (index 0/1). */
+export const PERMISSION_MODE_OPTIONS: readonly {
+  mode: PermissionMode;
+  label: string;
+}[] = [
+  { mode: "ask", label: "Ask" },
+  { mode: "bypass", label: "Bypass" },
+] as const;

@@ -24,6 +24,11 @@ export const CALLBACK = {
   agentPrefix: "A:",
   /** Remove queued prompt: Q:<token> */
   queuePrefix: "Q:",
+  /**
+   * Tool-permission policy picker (ask|bypass): R:<token>:<modeIndex>
+   * modeIndex 0=ask, 1=bypass, -1=cancel. Distinct from p: (in-flight tool allow).
+   */
+  permissionModePrefix: "R:",
 } as const;
 
 export function encodeQueueRemoveCallback(token: string): string {
@@ -240,6 +245,31 @@ export function parseAgentCallback(
   const agentIndex = Number(rest.slice(colon + 1));
   if (!token || !Number.isInteger(agentIndex)) return undefined;
   return { token, agentIndex };
+}
+
+/** modeIndex: 0=ask, 1=bypass, -1=cancel */
+export function encodePermissionModeCallback(
+  token: string,
+  modeIndex: number,
+): string {
+  const data = `${CALLBACK.permissionModePrefix}${token}:${modeIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parsePermissionModeCallback(
+  data: string,
+): { token: string; modeIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.permissionModePrefix)) return undefined;
+  const rest = data.slice(CALLBACK.permissionModePrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const modeIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(modeIndex)) return undefined;
+  return { token, modeIndex };
 }
 
 export function newToken(bytes = 6): string {
