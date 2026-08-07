@@ -5,7 +5,7 @@ order: 1
 section: start
 ---
 
-No Bun or source checkout required for normal use. Download a release binary, run setup, pair once.
+No Bun or source checkout required for normal use. Download a **[v0.1.0](https://github.com/pmdroid/acpbot/releases/tag/v0.1.0)** release binary, run setup, pair once.
 
 ## Requirements
 
@@ -28,29 +28,40 @@ Pair as operator after start: DM the bot for a code, then run `acpbot pair appro
 
 ## 2. Download the binary
 
-From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **one** binary for your platform:
+Current release: **[v0.1.0](https://github.com/pmdroid/acpbot/releases/tag/v0.1.0)**. Download **one** artifact for your platform (or use the [landing page install section](/#install)):
 
-| Platform | Artifact |
-|---|---|
-| Linux x64 | `acpbot-v*-linux-x64.tar.gz` |
-| Linux arm64 | `acpbot-v*-linux-arm64.tar.gz` |
-| macOS Apple Silicon | `acpbot-v*-darwin-arm64.tar.gz` (signed) |
-| macOS Intel | `acpbot-v*-darwin-x64.tar.gz` (signed) |
+| Platform | Artifact | Direct link |
+|---|---|---|
+| macOS Apple Silicon | `acpbot-v0.1.0-darwin-arm64.tar.gz` (signed) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz) |
+| macOS Intel | `acpbot-v0.1.0-darwin-x64.tar.gz` (signed) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-x64.tar.gz) |
+| Linux x86_64 | `acpbot-v0.1.0-linux-x64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-linux-x64.tar.gz) |
+| Linux arm64 | `acpbot-v0.1.0-linux-arm64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-linux-arm64.tar.gz) |
 
 One unified binary — host and worker are subcommands of `acpbot`.
 
 ```bash
-# example: v0.1.0 on Apple Silicon — use the latest tag from Releases
-curl -sL -o acpbot.tar.gz \
+# Apple Silicon example (swap the asset name for your platform)
+curl -fsSL -o acpbot.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
 tar -xzf acpbot.tar.gz
 chmod +x acpbot-v0.1.0-darwin-arm64
-sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
+sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot   # or ~/.local/bin
 acpbot help    # host, worker, setup, services, …
 ```
 
+Checksums ship on the release (`SHA256SUMS`, `SHA256SUMS-darwin-v0.1.0`).
+
 **Config is created automatically** on first start under `~/.config/acpbot/` (no manual `mkdir` / `cp`).  
 Full reference: [Configuration](/docs/configuration).
+
+### Docker (optional)
+
+```bash
+docker pull ghcr.io/pmdroid/acpbot:v0.1.0
+# or compose from the repo — see docker-compose.yml and Configuration → Docker
+```
+
+Image tags: `v0.1.0`, `0.1.0`, `latest`. Multi-arch (`linux/amd64`, `linux/arm64`).
 
 ## 3. Setup + start host and worker
 
@@ -102,7 +113,7 @@ acpbot repo add demo ~/code/demo
 # host/worker hot-reload [repos]; restart worker only if needed
 ```
 
-Optional — install **telegram** / **schedules** skills into global agent dirs so Grok/Claude/… see them outside Telegram:
+Optional — install bundled skills (`telegram`, `schedules`, `multi-agent`, `linear`, `eve`) into global agent dirs so Grok/Claude/… see them outside Telegram:
 
 ```bash
 acpbot skills install
@@ -222,5 +233,6 @@ bun run typecheck
 
 - [Architecture](/docs/architecture)
 - [MCP](/docs/mcp) — per-repo tools & host `acpbot` tools  
-- [Skills](/docs/skills) — bundled telegram + schedules, global install
-- [OAuth](/docs/oauth) — remote gateways
+- [Skills](/docs/skills) — bundled skills, global install
+- [Multi-agent](/docs/multi-agent) · [EVE](/docs/eve) · [Linear](/docs/linear)
+- [OAuth](/docs/oauth) — remote MCP gateways

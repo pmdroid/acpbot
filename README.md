@@ -38,6 +38,8 @@ By running acpbot you accept these terms.
 - **Media & speech** — photos, files, voice; OpenAI or ElevenLabs TTS/STT
 - **Schedules** — delayed/recurring jobs even when the Telegram worker is down
 - **Queue & steer** — free-text queues while busy; `/steer` interrupts
+- **Multi-agent & EVE** — spawn children in worktrees; agent-authored directive graphs
+- **Multi-host** — route repos to remote `acp-host` over WSS
 
 ---
 
@@ -51,17 +53,19 @@ In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in privat
 
 ### 2. Download the binary
 
-From [GitHub Releases](https://github.com/pmdroid/acpbot/releases) download **one** binary for your platform (`linux-x64`, `linux-arm64`, or signed `darwin-arm64` / `darwin-x64`):
+**[v0.1.0](https://github.com/pmdroid/acpbot/releases/tag/v0.1.0)** — download **one** binary for your platform (`linux-x64`, `linux-arm64`, or signed `darwin-arm64` / `darwin-x64`). Platform table + Docker: [acpbot.app](https://acpbot.app/#install).
 
 ```bash
-# example: v0.1.0 on Apple Silicon — use the latest tag from Releases
-curl -sL -o acpbot.tar.gz \
+# Apple Silicon example
+curl -fsSL -o acpbot.tar.gz \
   "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
 tar -xzf acpbot.tar.gz
 chmod +x acpbot-v0.1.0-darwin-arm64
 sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
 acpbot help    # host, worker, setup, services, …
 ```
+
+Docker: `docker pull ghcr.io/pmdroid/acpbot:v0.1.0`
 
 ### 3. Guided setup TUI
 

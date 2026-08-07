@@ -19,19 +19,25 @@ const { active } = Astro.props;
           <a class="nav-current" href="/docs" aria-current="page">
             Docs
           </a>
-          <a href="https://github.com/pmdroid/acpbot/releases">Releases</a>
-          <a class="btn btn-sm btn-gold" href="https://github.com/pmdroid/acpbot/releases">
+          <a href="https://github.com/pmdroid/acpbot/releases/tag/v0.1.0">v0.1.0</a>
+          <a
+            class="btn btn-sm btn-gold"
+            href="https://github.com/pmdroid/acpbot/releases/tag/v0.1.0"
+          >
             Download
           </a>
         </>
       ) : (
         <>
+          <a href="/#install">Install</a>
           <a href="/#features">Features</a>
           <a href="/#how">How it works</a>
-          <a href="/#agents">Agents</a>
           <a href="/docs">Docs</a>
-          <a class="btn btn-sm btn-gold" href="/docs/getting-started">
-            Get started
+          <a
+            class="btn btn-sm btn-gold"
+            href="https://github.com/pmdroid/acpbot/releases/tag/v0.1.0"
+          >
+            Download
           </a>
         </>
       )

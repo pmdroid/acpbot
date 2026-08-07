@@ -41,8 +41,8 @@ import Footer from "../components/Footer.astro";
       </p>
 
       <div class="hero-cta">
-        <a class="btn btn-gold" href="/docs/getting-started">Get started</a>
-        <a class="btn btn-ghost" href="#how">See the architecture</a>
+        <a class="btn btn-gold" href="#install">Download v0.1.0</a>
+        <a class="btn btn-ghost" href="/docs/getting-started">Quick start</a>
       </div>
 
       <div class="hero-chips" aria-label="Supported agents">
@@ -51,6 +51,70 @@ import Footer from "../components/Footer.astro";
         <span class="chip">Codex</span>
         <span class="chip">OpenCode</span>
       </div>
+    </section>
+
+    <section id="install" class="section section-alt">
+      <div class="section-head">
+        <p class="eyebrow">Install · v0.1.0</p>
+        <h2>One binary. Host + worker.</h2>
+        <p class="section-sub">
+          Standalone Bun-compiled executables — no Bun or Node required. macOS builds are
+          Developer&nbsp;ID–signed. Linux from CI.
+        </p>
+      </div>
+
+      <div class="download-grid">
+        <a
+          class="download-card"
+          href="https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
+        >
+          <h3>macOS · Apple Silicon</h3>
+          <p><code>darwin-arm64</code></p>
+          <span class="tag">signed</span>
+        </a>
+        <a
+          class="download-card"
+          href="https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-x64.tar.gz"
+        >
+          <h3>macOS · Intel</h3>
+          <p><code>darwin-x64</code></p>
+          <span class="tag">signed</span>
+        </a>
+        <a
+          class="download-card"
+          href="https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-linux-x64.tar.gz"
+        >
+          <h3>Linux · x86_64</h3>
+          <p><code>linux-x64</code></p>
+          <span class="tag">amd64</span>
+        </a>
+        <a
+          class="download-card"
+          href="https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-linux-arm64.tar.gz"
+        >
+          <h3>Linux · ARM64</h3>
+          <p><code>linux-arm64</code></p>
+          <span class="tag">aarch64</span>
+        </a>
+      </div>
+
+      <pre class="code-block install-snippet" aria-label="Install example"><code
+        ># Apple Silicon example — pick your platform from above
+curl -fsSL -o acpbot.tgz \
+  "https://github.com/pmdroid/acpbot/releases/download/v0.1.0/acpbot-v0.1.0-darwin-arm64.tar.gz"
+tar -xzf acpbot.tgz
+chmod +x acpbot-v0.1.0-darwin-arm64
+sudo mv acpbot-v0.1.0-darwin-arm64 /usr/local/bin/acpbot
+acpbot setup</code
+      ></pre>
+
+      <p class="install-more">
+        <a href="https://github.com/pmdroid/acpbot/releases/tag/v0.1.0">GitHub release</a>
+        ·
+        <a href="/docs/getting-started">Full install guide</a>
+        · Docker:
+        <code>docker pull ghcr.io/pmdroid/acpbot:v0.1.0</code>
+      </p>
     </section>
 
     <section id="features" class="section">
@@ -109,6 +173,22 @@ import Footer from "../components/Footer.astro";
           <h3>Schedules</h3>
           <p>
             Durable in-repo jobs. The host can fire them even when the worker is offline.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">⧉</div>
+          <h3>Multi-agent &amp; EVE</h3>
+          <p>
+            Spawn child agents in worktrees, or run agent-authored directive graphs with
+            zero-token orchestration on the host.
+          </p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">⇄</div>
+          <h3>Multi-host</h3>
+          <p>
+            Route repos to remote <code>acp-host</code> over authenticated WSS — keep the bot
+            token on the worker, agents where the code lives.
           </p>
         </article>
       </div>
@@ -185,10 +265,14 @@ acpbot worker  ──Unix──►  acp-host  ──stdio──►  grok / claud
         <img src="/assets/acpbot-logo.png" alt="" width="200" class="cta-logo" />
         <h2>Ship from the chat you already live in.</h2>
         <p>
-          Open source. Local agents. Binary install in minutes —
-          <a href="/docs/getting-started">quick start docs</a>.
+          Open source · MIT · <strong>v0.1.0</strong> out now —
+          <a href="#install">download</a> or read the
+          <a href="/docs/getting-started">quick start</a>.
         </p>
-        <a class="btn btn-gold" href="/docs/getting-started">Get started</a>
+        <div class="hero-cta" style="margin-bottom: 0">
+          <a class="btn btn-gold" href="#install">Download v0.1.0</a>
+          <a class="btn btn-ghost" href="/docs">Docs</a>
+        </div>
       </div>
     </section>
   </main>

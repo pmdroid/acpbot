@@ -221,11 +221,18 @@ stt_provider = "auto"
 # tts_voice = "alloy"
 ```
 
-Full annotated template: [`config.example.toml`](../config.example.toml).
+Full annotated template: [`config.example.toml`](https://github.com/pmdroid/acpbot/blob/main/config.example.toml).
 
 ## Docker
 
-Mount a config file and set `ACPBOT_CONFIG`:
+Prebuilt multi-arch image (from the [v0.1.0](https://github.com/pmdroid/acpbot/releases/tag/v0.1.0) release workflow):
+
+```bash
+docker pull ghcr.io/pmdroid/acpbot:v0.1.0
+# also: :0.1.0 and :latest
+```
+
+Or build/run with Compose from the repo (`docker compose up --build`). Mount a config file and set `ACPBOT_CONFIG`:
 
 ```yaml
 environment:
@@ -236,7 +243,9 @@ volumes:
 ```
 
 Override `store_path` / `state_dir` inside the TOML to paths under `/data`
-(see compose defaults in `docker-compose.yml`).
+(see compose defaults in [`docker-compose.yml`](https://github.com/pmdroid/acpbot/blob/main/docker-compose.yml)).
+
+Image entrypoint accepts `host` or `worker` subcommands (same unified binary as the release tarballs).
 
 ## Speech (TTS / STT providers)
 

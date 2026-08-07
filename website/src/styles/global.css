@@ -466,6 +466,60 @@ main,
   text-transform: lowercase;
 }
 
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+.download-card {
+  display: block;
+  padding: 1.35rem 1.25rem;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  text-align: center;
+  color: inherit;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.download-card:hover {
+  border-color: var(--gold);
+  color: inherit;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+}
+.download-card h3 {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  color: var(--text);
+}
+.download-card p {
+  margin: 0 0 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+.install-snippet {
+  max-width: 40rem;
+  margin: 0 auto 1.25rem;
+  text-align: left;
+}
+.install-more {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  margin: 0;
+  line-height: 1.7;
+}
+.install-more code {
+  font-size: 0.82rem;
+}
+
 .agent-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
