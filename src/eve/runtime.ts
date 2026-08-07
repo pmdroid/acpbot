@@ -211,7 +211,7 @@ export async function executeEveRun(
         options?.agent?.trim() ||
         options?.model?.trim() ||
         cfg.defaultAgent ||
-        "codex";
+        "grok-build";
       const timeoutSec = options?.timeout_sec ?? 900;
       const slug = slugFromLabel(options?.label, seq);
 

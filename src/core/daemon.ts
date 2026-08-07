@@ -2478,7 +2478,7 @@ export function createDaemon(
         env.config.eve?.defaultAgent ||
         session.identity.agent ||
         env.config.defaultAgent ||
-        "codex",
+        "grok-build",
       notify: async (sk, text) => {
         const s = sessionIndex.byKey[sk];
         if (s) await sendInTopic(s, text);
