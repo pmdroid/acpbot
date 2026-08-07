@@ -175,12 +175,11 @@ import {
   listIdleCloseableChildren,
   markChildResult,
 } from "./agent-spawn";
-import {
-  createEveDaemonService,
-  bindEveRuntimeDeps,
-  markEveAbort,
-} from "../eve/daemon-bridge";
 import { EVE_TAGLINE } from "../eve/types";
+import {
+  createAcpHostClient,
+  resolveAcpHostSockPath,
+} from "../acp-host/client";
 import {
   formatSpawnAge,
   listChildren,
@@ -1909,9 +1908,24 @@ export function createDaemon(
     return session;
   }
 
-  const eveService = createEveDaemonService({
-    stateDir,
-    eveConfig: env.config.eve,
+  /**
+   * EVE control plane: orchestration runs on **acp-host** (survives worker restart).
+   * Worker only proxies MCP/Telegram and delivers eve_notify to topics.
+   */
+  const eveHost = createAcpHostClient({
+    sockPath: resolveAcpHostSockPath(stateDir),
+    log,
+    onEveNotify: ({ sessionKey, text }) => {
+      const s = sessionIndex.byKey[sessionKey];
+      if (s) {
+        void sendInTopic(s, text).catch((err) => {
+          log.warn("eve_notify telegram failed", {
+            sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    },
   });
 
   /** MCP → worker Unix API (token + topics stay on the daemon). */
@@ -2341,7 +2355,7 @@ export function createDaemon(
           sessionKey: out.sessionKey,
         };
       },
-      // ── EVE (background directives) ───────────────────────────────────
+      // ── EVE (control plane → acp-host orchestration) ─────────────────
       async eveRun({
         sessionKey,
         name,
@@ -2352,7 +2366,7 @@ export function createDaemon(
         agents_max,
       }) {
         const session = requireSession(sessionKey);
-        const created = await eveService.createRun({
+        const out = await eveHost.eveRun({
           sessionKey,
           repoKey: session.identity.repo,
           repoRoot: session.cwd,
@@ -2363,95 +2377,93 @@ export function createDaemon(
           skipApproval: skip_approval === true,
           agentsMax: agents_max,
         });
-        if (created.status === "pending_approval") {
+        const run = out.run as
+          | {
+              name?: string;
+              runId?: string;
+              status?: string;
+              phases?: { title: string }[];
+            }
+          | undefined;
+        if (out.message && /pending approval/i.test(out.message)) {
           await sendInTopic(
             session,
             [
-              `🛰 **EVE** · \`${created.name}\` ready`,
+              `🛰 **EVE** · \`${run?.name ?? name ?? "directive"}\` ready **on host**`,
               EVE_TAGLINE,
               "",
-              `run \`${created.runId}\``,
-              created.phases.length
-                ? `phases: ${created.phases.map((p) => p.title).join(" → ")}`
+              `run \`${out.runId}\` · orchestration survives worker restart`,
+              run?.phases?.length
+                ? `phases: ${run.phases.map((p) => p.title).join(" → ")}`
                 : "",
               "",
               "Approve with `/eve approve " +
-                created.runId +
+                out.runId +
                 "` or deny with `/eve kill " +
-                created.runId +
+                out.runId +
                 "`.",
             ]
               .filter(Boolean)
               .join("\n"),
           );
-          return {
-            message: `pending approval: ${created.runId}`,
-            runId: created.runId,
-            run: created,
-          };
         }
-        // Start in background so worker API returns quickly
-        void startEveExecution(created.runId, sessionKey);
         return {
-          message: `EVE started: ${created.runId}`,
-          runId: created.runId,
-          run: created,
+          message: out.message ?? "ok",
+          runId: out.runId,
+          run: out.run,
         };
       },
       async eveApprove({ sessionKey, runId }) {
         requireSession(sessionKey);
-        markEveAbort(runId, false);
-        void startEveExecution(runId, sessionKey);
-        return { message: `EVE approve/start: ${runId}` };
+        const out = await eveHost.eveApprove({ sessionKey, runId });
+        return { message: out.message ?? `EVE approve/start: ${runId}` };
       },
       async eveStatus({ sessionKey, runId }) {
         requireSession(sessionKey);
-        const run = await eveService.status(runId);
-        if (!run) throw new Error(`unknown EVE run ${runId}`);
+        const out = await eveHost.eveStatus(runId);
         return {
-          message: run.status,
-          run,
-          text: eveService.formatStatus(run),
+          message: out.message ?? "status",
+          run: out.run,
+          text: out.text,
         };
       },
       async eveList({ sessionKey }) {
         const session = requireSession(sessionKey);
-        const runs = await eveService.listRuns(sessionKey);
-        const scripts = await eveService.listScripts(session.cwd);
+        const out = await eveHost.eveList({
+          sessionKey,
+          repoRoot: session.cwd,
+        });
         return {
-          message: `${runs.length} run(s), ${scripts.length} script(s)`,
-          runs,
-          scripts,
+          message: out.message ?? "list",
+          runs: out.runs,
+          scripts: out.scripts,
         };
       },
       async evePause({ sessionKey, runId }) {
         requireSession(sessionKey);
-        markEveAbort(runId, true);
-        const run = await eveService.pause(runId);
-        return { message: `paused ${runId}`, run };
+        const out = await eveHost.evePause(runId);
+        return { message: out.message ?? `paused ${runId}`, run: out.run };
       },
       async eveResume({ sessionKey, runId }) {
         requireSession(sessionKey);
-        markEveAbort(runId, false);
-        void startEveExecution(runId, sessionKey, true);
-        return { message: `resume ${runId}` };
+        const out = await eveHost.eveResume({ sessionKey, runId });
+        return { message: out.message ?? `resume ${runId}` };
       },
       async eveKill({ sessionKey, runId }) {
         requireSession(sessionKey);
-        markEveAbort(runId, true);
-        const run = await eveService.kill(runId);
-        return { message: `killed ${runId}`, run };
+        const out = await eveHost.eveKill(runId);
+        return { message: out.message ?? `killed ${runId}`, run: out.run };
       },
       async eveWrite({ sessionKey, name, source, scope }) {
         const session = requireSession(sessionKey);
-        const out = await eveService.writeScript({
+        const out = await eveHost.eveWrite({
           repoRoot: session.cwd,
           name,
           source,
           scope,
         });
         return {
-          message: `wrote ${out.path}`,
+          message: out.message ?? "wrote",
           path: out.path,
           meta: out.meta,
         };
@@ -2464,51 +2476,6 @@ export function createDaemon(
     handlers: workerHandlers,
   });
 
-  /** Fire EVE execution using existing agent spawn/wait handlers. */
-  function startEveExecution(
-    runId: string,
-    sessionKey: string,
-    resume = false,
-  ): void {
-    const session = sessionIndex.byKey[sessionKey];
-    if (!session) return;
-    const deps = bindEveRuntimeDeps({
-      parentSessionKey: sessionKey,
-      defaultAgent:
-        env.config.eve?.defaultAgent ||
-        session.identity.agent ||
-        env.config.defaultAgent ||
-        "grok-build",
-      notify: async (sk, text) => {
-        const s = sessionIndex.byKey[sk];
-        if (s) await sendInTopic(s, text);
-      },
-      agentSpawn: async (input) => {
-        return workerHandlers.agentSpawn(input);
-      },
-      agentWait: async (input) => {
-        return workerHandlers.agentWait(input);
-      },
-      agentKill: async (input) => {
-        return workerHandlers.agentKill({
-          sessionKey: input.sessionKey,
-          childSessionKey: input.childSessionKey,
-          dispose: input.dispose,
-        });
-      },
-      service: eveService,
-    });
-    const go = resume
-      ? eveService.resume(runId, deps)
-      : eveService.approveAndStart(runId, deps);
-    void go.catch((err) => {
-      log.warn("EVE run failed", {
-        runId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
   async function handleEveCommand(
     session: PersistedSession,
     args: string[],
@@ -2517,32 +2484,49 @@ export function createDaemon(
     try {
       if (sub === "help" || args.length === 0 || sub === "status") {
         if (sub === "status" && args[1]) {
-          const run = await eveService.status(args[1]!);
-          if (!run) {
-            await sendInTopic(session, `Unknown EVE run \`${args[1]}\``);
-            return;
-          }
-          await sendInTopic(session, eveService.formatStatus(run));
+          const out = await eveHost.eveStatus(args[1]!);
+          await sendInTopic(
+            session,
+            out.text ?? out.message ?? JSON.stringify(out.run, null, 2),
+          );
           return;
         }
-        const runs = await eveService.listRuns(session.sessionKey);
-        const scripts = await eveService.listScripts(session.cwd);
+        const out = await eveHost.eveList({
+          sessionKey: session.sessionKey,
+          repoRoot: session.cwd,
+        });
+        const scripts = (out.scripts ?? []) as {
+          name: string;
+          origin: string;
+          description: string;
+        }[];
+        const runs = (out.runs ?? []) as {
+          runId: string;
+          name: string;
+          status: string;
+          budget?: { agentsUsed?: number };
+        }[];
         const lines = [
           `🛰 **EVE** — ${EVE_TAGLINE}`,
+          "_Orchestration on **acp-host** (survives worker restart)._",
           "",
           "`/eve run <name>` · `/eve approve <id>` · `/eve status [id]`",
-          "`/eve pause|resume|kill <id>` · `/eve list` · `/eve save` via agent",
+          "`/eve pause|resume|kill <id>` · `/eve list`",
           "`/linear drain` — bundled linear-drain directive",
           "",
           `Scripts (${scripts.length}):`,
           ...scripts.slice(0, 12).map(
-            (s) => `· \`${s.name}\` (${s.origin}) — ${s.description.slice(0, 80)}`,
+            (s) =>
+              `· \`${s.name}\` (${s.origin}) — ${String(s.description ?? "").slice(0, 80)}`,
           ),
           "",
           `Recent runs (${runs.length}):`,
           ...runs.slice(0, 8).map(
             (r) =>
-              `· \`${r.runId.slice(0, 8)}\` **${r.name}** ${r.status} · agents ${r.budget.agentsUsed}`,
+              `· \`${r.runId.slice(0, 8)}\` **${r.name}** ${r.status}` +
+              (r.budget?.agentsUsed != null
+                ? ` · agents ${r.budget.agentsUsed}`
+                : ""),
           ),
         ];
         await sendInTopic(session, lines.join("\n"));
@@ -2550,19 +2534,27 @@ export function createDaemon(
       }
 
       if (sub === "list") {
-        const runs = await eveService.listRuns(session.sessionKey);
-        const scripts = await eveService.listScripts(session.cwd);
+        const out = await eveHost.eveList({
+          sessionKey: session.sessionKey,
+          repoRoot: session.cwd,
+        });
+        const scripts = (out.scripts ?? []) as {
+          name: string;
+          origin: string;
+        }[];
+        const runs = (out.runs ?? []) as {
+          runId: string;
+          name: string;
+          status: string;
+        }[];
         await sendInTopic(
           session,
           [
             "**Scripts**",
             ...scripts.map((s) => `· \`${s.name}\` (${s.origin})`),
             "",
-            "**Runs**",
-            ...runs.map(
-              (r) =>
-                `· \`${r.runId}\` ${r.name} · ${r.status}`,
-            ),
+            "**Runs** (host)",
+            ...runs.map((r) => `· \`${r.runId}\` ${r.name} · ${r.status}`),
           ].join("\n") || "No EVE scripts or runs.",
         );
         return;
@@ -2585,7 +2577,7 @@ export function createDaemon(
         if (out.runId && out.message && !/pending/i.test(out.message)) {
           await sendInTopic(
             session,
-            `🛰 EVE started **${name}** · \`${out.runId}\`\n` +
+            `🛰 EVE started on **host** · **${name}** · \`${out.runId}\`\n` +
               `Watch with \`/eve status ${out.runId}\``,
           );
         }
@@ -2602,7 +2594,10 @@ export function createDaemon(
           sessionKey: session.sessionKey,
           runId,
         });
-        await sendInTopic(session, `🛰 EVE approved · starting \`${runId}\``);
+        await sendInTopic(
+          session,
+          `🛰 EVE approved · host starting \`${runId}\``,
+        );
         return;
       }
 
@@ -2628,7 +2623,7 @@ export function createDaemon(
             runId,
           });
         }
-        await sendInTopic(session, `EVE ${sub} · \`${runId}\``);
+        await sendInTopic(session, `EVE ${sub} (host) · \`${runId}\``);
         return;
       }
 

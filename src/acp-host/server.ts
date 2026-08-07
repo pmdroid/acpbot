@@ -26,6 +26,12 @@ import {
   type FireJobResult,
   type SchedulerLoopHandle,
 } from "./scheduler";
+import {
+  createHostEveService,
+  bindHostEveRuntimeDeps,
+  markEveAbort,
+} from "../eve/host-runner";
+
 
 type QueuedHostPrompt = {
   sock: HostConn;
@@ -716,6 +722,347 @@ export async function startAcpHostServer(
     }
   }
 
+  // ── EVE (orchestration on host; worker is control + Telegram only) ───────
+  const eveOwners = new Map<string, HostConn>(); // runId → worker sock
+  const eveService = createHostEveService({
+    stateDir,
+    eveConfig: baseConfig.eve,
+    defaultAgent,
+    notify: () => {},
+    leaf: {
+      runLeaf: async () => ({ summary: "", status: "failed" }),
+    },
+  });
+
+  function startHostEveExecution(
+    runId: string,
+    sock: HostConn,
+    resume: boolean,
+  ): void {
+    void (async () => {
+      const run = await eveService.status(runId);
+      if (!run) return;
+      eveOwners.set(runId, sock);
+      markEveAbort(runId, false);
+      const deps = bindHostEveRuntimeDeps({
+        service: eveService,
+        ctx: {
+          stateDir,
+          eveConfig: baseConfig.eve,
+          defaultAgent:
+            baseConfig.eve?.defaultAgent || defaultAgent || "grok-build",
+          notify: (sessionKey, text) => {
+            if (!sock.destroyed) {
+              send(sock, {
+                type: "eve_notify",
+                sessionKey,
+                text,
+                runId,
+              });
+            }
+          },
+          leaf: {
+            runLeaf: async (input) => {
+              // reuse the shared leaf impl via a nested call — inject owner
+              const slot = await ensureSlotForSchedule({
+                slotKey: input.slotKey,
+                agent: input.agent,
+                cwd: input.cwd,
+              });
+              slot.owner = sock.destroyed ? null : sock;
+              const deadline =
+                Date.now() + Math.max(5_000, input.timeoutSec * 1000);
+              while (slot.busy && Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 500));
+              }
+              if (slot.busy) {
+                return { summary: "slot busy timeout", status: "failed" };
+              }
+              slot.busy = true;
+              let summary = "";
+              const reqId = `eve-leaf-${Date.now()}`;
+              try {
+                const turn = slot.host.startTurn({
+                  sessionKey: input.slotKey,
+                  text: input.prompt,
+                });
+                for await (const event of turn.events) {
+                  if (
+                    event.type === "agent_message_chunk" &&
+                    typeof event.text === "string"
+                  ) {
+                    summary += event.text;
+                  }
+                  if (!sock.destroyed) {
+                    send(sock, {
+                      type: "turn_event",
+                      reqId,
+                      slotKey: input.slotKey,
+                      event,
+                    });
+                  }
+                }
+                const result = await turn.result;
+                const status =
+                  result.status === "error" ||
+                  result.status === "cancelled" ||
+                  result.status === "canceled"
+                    ? "failed"
+                    : result.status || "idle";
+                return { summary: summary.trim(), status };
+              } catch (err) {
+                return {
+                  summary: err instanceof Error ? err.message : String(err),
+                  status: "failed",
+                };
+              } finally {
+                slot.busy = false;
+                try {
+                  await slot.host.dispose();
+                } catch {
+                  /* */
+                }
+                slots.delete(input.slotKey);
+              }
+            },
+          },
+        },
+        parentSessionKey: run.sessionKey,
+        repoRoot: run.repoRoot,
+        repoKey: run.repoKey,
+        owner: sock.destroyed ? null : sock,
+      });
+      try {
+        const finished = resume
+          ? await eveService.resume(runId, deps)
+          : await eveService.approveAndStart(runId, deps);
+        if (!sock.destroyed) {
+          send(sock, {
+            type: "eve_notify",
+            sessionKey: finished.sessionKey,
+            text: eveService.formatStatus(finished),
+            runId,
+          });
+        }
+      } catch (err) {
+        log.warn("EVE host run failed", {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (!sock.destroyed) {
+          send(sock, {
+            type: "eve_notify",
+            sessionKey: run.sessionKey,
+            text: `⚠️ EVE failed · ${
+              err instanceof Error ? err.message : String(err)
+            }`.slice(0, 400),
+            runId,
+          });
+        }
+      }
+    })();
+  }
+
+  async function handleEveMsg(
+    sock: HostConn,
+    msg: WorkerToHost,
+  ): Promise<boolean> {
+    if (msg.type === "eve_run") {
+      try {
+        const created = await eveService.createRun({
+          sessionKey: msg.sessionKey,
+          repoKey: msg.repoKey,
+          repoRoot: msg.repoRoot,
+          name: msg.name,
+          path: msg.path,
+          source: msg.source,
+          args: msg.args,
+          skipApproval: msg.skipApproval === true,
+          agentsMax: msg.agentsMax,
+        });
+        eveOwners.set(created.runId, sock);
+        if (created.status === "pending_approval") {
+          send(sock, {
+            type: "eve_ok",
+            reqId: msg.reqId,
+            message: `pending approval: ${created.runId}`,
+            runId: created.runId,
+            run: created,
+          });
+          return true;
+        }
+        startHostEveExecution(created.runId, sock, false);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `EVE started on host: ${created.runId}`,
+          runId: created.runId,
+          run: created,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_approve") {
+      try {
+        markEveAbort(msg.runId, false);
+        eveOwners.set(msg.runId, sock);
+        startHostEveExecution(msg.runId, sock, false);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `EVE approve/start on host: ${msg.runId}`,
+          runId: msg.runId,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_resume") {
+      try {
+        markEveAbort(msg.runId, false);
+        eveOwners.set(msg.runId, sock);
+        startHostEveExecution(msg.runId, sock, true);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `EVE resume on host: ${msg.runId}`,
+          runId: msg.runId,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_pause") {
+      try {
+        markEveAbort(msg.runId, true);
+        const run = await eveService.pause(msg.runId);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `paused ${msg.runId}`,
+          runId: msg.runId,
+          run,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_kill") {
+      try {
+        markEveAbort(msg.runId, true);
+        const run = await eveService.kill(msg.runId);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `killed ${msg.runId}`,
+          runId: msg.runId,
+          run,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_status") {
+      try {
+        const run = await eveService.status(msg.runId);
+        if (!run) {
+          send(sock, {
+            type: "err",
+            reqId: msg.reqId,
+            error: `unknown EVE run ${msg.runId}`,
+          });
+          return true;
+        }
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: run.status,
+          runId: run.runId,
+          run,
+          text: eveService.formatStatus(run),
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_list") {
+      try {
+        const runs = await eveService.listRuns(msg.sessionKey);
+        const scripts = await eveService.listScripts(msg.repoRoot);
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `${runs.length} run(s), ${scripts.length} script(s)`,
+          runs,
+          scripts,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    if (msg.type === "eve_write") {
+      try {
+        const out = await eveService.writeScript({
+          repoRoot: msg.repoRoot,
+          name: msg.name,
+          source: msg.source,
+          scope: msg.scope,
+        });
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `wrote ${out.path}`,
+          path: out.path,
+          meta: out.meta,
+        });
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
+    return false;
+  }
+
   async function handleMsg(sock: HostConn, msg: WorkerToHost, opts?: { requireAuth?: boolean; authed?: () => boolean }): Promise<void> {
     if (msg.type === "hello") {
       // handled by connection layer for remote; unix may ignore
@@ -756,6 +1103,16 @@ export async function startAcpHostServer(
         return;
       case "prompt":
         await handlePrompt(sock, msg);
+        return;
+      case "eve_run":
+      case "eve_approve":
+      case "eve_resume":
+      case "eve_pause":
+      case "eve_kill":
+      case "eve_status":
+      case "eve_list":
+      case "eve_write":
+        await handleEveMsg(sock, msg);
         return;
       case "cancel": {
         const slot = slots.get(msg.slotKey);
