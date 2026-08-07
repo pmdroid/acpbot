@@ -118,7 +118,7 @@ export function bindEveRuntimeDeps(input: {
     },
     runNested,
     runAgent: async (leaf) => {
-      const agent = leaf.agent.trim() || defaultAgent || "codex";
+      const agent = leaf.agent.trim() || defaultAgent || "grok-build";
       let slug = leaf.slug
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, "-")

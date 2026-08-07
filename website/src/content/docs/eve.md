@@ -84,7 +84,7 @@ max_agents_per_run = 100
 max_concurrent = 4
 schema_retries = 2
 require_approval = true
-default_agent = "codex"
+default_agent = "grok-build"
 ```
 
 Hard ceilings still apply from `[agents.spawn]`. Leaf children free spawn slots after each node finishes.

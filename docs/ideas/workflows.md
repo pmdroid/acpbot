@@ -200,7 +200,7 @@ const results = await pipeline(
       {
         phase: 'Implement',
         label: issue.identifier,
-        agent: 'codex', // optional override
+        agent: 'grok-build', // optional override
         isolation: 'worktree',
         schema: {
           type: 'object',
@@ -294,7 +294,7 @@ Observability only. Telegram digest + run log file. `phase` updates active phase
 
 Invocation input. Examples:
 
-- Linear: `{ projectId, maxIssues, agent: 'codex' }`
+- Linear: `{ projectId, maxIssues, agent: 'grok-build' }`
 - Audit: `{ paths: ['src/routes'] }`
 - From schedule fire envelope or slash args
 
@@ -495,7 +495,7 @@ Keep `/linear next` for interactive single-issue. Fanout can later **compile** t
 ### Optional diamond per issue (phase 2)
 
 ```text
-issue → implement (codex, worktree) → verify (claude) → host.linearApply
+issue → implement (grok-build, worktree) → verify (claude) → host.linearApply
 ```
 
 `pipeline(issue, implementStage, verifyStage)` with schema gates on Done.
@@ -607,7 +607,7 @@ digest_interval_sec = 300
 
 [workflows.linear]
 # bundled drain defaults
-default_agent = "codex"
+default_agent = "grok-build"
 mark_done_on_success = true
 respect_blockers = true
 ```

@@ -72,7 +72,7 @@ tts_mode = "agent"                       # agent | always | off
 # schema_retries = 2
 # require_approval = true
 # digest_interval_sec = 300
-# default_agent = "codex"
+# default_agent = "grok-build"
 
 # ── Extra skill roots (optional) ───────────────────────────────────────────
 [skills]

@@ -120,7 +120,7 @@ export const DEFAULT_EVE_CONFIG: Required<
   schemaRetries: 2,
   requireApproval: true,
   digestIntervalSec: 300,
-  defaultAgent: "codex",
+  defaultAgent: "grok-build",
 };
 
 export const eveAgentResultSchema = z.object({
