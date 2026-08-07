@@ -72,7 +72,7 @@ on the same repo can each track a different project. OAuth is still **per repo**
 | `/linear next` | Agent: **one** open issue (In Progress → implement → Done) |
 | `/linear work ENG-123` | Agent: focus one issue |
 | `/linear fanout` | Agent: multi-agent — one child per open issue |
-| `/linear drain` | **EVE** background ready-set drain (bundled directive) |
+| `/linear drain` | Agent **writes + runs** an EVE drain directive (no built-in script) |
 
 The agent uses **Linear MCP** for create/list/update/comment and **host
 binding tools** so later turns stay scoped to the same project.

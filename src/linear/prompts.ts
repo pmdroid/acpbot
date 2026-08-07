@@ -137,6 +137,49 @@ export function linearFanoutPrompt(
   ].join("\n");
 }
 
+/**
+ * Background drain via EVE — agent authors the directive (no shipped script).
+ */
+export function linearDrainPrompt(
+  binding: LinearProjectBinding | undefined,
+  options?: { sequential?: boolean },
+): string {
+  const context = formatLinearBindingContext(binding);
+  const sequential = options?.sequential === true;
+  return [
+    "Drain the bound Linear project in the **background** using **EVE**.",
+    "There is **no built-in drain script** — you must **author** an EVE directive,",
+    "save it, and start it. Follow the **eve** skill.",
+    "",
+    context,
+    "",
+    "Steps:",
+    "1. `linear_get_binding` — stop if no bound project.",
+    "2. Design a JS EVE directive (Discover → Implement → Close):",
+    "   - Discover: one `agent()` that lists open issues in the **bound project only**",
+    "     via Linear MCP; return schema `{ issues: [{ id, identifier, title, body, blockedBy[] }] }`.",
+    "   - Filter ready issues (`blockedBy` empty); cap with `args.maxIssues` (default 20).",
+    "   - Implement: `pipeline` (or sequential loop + `budget.ok()`) one leaf `agent()` per",
+    "     ready issue — implement **only** that issue; schema `{ status: done|blocked, summary, prUrl? }`.",
+    sequential
+      ? "   - Operator asked for **sequential** work (`--sequential`): loop with `await agent(...)` per issue, not parallel pipeline fan-out."
+      : "   - Prefer `pipeline` for concurrent ready issues (host caps concurrency).",
+    "   - Close: `host.linearApplyResults(results)` if available, else one final agent to",
+    "     comment + set Done/blocked on Linear.",
+    "3. `eve_write({ name: \"linear-drain\", source: <full script with export const meta> })`",
+    "   (reuse/update the project script if it already exists).",
+    "4. `eve_run({ name: \"linear-drain\", args: {",
+    "     projectId, projectName, maxIssues: 20" +
+      (sequential ? ", sequential: true" : "") +
+      " } })`.",
+    "5. Tell the operator: run id, `/eve approve <runId>` if pending, `/eve status <runId>`.",
+    "   Do **not** sit in chat implementing every issue yourself.",
+    "",
+    "If EVE tools (`eve_write` / `eve_run`) are missing, say so and fall back to explaining",
+    "`/linear next` / `/linear fanout`. If Linear MCP is missing: `/linear connect`.",
+  ].join("\n");
+}
+
 export function linearProjectPickPrompt(): string {
   return [
     "Help the operator bind this Telegram topic to a Linear project.",
@@ -172,5 +215,5 @@ export const LINEAR_COMMAND_USAGE = [
   "`/linear next` — agent: **one** next open issue (In Progress → implement → Done)",
   "`/linear work <ISSUE>` — agent: focus one issue",
   "`/linear fanout` — agent: multi-agent one child per open issue",
-  "`/linear drain` — **EVE** background directive: ready-set issues until dry",
+  "`/linear drain` — agent: **write + run** an EVE drain directive (no built-in script)",
 ].join("\n");

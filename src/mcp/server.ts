@@ -848,8 +848,9 @@ server.tool(
   {
     name: "eve_list",
     description:
-      "List EVE directive scripts (project/user/bundled) and recent runs for this session. " +
-      "EVE runs multi-agent graphs in the background from JS scripts (not ultracode).",
+      "List EVE directive scripts (project/user) and recent runs for this session. " +
+      "EVE runs agent-authored multi-agent graphs in the background (not ultracode). " +
+      "No shipped scripts — use eve_write then eve_run.",
     input: z.object({}),
   },
   async () => {
@@ -872,13 +873,14 @@ server.tool(
   {
     name: "eve_run",
     description:
-      "Start an EVE directive by name (e.g. linear-drain, audit-routes), path, or inline source. " +
+      "Start an EVE directive by name (project/user script), path, or inline source. " +
+      "No built-in scripts — author one with eve_write (or pass source) first. " +
       "May return pending_approval — operator approves with /eve approve or eve_approve. " +
-      "Runs in the background; leaf work uses agent_spawn worktrees.",
+      "Runs in the background; leaf work uses host slots + worktrees.",
     input: z.object({
-      name: z.string().min(1).optional().describe("Bundled/project directive name"),
+      name: z.string().min(1).optional().describe("Project/user directive name under .acpbot/eve/"),
       path: z.string().min(1).optional().describe("Path under .acpbot/eve/"),
-      source: z.string().min(1).optional().describe("Inline JS directive source"),
+      source: z.string().min(1).optional().describe("Inline JS directive source (must include export const meta)"),
       args: z.unknown().optional().describe("Args object for the script"),
       skip_approval: z.boolean().optional(),
       agents_max: z.number().optional(),
@@ -1025,8 +1027,9 @@ server.tool(
   {
     name: "eve_write",
     description:
-      "Write an EVE directive JS script to .acpbot/eve/<name>.js (project) or user scope. " +
-      "Must export const meta = { name, description } and body with agent/parallel/pipeline.",
+      "Author/save an EVE directive JS script to .acpbot/eve/<name>.js (project) or user scope. " +
+      "There are no shipped directives — write the graph here, then eve_run by name. " +
+      "Must export const meta = { name, description, phases? } plus body using agent/parallel/pipeline/phase/log/args/budget.",
     input: z.object({
       name: z.string().min(1),
       source: z.string().min(1),
