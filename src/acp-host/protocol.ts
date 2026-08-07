@@ -97,7 +97,62 @@ export type WorkerToHost =
       result: Record<string, unknown>;
     }
   | { type: "ping"; reqId: string }
-  | { type: "list"; reqId: string };
+  | { type: "list"; reqId: string }
+  /** EVE: create/start a directive (orchestration runs on host). */
+  | {
+      type: "eve_run";
+      reqId: string;
+      sessionKey: string;
+      repoKey: string;
+      repoRoot: string;
+      name?: string;
+      path?: string;
+      source?: string;
+      args?: unknown;
+      skipApproval?: boolean;
+      agentsMax?: number;
+    }
+  | {
+      type: "eve_approve";
+      reqId: string;
+      runId: string;
+      sessionKey: string;
+    }
+  | {
+      type: "eve_status";
+      reqId: string;
+      runId: string;
+    }
+  | {
+      type: "eve_list";
+      reqId: string;
+      sessionKey: string;
+      repoRoot: string;
+    }
+  | {
+      type: "eve_pause";
+      reqId: string;
+      runId: string;
+    }
+  | {
+      type: "eve_resume";
+      reqId: string;
+      runId: string;
+      sessionKey: string;
+    }
+  | {
+      type: "eve_kill";
+      reqId: string;
+      runId: string;
+    }
+  | {
+      type: "eve_write";
+      reqId: string;
+      repoRoot: string;
+      name: string;
+      source: string;
+      scope?: "project" | "user";
+    };
 
 export type HostToWorker =
   | { type: "hello_ok"; reqId: string }
@@ -194,7 +249,30 @@ export type HostToWorker =
         busy: boolean;
       }>;
     }
-  | { type: "err"; reqId: string; error: string };
+  | { type: "err"; reqId: string; error: string }
+  /** EVE command reply (run payload / text). */
+  | {
+      type: "eve_ok";
+      reqId: string;
+      message?: string;
+      runId?: string;
+      run?: unknown;
+      text?: string;
+      runs?: unknown[];
+      scripts?: unknown[];
+      path?: string;
+      meta?: unknown;
+    }
+  /**
+   * Unsolicited progress for a parent Telegram session.
+   * Worker delivers to the topic; host keeps running if worker is down.
+   */
+  | {
+      type: "eve_notify";
+      sessionKey: string;
+      text: string;
+      runId?: string;
+    };
 
 export function defaultAcpHostSock(
   stateDir = process.env.ACPBOT_STATE_DIR?.trim() || "./data/acpbot-state",

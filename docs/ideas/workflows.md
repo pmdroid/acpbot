@@ -1,7 +1,8 @@
 # Idea: Host-side dynamic workflows (agent-authored JS graphs)
 
-**Status:** implemented as **EVE** (2026-08-06) — see [website docs /eve](../../website/src/content/docs/eve.md), `src/eve/`, `/eve`, `/linear drain`.  
-**Brand:** Extraterrestrial Vegetation Evaluator (WALL·E) — not ultracode.
+**Status:** implemented as **EVE** (2026-08-06; host runner 2026-08-07) — see [website docs /eve](../../website/src/content/docs/eve.md), `src/eve/`, `src/acp-host/`, `/eve`, `/linear drain`.  
+**Brand:** Extraterrestrial Vegetation Evaluator (WALL·E) — not ultracode.  
+**Process:** orchestration + leaf slots on **acp-host**; worker is control plane + Telegram only.
 
 Related:
 
@@ -659,16 +660,14 @@ adversarially verifies each finding, and returns a ranked list — then save it 
 
 ---
 
-## Open decisions
+## Open decisions (remaining)
 
-1. **Sandbox technology** — restricted Bun vs isolated worker thread vs subprocess with IPC? (favor simplest that blocks fs/net)
-2. **Structured return** — new MCP `workflow_return` vs parse final agent message vs temp result file in worktree?
-3. **Approval default** — require every run vs allowlist workflow names per repo?
-4. **Sequential drain first** — ship sequential `linear-drain` before `pipeline` concurrency to reduce merge/PR chaos?
-5. **Who may `workflow_write`** — only parent session with git repo + operator allowlist?
-6. **Token accounting** — rough estimate from child usage events vs agent-count-only budget in v1?
+1. **Strong Linear REST helper** — Done/blocked without a close agent  
+2. **Richer resume / `waiting_user` node parking** — park one leaf without stopping the graph  
+3. **Structured return** — dedicated `workflow_return` MCP vs JSON fence parsing  
+4. **Token accounting** — usage events vs agent-count budget only  
 
-Recommend: **agent-count + wall-clock budget in v1**; sequential or low-concurrency pipeline for Linear; explicit approval; `workflow_return` MCP for clean schemas.
+**Done:** host-process runner (orchestration on acp-host; worker proxies).
 
 ---
 

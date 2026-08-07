@@ -5,14 +5,19 @@ order: 17
 section: advanced
 ---
 
-**EVE** (*Extraterrestrial Vegetation Evaluator*) runs multi-agent work as a **JavaScript directive** in the background. Control flow costs zero model tokens; only leaf `agent()` calls spawn ACP workers (usually headless, in git worktrees). Telegram stays free for progress, permissions, and questions.
+**EVE** (*Extraterrestrial Vegetation Evaluator*) runs multi-agent work as a **JavaScript directive** in the background. Control flow costs zero model tokens; only leaf `agent()` calls pay for ACP workers (slots + git worktrees). Telegram stays free for progress, permissions, and questions.
 
 Named after the probe in *WALL·E* — the fleet works; you only hear when there’s a plant (or a blocker). **Not ultracode.**
 
+**Orchestration runs on `acp-host`**, not the Telegram worker. If the worker restarts mid-run, the graph keeps going; digests arrive as `eve_notify` when a worker is connected.
+
 ```text
-You ──/eve run──► worker ──script──► agent() × N (worktrees)
+You ──/eve run──► worker (control + Telegram)
                       │
-                      └── digests / ❓ / ✅ on the topic
+                      ▼
+                 acp-host ── JS directive ──► agent() × N (slots + worktrees)
+                      │
+                      └── eve_notify ──► worker ──► digests / ❓ / ✅ on the topic
 ```
 
 Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/main/docs/ideas/workflows.md).

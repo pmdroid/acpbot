@@ -44,6 +44,15 @@ export async function runHostMain(): Promise<void> {
     repos,
     scheduleTickMs: tickMs,
     defaultAgent: cfg.defaultAgent ?? "grok-build",
+    // Pass full config so EVE ([eve]) and MCP defaults are available on host
+    config: {
+      operatorUserId: 0,
+      defaultAgent: cfg.defaultAgent ?? "grok-build",
+      mcpEnabled: cfg.mcpEnabled,
+      ...(cfg.eve ? { eve: cfg.eve } : {}),
+      ...(cfg.agentSpawn ? { agentSpawn: cfg.agentSpawn } : {}),
+      repos,
+    },
     ...(cfg.hostListenPort &&
     cfg.hostListenToken &&
     cfg.hostListenPort > 0

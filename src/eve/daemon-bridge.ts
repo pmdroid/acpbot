@@ -5,12 +5,16 @@ import type { EveRuntimeDeps } from "./runtime";
 import type { EveConfig, EveRun } from "./types";
 import { createEveService, type EveService } from "./runner";
 
-/** Active run abort flags (pause/kill). */
+/** Active run abort flags (pause/kill) — process-local (host owns runs). */
 const abortFlags = new Map<string, boolean>();
 
 export function markEveAbort(runId: string, abort: boolean): void {
   if (abort) abortFlags.set(runId, true);
   else abortFlags.delete(runId);
+}
+
+export function isEveAborted(runId: string): boolean {
+  return abortFlags.get(runId) === true;
 }
 
 export function createEveDaemonService(input: {

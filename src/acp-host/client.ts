@@ -33,6 +33,59 @@ export type AcpHostClientOptions = {
   url?: string;
   /** Shared secret for remote host (required with url). */
   token?: string;
+  /** Unsolicited EVE progress from host (Telegram delivery). */
+  onEveNotify?: (msg: {
+    sessionKey: string;
+    text: string;
+    runId?: string;
+  }) => void;
+};
+
+export type EveHostResult = {
+  message?: string;
+  runId?: string;
+  run?: unknown;
+  text?: string;
+  runs?: unknown[];
+  scripts?: unknown[];
+  path?: string;
+  meta?: unknown;
+};
+
+/** SessionHost plus EVE control plane (orchestration runs on acp-host). */
+export type AcpHostClientApi = SessionHost & {
+  eveRun(input: {
+    sessionKey: string;
+    repoKey: string;
+    repoRoot: string;
+    name?: string;
+    path?: string;
+    source?: string;
+    args?: unknown;
+    skipApproval?: boolean;
+    agentsMax?: number;
+  }): Promise<EveHostResult>;
+  eveApprove(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<EveHostResult>;
+  eveStatus(runId: string): Promise<EveHostResult>;
+  eveList(input: {
+    sessionKey: string;
+    repoRoot: string;
+  }): Promise<EveHostResult>;
+  evePause(runId: string): Promise<EveHostResult>;
+  eveResume(input: {
+    sessionKey: string;
+    runId: string;
+  }): Promise<EveHostResult>;
+  eveKill(runId: string): Promise<EveHostResult>;
+  eveWrite(input: {
+    repoRoot: string;
+    name: string;
+    source: string;
+    scope?: "project" | "user";
+  }): Promise<EveHostResult>;
 };
 
 type Pending = {
@@ -172,13 +225,14 @@ export async function assertAcpHostReady(options?: {
 
 export function createAcpHostClient(
   options: AcpHostClientOptions = {},
-): SessionHost {
+): AcpHostClientApi {
   const log = (options.log ?? silentLogger()).child("acp-host-client");
   const remoteUrl = options.url?.trim();
   const remoteToken = options.token?.trim();
   const sockPath = options.sockPath ?? resolveAcpHostSockPath();
   const endpointLabel = remoteUrl || sockPath;
   let hooks: SessionHostHooks = { ...options.hooks };
+  const onEveNotify = options.onEveNotify;
   let sock: Socket | null = null;
   let ws: WebSocket | null = null;
   let buf = "";
@@ -248,6 +302,27 @@ export function createAcpHostClient(
   }
 
   function onMessage(msg: HostToWorker): void {
+    // Unsolicited EVE progress (no reqId wait)
+    if (msg.type === "eve_notify") {
+      try {
+        onEveNotify?.({
+          sessionKey: msg.sessionKey,
+          text: msg.text,
+          ...(msg.runId ? { runId: msg.runId } : {}),
+        });
+      } catch {
+        /* */
+      }
+      return;
+    }
+    if (msg.type === "eve_ok") {
+      const p = pending.get(msg.reqId);
+      if (p) {
+        pending.delete(msg.reqId);
+        p.resolve(msg);
+      }
+      return;
+    }
     // Streamed turn events
     if (msg.type === "turn_event") {
       turnPushes.get(msg.reqId)?.push(msg.event);
@@ -810,6 +885,153 @@ export function createAcpHostClient(
         sock.destroy();
       }
       sock = null;
+    },
+
+    // ── EVE (host-side orchestration) ────────────────────────────────────
+    async eveRun(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_run",
+        reqId: randomUUID(),
+        sessionKey: input.sessionKey,
+        repoKey: input.repoKey,
+        repoRoot: input.repoRoot,
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.path ? { path: input.path } : {}),
+        ...(input.source ? { source: input.source } : {}),
+        ...(input.args !== undefined ? { args: input.args } : {}),
+        ...(input.skipApproval != null
+          ? { skipApproval: input.skipApproval }
+          : {}),
+        ...(input.agentsMax != null ? { agentsMax: input.agentsMax } : {}),
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return {
+        message: msg.message,
+        runId: msg.runId,
+        run: msg.run,
+      };
+    },
+    async eveApprove(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_approve",
+        reqId: randomUUID(),
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return { message: msg.message, runId: msg.runId, run: msg.run };
+    },
+    async eveStatus(runId) {
+      await connect();
+      const msg = await request({
+        type: "eve_status",
+        reqId: randomUUID(),
+        runId,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return {
+        message: msg.message,
+        runId: msg.runId,
+        run: msg.run,
+        text: msg.text,
+      };
+    },
+    async eveList(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_list",
+        reqId: randomUUID(),
+        sessionKey: input.sessionKey,
+        repoRoot: input.repoRoot,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return {
+        message: msg.message,
+        runs: msg.runs,
+        scripts: msg.scripts,
+      };
+    },
+    async evePause(runId) {
+      await connect();
+      const msg = await request({
+        type: "eve_pause",
+        reqId: randomUUID(),
+        runId,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return { message: msg.message, runId: msg.runId, run: msg.run };
+    },
+    async eveResume(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_resume",
+        reqId: randomUUID(),
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return { message: msg.message, runId: msg.runId, run: msg.run };
+    },
+    async eveKill(runId) {
+      await connect();
+      const msg = await request({
+        type: "eve_kill",
+        reqId: randomUUID(),
+        runId,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return { message: msg.message, runId: msg.runId, run: msg.run };
+    },
+    async eveWrite(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_write",
+        reqId: randomUUID(),
+        repoRoot: input.repoRoot,
+        name: input.name,
+        source: input.source,
+        ...(input.scope ? { scope: input.scope } : {}),
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return {
+        message: msg.message,
+        path: msg.path,
+        meta: msg.meta,
+      };
     },
   };
   return api;
