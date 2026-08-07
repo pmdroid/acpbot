@@ -127,18 +127,6 @@ Every agent RPC (`ensure`, prompt, cancel, mode/model) goes through the same res
 - Open host listen only on trusted networks or behind Tailscale; treat a leaked host token like shell access on that box.
 - Same disclaimer as local agents: the host machine’s agent can read/write its mounted workspaces.
 
-## Smoke test (Orb / LAN)
-
-With OrbStack (or any Linux VM that can see your Mac paths):
-
-```bash
-# On multi-host branch / build with multi-host support:
-bash scripts/e2e-remote-host-orb.sh
-```
-
-Checks: valid token auth+RPC, invalid token rejected, local Unix still works.  
-See script header for `ORB_MACHINE`, `HOST_PORT`, `HOST_TOKEN`.
-
 ## Related
 
 - [Configuration](/docs/configuration) — full `config.toml` reference  
