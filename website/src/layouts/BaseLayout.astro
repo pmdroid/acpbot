@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import PostHog from "../components/posthog.astro";
 
 interface Props {
   title: string;
@@ -45,6 +46,7 @@ const ogImageUrl = new URL(ogImage, site).href;
       href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <PostHog />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
