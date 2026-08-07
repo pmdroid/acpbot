@@ -242,6 +242,105 @@ export async function workerAgentSend(
   >;
 }
 
+// ── EVE directives (MCP → worker) ────────────────────────────────────────────
+
+export type WorkerEveRunBody = {
+  sessionKey: string;
+  name?: string;
+  path?: string;
+  source?: string;
+  args?: unknown;
+  skip_approval?: boolean;
+  agents_max?: number;
+};
+export type WorkerEveRunIdBody = { sessionKey: string; runId: string };
+export type WorkerEveWriteBody = {
+  sessionKey: string;
+  name: string;
+  source: string;
+  scope?: "project" | "user";
+};
+export type WorkerEveListBody = { sessionKey: string };
+
+export async function workerEveRun(
+  body: WorkerEveRunBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown; runId?: string }> {
+  return workerApiRequest("/v1/eve/run", body, {
+    ...opts,
+    timeoutMs: opts?.timeoutMs ?? 120_000,
+  }) as Promise<WorkerApiResult & { run?: unknown; runId?: string }>;
+}
+
+export async function workerEveApprove(
+  body: WorkerEveRunIdBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown }> {
+  return workerApiRequest("/v1/eve/approve", body, {
+    ...opts,
+    timeoutMs: opts?.timeoutMs ?? 0, // long-running; worker returns after start queue
+  }) as Promise<WorkerApiResult & { run?: unknown }>;
+}
+
+export async function workerEveStatus(
+  body: WorkerEveRunIdBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown; text?: string }> {
+  return workerApiRequest("/v1/eve/status", body, opts) as Promise<
+    WorkerApiResult & { run?: unknown; text?: string }
+  >;
+}
+
+export async function workerEveList(
+  body: WorkerEveListBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<
+  WorkerApiResult & {
+    runs?: unknown[];
+    scripts?: unknown[];
+  }
+> {
+  return workerApiRequest("/v1/eve/list", body, opts) as Promise<
+    WorkerApiResult & { runs?: unknown[]; scripts?: unknown[] }
+  >;
+}
+
+export async function workerEvePause(
+  body: WorkerEveRunIdBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown }> {
+  return workerApiRequest("/v1/eve/pause", body, opts) as Promise<
+    WorkerApiResult & { run?: unknown }
+  >;
+}
+
+export async function workerEveResume(
+  body: WorkerEveRunIdBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown }> {
+  return workerApiRequest("/v1/eve/resume", body, opts) as Promise<
+    WorkerApiResult & { run?: unknown }
+  >;
+}
+
+export async function workerEveKill(
+  body: WorkerEveRunIdBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { run?: unknown }> {
+  return workerApiRequest("/v1/eve/kill", body, opts) as Promise<
+    WorkerApiResult & { run?: unknown }
+  >;
+}
+
+export async function workerEveWrite(
+  body: WorkerEveWriteBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<WorkerApiResult & { path?: string; meta?: unknown }> {
+  return workerApiRequest("/v1/eve/write", body, opts) as Promise<
+    WorkerApiResult & { path?: string; meta?: unknown }
+  >;
+}
+
 export async function workerAgentWait(
   body: WorkerAgentWaitBody,
   opts?: { sockPath?: string; timeoutMs?: number },

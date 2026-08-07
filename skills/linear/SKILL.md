@@ -115,4 +115,5 @@ See the **multi-agent** skill for spawn/wait rules. Parent is A2A hub only.
 | `/linear next` | One next open issue |
 | `/linear work <ISSUE>` | Focus one issue |
 | `/linear fanout` | Multi-agent one child per open issue |
+| `/linear drain` | Agent **writes + runs** an EVE drain directive (see **eve** skill) |
 | `/linear unbind` | Clear binding |

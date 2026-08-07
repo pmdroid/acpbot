@@ -62,6 +62,18 @@ tts_mode = "agent"                       # agent | always | off
 [schedule]
 # tick_ms = 20000
 
+# ── EVE (Extraterrestrial Vegetation Evaluator) ────────────────────────────
+# Background multi-agent directives — JS graphs, leaf worktrees.
+# WALL-E-inspired. Not ultracode. Operator: /eve · /linear drain
+[eve]
+# enabled = true
+# max_agents_per_run = 100
+# max_concurrent = 4
+# schema_retries = 2
+# require_approval = true
+# digest_interval_sec = 300
+# default_agent = "grok-build"
+
 # ── Extra skill roots (optional) ───────────────────────────────────────────
 [skills]
 # roots = ["/path/to/extra-skills"]

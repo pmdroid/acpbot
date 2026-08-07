@@ -144,6 +144,7 @@ idle_close_hours = 24   # 0 = disable
 
 ## Related
 
+- [EVE](/docs/eve) — background multi-agent **directives** (JS graphs over these spawn tools)  
 - [MCP](/docs/mcp) — built-in `acpbot` tools  
 - [Skills](/docs/skills) — install bundled skills  
 - [Agents](/docs/agents) — agent binaries and `/agent`  
