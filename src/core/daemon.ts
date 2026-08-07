@@ -151,6 +151,7 @@ import {
 import {
   applyLinearTurnContext,
   LINEAR_COMMAND_USAGE,
+  linearDrainPrompt,
   linearExportPrompt,
   linearFanoutPrompt,
   linearNextPrompt,
@@ -2512,7 +2513,7 @@ export function createDaemon(
           "",
           "`/eve run <name>` · `/eve approve <id>` · `/eve status [id]`",
           "`/eve pause|resume|kill <id>` · `/eve list`",
-          "`/linear drain` — bundled linear-drain directive",
+          "No shipped directives — agent **writes** scripts (`.acpbot/eve/`) then runs them.",
           "",
           `Scripts (${scripts.length}):`,
           ...scripts.slice(0, 12).map(
@@ -2565,7 +2566,7 @@ export function createDaemon(
         if (!name) {
           await sendInTopic(
             session,
-            "Usage: `/eve run <name>` (e.g. `linear-drain`, `audit-routes`)",
+            "Usage: `/eve run <name>` — name of a script under `.acpbot/eve/` (agent-authored)",
           );
           return;
         }
@@ -3589,24 +3590,13 @@ export function createDaemon(
         }
         await sendInTopic(
           session,
-          "🛰 **EVE** · starting bundled `linear-drain` for the bound project…",
+          "🛰 **EVE** · agent will **author + run** a drain directive (no built-in script)…",
         );
-        const out = await workerHandlers.eveRun({
-          sessionKey: session.sessionKey,
-          name: "linear-drain",
-          args: {
-            projectId: binding.projectId,
-            projectName: binding.projectName,
+        await startAgentPrompt(
+          linearDrainPrompt(binding, {
             sequential: args.includes("--sequential"),
-          },
-          skip_approval: env.config.eve?.requireApproval === false,
-        });
-        if (out.runId) {
-          await sendInTopic(
-            session,
-            `EVE run \`${out.runId}\` · \`/eve status ${out.runId}\` · \`/eve approve ${out.runId}\` if pending`,
-          );
-        }
+          }),
+        );
         return;
       }
 

@@ -28,21 +28,24 @@ Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/ma
 |---|---|
 | One implementer after a plan | [Multi-agent](/docs/multi-agent) `agent_spawn` |
 | One Linear issue | `/linear next` |
-| Drain a bound Linear project unattended | **`/linear drain`** (bundled `linear-drain`) |
-| Multi-file audit / parallel graph | `/eve run …` or agent `eve_write` + `eve_run` |
+| Drain a bound Linear project unattended | **`/linear drain`** → agent **authors** an EVE script + `eve_run` |
+| Multi-file audit / parallel graph | Agent `eve_write` + `eve_run` (or inline `source`) |
+
+**No shipped directive scripts.** Names like `linear-drain` only exist after an agent
+(or you) writes them under `.acpbot/eve/`. The **eve** skill teaches agents how.
 
 ## Operator commands
 
 | Command | Effect |
 |---|---|
 | `/eve` | Status, scripts, recent runs |
-| `/eve run <name>` | Start a directive (may wait for approve) |
+| `/eve run <name>` | Start a project/user directive (may wait for approve) |
 | `/eve approve <runId>` | Start a pending run |
 | `/eve status [runId]` | Progress + log |
 | `/eve list` | Scripts + runs |
 | `/eve pause` / `resume` / `kill` | Control |
 | `/directive` | Alias for `/eve` |
-| `/linear drain` | Bundled Linear ready-set drain |
+| `/linear drain` | Agent turn: write + start an EVE drain for the bound project |
 
 ## Script layout
 
@@ -50,7 +53,6 @@ Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/ma
 |---|---|
 | Project | `<repo>/.acpbot/eve/<name>.js` |
 | User | `$state_dir/eve/directives/<name>.js` |
-| Bundled | `linear-drain`, `audit-routes` |
 
 ```js
 export const meta = {
@@ -59,20 +61,33 @@ export const meta = {
   phases: [{ title: 'Discover' }, { title: 'Audit' }],
 }
 
+phase('Discover')
 const found = await agent('List route files…', {
   schema: { type: 'object', required: ['files'], properties: {
     files: { type: 'array', items: { type: 'string' } },
   }},
 })
 
+phase('Audit')
 const audits = await pipeline(found.files, (file) =>
-  agent(`Audit ${file}`, { label: file }),
+  agent(`Audit ${file}`, {
+    label: String(file).split('/').pop(),
+    schema: {
+      type: 'object',
+      required: ['file', 'issues'],
+      properties: {
+        file: { type: 'string' },
+        issues: { type: 'array', items: { type: 'object' } },
+      },
+    },
+  }),
 )
 
-return audits.filter(Boolean)
+return (audits || []).filter(Boolean)
 ```
 
 Injected: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, `host`, `workflow`.
+See the **eve** skill for full API, recipes (Linear drain, audit, plan→impl→verify), and rules.
 
 ## MCP tools
 
@@ -96,10 +111,12 @@ Hard ceilings still apply from `[agents.spawn]`. Leaf children free spawn slots 
 
 ## Schedules
 
-Create a schedule whose prompt asks the agent to `eve_run({ name: "linear-drain" })`, or (later) fire a named directive directly. Host ticker + existing [Schedules](/docs/schedules) apply.
+Create a schedule whose fire prompt has the agent **author or reuse** a project
+script (`eve_write` / `.acpbot/eve/…`) then `eve_run({ name: "…" })`. Do not
+assume built-in names. Host ticker + existing [Schedules](/docs/schedules) apply.
 
 ## Related
 
 - [Multi-agent](/docs/multi-agent) — node runtime (worktrees)
-- [Linear](/docs/linear) — project binding + `/linear drain`
+- [Linear](/docs/linear) — project binding; `/linear drain` authors an EVE graph
 - [Schedules](/docs/schedules) — durable kicks

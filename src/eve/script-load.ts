@@ -1,10 +1,10 @@
 /**
- * Load EVE directive scripts from project / user / bundled locations.
+ * Load EVE directive scripts from project / user locations.
+ * No shipped/bundled directives — agents author graphs via eve_write.
  */
 import { access, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { resolveRepoConfigDir } from "../env/repo-config-dir";
 import type { EveMeta } from "./types";
 
@@ -26,11 +26,6 @@ export function projectEveDir(repoRoot: string): string {
 
 export function userEveDir(stateDir: string): string {
   return join(stateDir, "eve", "directives");
-}
-
-export function bundledEveDir(): string {
-  // src/eve/bundled next to this file (works for source; compile may embed)
-  return join(dirname(fileURLToPath(import.meta.url)), "bundled");
 }
 
 export function isWithinRoot(root: string, candidate: string): boolean {
@@ -165,7 +160,7 @@ export type ResolvedEveScript = {
   path: string;
   source: string;
   meta: EveMeta;
-  origin: "project" | "user" | "bundled" | "ephemeral";
+  origin: "project" | "user" | "ephemeral";
 };
 
 export async function resolveEveScript(input: {
@@ -195,12 +190,18 @@ export async function resolveEveScript(input: {
     );
     const source = await readFile(abs, "utf8");
     const meta = extractEveMeta(source);
+    const origin: ResolvedEveScript["origin"] = isWithinRoot(
+      userEveDir(input.stateDir),
+      abs,
+    )
+      ? "user"
+      : "project";
     return {
       name: meta.name,
       path: abs,
       source,
       meta,
-      origin: abs.includes(`${sep}bundled${sep}`) ? "bundled" : "project",
+      origin,
     };
   }
 
@@ -208,7 +209,6 @@ export async function resolveEveScript(input: {
   const candidates: { path: string; origin: ResolvedEveScript["origin"] }[] = [
     { path: join(projectEveDir(input.repoRoot), `${name}.js`), origin: "project" },
     { path: join(userEveDir(input.stateDir), `${name}.js`), origin: "user" },
-    { path: join(bundledEveDir(), `${name}.js`), origin: "bundled" },
   ];
 
   for (const c of candidates) {
@@ -222,7 +222,7 @@ export async function resolveEveScript(input: {
     }
   }
   throw new Error(
-    `EVE directive not found: ${name} (looked in .acpbot/eve/, user eve/directives, bundled)`,
+    `EVE directive not found: ${name} (looked in .acpbot/eve/ and user eve/directives — write one with eve_write)`,
   );
 }
 
@@ -273,7 +273,6 @@ export async function listEveScripts(input: {
 
   await scan(projectEveDir(input.repoRoot), "project");
   await scan(userEveDir(input.stateDir), "user");
-  await scan(bundledEveDir(), "bundled");
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -325,7 +324,6 @@ async function resolveWritableScriptPath(
   const allowedRoots = [
     projectEveDir(repoRoot),
     userEveDir(stateDir),
-    bundledEveDir(),
     join(stateDir, "eve", "runs"),
   ];
   let ok = false;
@@ -335,7 +333,7 @@ async function resolveWritableScriptPath(
       break;
     }
   }
-  // Also allow relative under .acpbot/eve
+  // Also allow relative under .acpbot/
   if (!ok && isWithinRoot(resolveRepoConfigDir(repoRoot), abs)) {
     ok = true;
   }

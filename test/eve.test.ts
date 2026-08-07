@@ -2,7 +2,7 @@
  * EVE — meta extract, sandbox, schema, service with mock agent.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -15,13 +15,12 @@ import {
 import { validateJsonSchema, parseAgentStructuredResult } from "../src/eve/schema";
 import { runEveScript } from "../src/eve/sandbox";
 import { createEveService } from "../src/eve/runner";
-import { bundledEveDir } from "../src/eve/script-load";
 
 describe("EVE meta + body", () => {
   test("extracts nested phases meta", () => {
     const src = `
 export const meta = {
-  name: "linear-drain",
+  name: "my-drain",
   description: "Work issues",
   phases: [
     { title: "Discover" },
@@ -31,21 +30,40 @@ export const meta = {
 phase("Discover");
 `;
     const meta = extractEveMeta(src);
-    expect(meta.name).toBe("linear-drain");
+    expect(meta.name).toBe("my-drain");
     expect(meta.phases?.map((p) => p.title)).toEqual([
       "Discover",
       "Implement",
     ]);
   });
 
-  test("bundled linear-drain parses", async () => {
-    const path = join(bundledEveDir(), "linear-drain.js");
-    const source = await readFile(path, "utf8");
-    const meta = extractEveMeta(source);
-    expect(meta.name).toBe("linear-drain");
+  test("extractEveBody strips meta and keeps pipeline body", () => {
+    const source = `
+export const meta = {
+  name: "tiny-audit",
+  description: "example",
+  phases: [{ title: "Go" }],
+};
+phase("Go");
+const r = await pipeline(items, (x) => agent(String(x)));
+return r.filter(Boolean);
+`;
     const body = extractEveBody(source);
     expect(body).toContain("pipeline");
     expect(body).not.toContain("export const meta");
+  });
+
+  test("resolveEveScript fails clearly when name missing (no bundled)", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-miss-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-miss-"));
+    try {
+      await expect(
+        resolveEveScript({ name: "linear-drain", repoRoot, stateDir }),
+      ).rejects.toThrow(/eve_write|not found/i);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -157,14 +175,14 @@ return r;
 
       const scripts = await listEveScripts({ repoRoot, stateDir });
       expect(scripts.some((s) => s.name === "tiny")).toBe(true);
+      expect(scripts.every((s) => s.origin !== "bundled")).toBe(true);
 
-      // Also resolve bundled
-      const bundled = await resolveEveScript({
-        name: "linear-drain",
+      const resolved = await resolveEveScript({
+        name: "tiny",
         repoRoot,
         stateDir,
       });
-      expect(bundled.origin).toBe("bundled");
+      expect(resolved.origin).toBe("project");
 
       const run = await svc.run(
         {

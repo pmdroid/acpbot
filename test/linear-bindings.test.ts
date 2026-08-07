@@ -19,6 +19,7 @@ import {
 import {
   applyLinearTurnContext,
   LINEAR_COMMAND_USAGE,
+  linearDrainPrompt,
   linearExportPrompt,
   linearFanoutPrompt,
   linearNextPrompt,
@@ -156,6 +157,13 @@ describe("linear prompts + known remote", () => {
     expect(linearWorkPrompt("ENG-9", binding)).toContain("only** focus");
     expect(linearFanoutPrompt(binding)).toContain("agent_spawn");
     expect(LINEAR_COMMAND_USAGE).toContain("/linear fanout");
+    expect(LINEAR_COMMAND_USAGE).toContain("/linear drain");
+    expect(LINEAR_COMMAND_USAGE).toMatch(/write \+ run|author/i);
+    const drain = linearDrainPrompt(binding, { sequential: true });
+    expect(drain).toContain("eve_write");
+    expect(drain).toContain("eve_run");
+    expect(drain).toMatch(/no built-in|not ship|author/i);
+    expect(drain).toContain("sequential");
   });
 
   test("connect writes linear mcp.json entry only", async () => {
