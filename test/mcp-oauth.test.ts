@@ -565,8 +565,8 @@ describe("status auth notes", () => {
       { oauthEnabled: false, tokenIds: [] },
     );
     expect(text).toContain("linear");
-    expect(text).not.toContain("auth: missing");
-    expect(text).not.toContain("auth: ok");
+    expect(text).not.toContain("auth?");
+    expect(text).not.toContain("✓");
   });
 
   test("shows auth missing when oauthEnabled and no token", () => {
@@ -579,7 +579,22 @@ describe("status auth notes", () => {
       undefined,
       { oauthEnabled: true, tokenIds: [] },
     );
-    expect(text).toContain("auth: missing");
+    expect(text).toContain("auth?");
+    expect(text).not.toContain("✓");
+  });
+
+  test("shows auth ok when oauthEnabled and token present", () => {
+    const text = formatMcpRegistryStatus(
+      {
+        mcpServers: [
+          { name: "linear", type: "http", url: "https://mcp.example/linear" },
+        ],
+      },
+      undefined,
+      { oauthEnabled: true, tokenIds: ["linear"] },
+    );
+    expect(text).toContain("✓");
+    expect(text).not.toContain("auth?");
   });
 });
 
