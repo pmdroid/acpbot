@@ -72,6 +72,19 @@ Focus is stored in `$state_dir/chat-focus.json` (local to this machine; not shar
 
 Non-TTY + ask fails closed (reject) so unattended scripts do not hang.
 
+## Turn output
+
+By default chat prints **full agent output**:
+
+| Stream | Where |
+|---|---|
+| Assistant text | stdout |
+| Thoughts / reasoning | stderr (dim) |
+| Tools (title, status, input snippet) | stderr |
+| Errors + `done · status` | stderr |
+
+Use **`--quiet` / `-q`** for assistant text only (good for pipes).
+
 ## Architecture notes
 
 - Shared turn helper: `src/chat/turn.ts` (`streamTurn` / `promptText`) — also the base for the OpenAI gateway.

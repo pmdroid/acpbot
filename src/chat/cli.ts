@@ -16,6 +16,7 @@ import {
 } from "../acp-host/client";
 import { createFileHostSessionStore } from "../acp/session-store";
 import { createTtyPermissionHooks } from "./permissions-tty";
+import { renderTurnStream, type TurnRenderMode } from "./render-turn";
 import { streamTurn } from "./turn";
 import {
   formatSessionKey,
@@ -56,13 +57,19 @@ REPL commands:
 
 Flags:
   --bypass            Auto-allow tool permissions (default: TTY ask)
+  --quiet             Assistant text only (hide thoughts/tools/status)
   --session <key>     Focus for one-shot
   --agent <id>        Agent id (default: config default_agent)
-  --repo <key>        Default repo for /new short form`;
+  --repo <key>        Default repo for /new short form
+
+By default the CLI prints full agent output: thoughts (dim), tools with
+status/input snippets, assistant text, and turn status. Use --quiet for
+text-only (handy when piping).`;
 }
 
 type ChatFlags = {
   bypass: boolean;
+  quiet: boolean;
   message?: string;
   session?: string;
   agent?: string;
@@ -74,11 +81,15 @@ function parseChatArgs(argv: string[]): ChatFlags {
   const args = argv.slice(2);
   // drop leading "chat"
   if (args[0]?.toLowerCase() === "chat") args.shift();
-  const out: ChatFlags = { bypass: false, rest: [] };
+  const out: ChatFlags = { bypass: false, quiet: false, rest: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--bypass") {
       out.bypass = true;
+      continue;
+    }
+    if (a === "--quiet" || a === "-q") {
+      out.quiet = true;
       continue;
     }
     if (a === "-m" || a === "--message") {
@@ -123,6 +134,7 @@ export async function runChatCli(argv: string[] = process.argv): Promise<number>
   await assertAcpHostReady({ sockPath, stateDir });
 
   const permissionMode = flags.bypass ? "bypass" : "ask";
+  const renderMode: TurnRenderMode = flags.quiet ? "quiet" : "full";
   const hooks = createTtyPermissionHooks({
     mode: permissionMode,
     isTty: process.stdin.isTTY,
@@ -170,6 +182,7 @@ export async function runChatCli(argv: string[] = process.argv): Promise<number>
           defaultAgent,
           repos,
           permissionMode,
+          renderMode,
         );
       }
       return 0;
@@ -198,6 +211,7 @@ export async function runChatCli(argv: string[] = process.argv): Promise<number>
         defaultAgent,
         repos,
         permissionMode,
+        renderMode,
       );
     }
 
@@ -209,6 +223,7 @@ export async function runChatCli(argv: string[] = process.argv): Promise<number>
       defaultAgent,
       repos,
       permissionMode,
+      renderMode,
       ...(defaultRepo ? { defaultRepo } : {}),
       ...(flags.session ? { initialFocus: flags.session } : {}),
     });
@@ -270,32 +285,27 @@ async function runOneShot(
   defaultAgent: string,
   repos: Record<string, string>,
   permissionMode: "ask" | "bypass",
+  renderMode: TurnRenderMode,
 ): Promise<number> {
   const r = await ensureRef(host, ref, defaultAgent, repos, permissionMode);
   const ac = new AbortController();
   const onSig = () => ac.abort();
   process.once("SIGINT", onSig);
   try {
-    for await (const chunk of streamTurn(host, {
-      sessionKey: r.sessionKey,
-      agent: r.agent || defaultAgent,
-      cwd: r.cwd,
-      text: message,
-      permissionMode,
-      signal: ac.signal,
-    })) {
-      if (chunk.type === "text") process.stdout.write(chunk.text);
-      if (chunk.type === "error") {
-        console.error(`\n[error] ${chunk.message}`);
-      }
-      if (chunk.type === "done") {
-        process.stdout.write("\n");
-        return chunk.status === "completed" || chunk.status === "end_turn"
-          ? 0
-          : 1;
-      }
-    }
-    return 0;
+    const result = await renderTurnStream(
+      streamTurn(host, {
+        sessionKey: r.sessionKey,
+        agent: r.agent || defaultAgent,
+        cwd: r.cwd,
+        text: message,
+        permissionMode,
+        signal: ac.signal,
+      }),
+      { mode: renderMode },
+    );
+    return result.status === "completed" || result.status === "end_turn"
+      ? 0
+      : 1;
   } finally {
     process.off("SIGINT", onSig);
   }
@@ -309,6 +319,7 @@ async function runRepl(input: {
   repos: Record<string, string>;
   defaultRepo?: string;
   permissionMode: "ask" | "bypass";
+  renderMode: TurnRenderMode;
   initialFocus?: string;
 }): Promise<number> {
   const {
@@ -319,6 +330,7 @@ async function runRepl(input: {
     repos,
     defaultRepo,
     permissionMode,
+    renderMode,
   } = input;
 
   let focus = await loadFocus(stateDir);
@@ -334,7 +346,9 @@ async function runRepl(input: {
   }
 
   console.log("acpbot chat — multi-session hub (host required)");
-  console.log(`permissions: ${permissionMode}  |  /help for commands`);
+  console.log(
+    `permissions: ${permissionMode}  ·  output: ${renderMode}  ·  /help`,
+  );
   if (focus.focusKey) console.log(`focus: ${focus.focusKey}`);
   else console.log("focus: (none) — /new <repo> [name] or /use <key>");
 
@@ -654,25 +668,17 @@ async function runRepl(input: {
         defaultRepo ? { defaultRepo } : undefined,
       );
       const r = await ensureRef(host, ref, defaultAgent, repos, permissionMode);
-      for await (const chunk of streamTurn(host, {
-        sessionKey: r.sessionKey,
-        agent: r.agent || defaultAgent,
-        cwd: r.cwd,
-        text: raw,
-        permissionMode,
-        signal: turnAbort.signal,
-      })) {
-        if (chunk.type === "text") process.stdout.write(chunk.text);
-        if (chunk.type === "tool" && chunk.title) {
-          process.stderr.write(`\n… ${chunk.title}\n`);
-        }
-        if (chunk.type === "error") {
-          console.error(`\n[error] ${chunk.message}`);
-        }
-        if (chunk.type === "done") {
-          process.stdout.write("\n");
-        }
-      }
+      await renderTurnStream(
+        streamTurn(host, {
+          sessionKey: r.sessionKey,
+          agent: r.agent || defaultAgent,
+          cwd: r.cwd,
+          text: raw,
+          permissionMode,
+          signal: turnAbort.signal,
+        }),
+        { mode: renderMode },
+      );
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
     } finally {

@@ -16,6 +16,11 @@ export type ChatTurnChunk =
       title?: string;
       status?: string;
       kind?: string;
+      /** Present on tool_call / tool_call_update from the agent. */
+      rawInput?: unknown;
+      rawOutput?: unknown;
+      locations?: unknown;
+      tag?: string;
     }
   | { type: "done"; status: string; stopReason?: string }
   | { type: "error"; message: string };
@@ -145,6 +150,10 @@ function mapEvent(ev: HostTurnEvent): ChatTurnChunk | null {
         ...(ev.title ? { title: ev.title } : {}),
         ...(ev.status ? { status: ev.status } : {}),
         ...(ev.kind ? { kind: ev.kind } : {}),
+        ...(ev.rawInput !== undefined ? { rawInput: ev.rawInput } : {}),
+        ...(ev.rawOutput !== undefined ? { rawOutput: ev.rawOutput } : {}),
+        ...(ev.locations !== undefined ? { locations: ev.locations } : {}),
+        ...(ev.tag ? { tag: ev.tag } : {}),
       };
     case "error":
       return { type: "error", message: ev.message };
