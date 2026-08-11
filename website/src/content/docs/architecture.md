@@ -15,36 +15,22 @@ section: reference
 ## Processes
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  Telegram (Bot API, long poll)                              │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  acpbot worker  (acpbot worker / acpbot worker)                 │
-│  · config.toml (TOML-first)                                 │
-│  · allowlist operator                                       │
-│  · lobby + topic command routing                            │
-│  · session store (store_path)                               │
-│  · worker-api.sock  (HTTP over Unix — outbound media)       │
-│  · always talks to acp-host.sock (required)                 │
-└───────────────┬─────────────────────────────┬───────────────┘
-                │                             │
-                │  worker → acp-host          │  MCP tools POST
-                ▼                             ▼
-┌──────────────────────────────┐   ┌──────────────────────────┐
-│  acp-host (required)         │   │  Host MCP (stdio child)  │
-│  · owns agent stdio slots    │   │  speak / telegram_* /    │
-│  · schedule ticker           │   │  schedule_*              │
-│  · GET /oauth/callback       │   │  → worker-api.sock       │
-└───────────────┬──────────────┘   └──────────────────────────┘
-                │
-                ▼
-┌──────────────────────────────┐
-│  Agent process (ACP stdio)   │
-│  grok | claude-adapter | …   │
-└──────────────────────────────┘
+ Telegram worker     acpbot chat          OpenAI gateway (:8791)
+ (Bot API poll)      (TTY focus hub)      LibreChat / Open WebUI
+        \                  |                      /
+         \                 |                     /
+          v                v                    v
+                    acp-host (required)
+                    · agent stdio slots
+                    · schedule ticker
+                    · OAuth callback
+                    · optional OpenAI HTTP
+                           |
+                           v
+                    agent CLIs (grok / claude / …)
 ```
+
+Multi-UI notes: [CLI chat](/docs/cli-chat) · [OpenAI gateway](/docs/openai-gateway).
 
 ### Worker (`src/main.ts` → `src/core/daemon.ts`)
 

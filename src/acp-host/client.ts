@@ -64,6 +64,8 @@ export type HostSlotListItem = {
 export type AcpHostClientApi = SessionHost & {
   /** Live agent slots on the host (for multi-session CLI hub). */
   listSlots(): Promise<HostSlotListItem[]>;
+  /** Kill a live slot (dispose agent process). */
+  killSlot(sessionKey: string): Promise<void>;
   eveRun(input: {
     sessionKey: string;
     repoKey: string;
@@ -929,6 +931,24 @@ export function createAcpHostClient(
         cwd: s.cwd,
         busy: s.busy,
       }));
+    },
+
+    async killSlot(sessionKey: string) {
+      await connect();
+      const msg = await request({
+        type: "kill",
+        reqId: randomUUID(),
+        slotKey: sessionKey,
+      });
+      if (msg.type !== "kill_ok" && msg.type !== "err") {
+        /* kill_ok expected */
+      }
+      if (msg.type === "err") {
+        throw new Error(msg.error);
+      }
+      sessionMeta.delete(sessionKey);
+      modeCache.delete(sessionKey);
+      configCache.delete(sessionKey);
     },
 
     // ── EVE (host-side orchestration) ────────────────────────────────────

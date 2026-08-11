@@ -22,6 +22,8 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 | Doc | Topic |
 |---|---|
 | [Architecture](/docs/architecture) | Worker, acp-host, sockets, store layout |
+| [CLI chat hub](/docs/cli-chat) | Multi-session terminal hub (`acpbot chat`) |
+| [OpenAI gateway](/docs/openai-gateway) | LibreChat / Open WebUI over host HTTP |
 | [Agents](/docs/agents) | Built-in agents, `/model`, `/agent` |
 | [MCP](/docs/mcp) | Built-in `acpbot` tools, per-repo servers, profiles |
 | [Worker API](/docs/worker-api) | Unix HTTP API MCP → Telegram |

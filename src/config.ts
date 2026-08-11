@@ -27,6 +27,18 @@ import {
   type HostsCatalog,
 } from "./acp-host/hosts";
 import { ensureBundledSkillsRoot } from "./core/bundled-skills";
+import { parseOpenAiGatewayToml } from "./openai-gateway/server";
+
+export type OpenAiGatewayProcessConfig = {
+  enabled: boolean;
+  listenHost: string;
+  listenPort: number;
+  token: string;
+  defaultRepo?: string;
+  permissionMode: "ask" | "bypass";
+  agents?: string[];
+  repos?: string[];
+};
 
 export type ProcessConfig = AcpbotConfig & {
   botToken: string;
@@ -48,6 +60,8 @@ export type ProcessConfig = AcpbotConfig & {
   scheduleTickMs?: number;
   /** Absolute extra skill roots from config. */
   skillRoots?: string[];
+  /** OpenAI-compatible HTTP gateway (host process). */
+  openaiGateway?: OpenAiGatewayProcessConfig;
   /** Speech providers (TTS/STT independent; see SpeechSettings). */
   speech?: SpeechSettings;
   agentCommandJson?: string;
@@ -413,7 +427,18 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     if (Object.keys(eveOut).length > 0) out.eve = eveOut;
   }
 
-  return out as Partial<ProcessConfig> & { verbose?: boolean; sttEnabled?: boolean };
+  // OpenAI gateway table kept raw for loadConfig (needs env token resolve)
+  const og = raw.openai_gateway ?? raw.openaiGateway;
+  if (og && typeof og === "object" && !Array.isArray(og)) {
+    (out as { _rawOpenAiGateway?: Record<string, unknown> })._rawOpenAiGateway =
+      og as Record<string, unknown>;
+  }
+
+  return out as Partial<ProcessConfig> & {
+    verbose?: boolean;
+    sttEnabled?: boolean;
+    _rawOpenAiGateway?: Record<string, unknown>;
+  };
 }
 
 function str(v: unknown): string | undefined {
@@ -873,6 +898,17 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   if (tickRaw) {
     const n = Number(tickRaw);
     if (Number.isFinite(n) && n > 0) config.scheduleTickMs = n;
+  }
+
+  // OpenAI gateway (optional — host process HTTP)
+  {
+    const rawOg =
+      (file as { _rawOpenAiGateway?: Record<string, unknown> })
+        ._rawOpenAiGateway ??
+      (rawFile.openai_gateway as Record<string, unknown> | undefined) ??
+      (rawFile.openaiGateway as Record<string, unknown> | undefined);
+    const og = parseOpenAiGatewayToml(rawOg, env);
+    if (og) config.openaiGateway = og;
   }
 
   config.agentCommandJson =

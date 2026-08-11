@@ -106,6 +106,16 @@ acpbot host      # terminal 1 — required first
 acpbot worker    # terminal 2
 ```
 
+Multi-session terminal hub (host only, no Telegram):
+
+```bash
+acpbot chat ls
+acpbot chat session demo/main
+acpbot chat --bypass -m "hello"
+```
+
+Optional OpenAI gateway for LibreChat / Open WebUI — enable `[openai_gateway]` in config, then `http://127.0.0.1:8791/v1` with a Bearer token. Docs: [cli-chat](https://acpbot.app/docs/cli-chat) · [openai-gateway](https://acpbot.app/docs/openai-gateway).
+
 Bare `acpbot` prints help. Use `acpbot setup` for the TUI when config is missing.
 
 ### 4. Telegram

@@ -78,6 +78,20 @@ tts_mode = "agent"                       # agent | always | off
 [skills]
 # roots = ["/path/to/extra-skills"]
 
+# ── OpenAI-compatible gateway (host process) ───────────────────────────────
+# LibreChat / Open WebUI → http://127.0.0.1:8791/v1  (Bearer token)
+# Models: acpbot/<repo>/<agent>  e.g. acpbot/demo/grok-build
+# Requires `acpbot host` (not the Telegram worker).
+[openai_gateway]
+# enabled = false
+# listen_host = "127.0.0.1"
+# listen_port = 8791
+# token = "env:ACPBOT_OPENAI_GATEWAY_TOKEN"   # or a literal secret
+# default_repo = "demo"                      # for model id acpbot/<agent>
+# permission_mode = "bypass"                 # ask | bypass (v1 default bypass)
+# agents = ["grok-build"]                    # optional allowlist
+# repos = ["demo"]                           # optional allowlist
+
 # ── Speech (TTS / STT — independent providers) ─────────────────────────────
 # Providers: auto | elevenlabs | openai | off
 #   auto = ElevenLabs if its key is set, else OpenAI

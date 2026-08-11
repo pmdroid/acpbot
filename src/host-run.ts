@@ -10,6 +10,8 @@ import { startAcpHostServer } from "./acp-host/server";
 import { defaultAcpHostSock } from "./acp-host/protocol";
 import { maybeStartOauthHttpServer } from "./acp-host/oauth-http";
 import { parseReposFromEnv, scheduleTickMs } from "./acp-host/scheduler";
+import { createAcpHostClient } from "./acp-host/client";
+import { startOpenAiGateway } from "./openai-gateway/server";
 
 export async function runHostMain(): Promise<void> {
   // Create config/data/state dirs (and default config.toml if missing).
@@ -107,6 +109,38 @@ export async function runHostMain(): Promise<void> {
     );
   }
 
+  // OpenAI-compatible gateway (loopback host client on same socket)
+  let gatewayClose: (() => Promise<void>) | undefined;
+  let gatewayClient: ReturnType<typeof createAcpHostClient> | undefined;
+  if (cfg.openaiGateway?.enabled) {
+    try {
+      gatewayClient = createAcpHostClient({
+        sockPath,
+        log,
+        // Gateway sessions use config permission mode (default bypass)
+      });
+      const gw = await startOpenAiGateway({
+        config: cfg.openaiGateway,
+        host: gatewayClient,
+        repos: catalog,
+        defaultAgent: cfg.defaultAgent ?? "grok-build",
+        log,
+      });
+      gatewayClose = async () => {
+        await gw.close();
+        await gatewayClient?.dispose().catch(() => {});
+      };
+      console.error(
+        `acpbot openai gateway: ${gw.url}/v1  (Bearer token; models: acpbot/<repo>/<agent>)`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`acpbot openai gateway FAILED: ${msg}`);
+      await close().catch(() => {});
+      process.exit(1);
+    }
+  }
+
   let oauthClose: (() => Promise<void>) | undefined;
   const oauthBase = cfg.oauthCallbackBase?.trim();
   if (oauthBase) {
@@ -157,6 +191,13 @@ export async function runHostMain(): Promise<void> {
   const shutdown = async () => {
     console.error("acpbot host shutting down…");
     configWatch?.close();
+    if (gatewayClose) {
+      try {
+        await gatewayClose();
+      } catch {
+        /* */
+      }
+    }
     if (oauthClose) {
       try {
         await oauthClose();

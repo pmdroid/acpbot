@@ -50,6 +50,7 @@ REPL commands:
   /status             Focus + session summary
   /cancel             Cancel in-flight turn on focus
   /fresh              New ACP conversation on focus (history cleared)
+  /kill [key]         Kill host slot (default: focus)
   /exit | /quit       Leave REPL
 
 Flags:
@@ -476,6 +477,33 @@ async function runRepl(input: {
           forceNewSession: true,
         });
         console.log(`fresh session on ${r.sessionKey}`);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : e);
+      }
+      prompt();
+      return;
+    }
+
+    if (raw.startsWith("/kill")) {
+      const token = raw.slice(5).trim();
+      try {
+        const sessions = await listAll(host, store);
+        const key =
+          token ||
+          focus.focusKey ||
+          (() => {
+            throw new Error("no session — /kill <key> or set focus");
+          })();
+        const ref = resolveSessionRef(
+          key,
+          sessions,
+          defaultRepo ? { defaultRepo } : undefined,
+        );
+        await host.killSlot(ref.sessionKey);
+        if (focus.focusKey === ref.sessionKey) {
+          focus = await saveFocus(stateDir, null);
+        }
+        console.log(`killed ${ref.sessionKey}`);
       } catch (e) {
         console.error(e instanceof Error ? e.message : e);
       }
