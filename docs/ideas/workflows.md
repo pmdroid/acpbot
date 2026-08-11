@@ -263,19 +263,21 @@ Spawns or prompts one worker. **One bounded job, one return value.**
 
 - Fresh context (child session); does not share parent chat history.
 - Unrecoverable failure / kill / timeout → **`null`** (never rejects the whole `parallel`/`pipeline` unless script throws).
+- Schema mismatch after retries: if the leaf **completed**, host may **soft-fill** a partial object (`status: "partial"`, `summary`, `issueId` from `label` when schema allows) so sequential drains do not get false `null`s when work already landed. Prefer a final JSON fence from the leaf.
 - Mid-run permission / `ask_user` → node state `waiting_user`; **script await parks that node only**; other parallel nodes continue.
 - After human answers (existing Telegram brokers), host resumes that node; `agent()` eventually resolves.
 
-Implementation bridge (v1):
+Implementation bridge (shipped: **host EVE leaves**):
 
 ```text
-agent() → agent_spawn({ name: slug, prompt, agent, headless: true })
-       → agent_wait until idle/done/failed/waiting_user
-       → parse lastResultSummary or structured MCP mark against schema
+agent() → acp-host leaf slot (worktree + bypass tools)
+       → startTurn(prompt); collect text_delta (not thought)
+       → parse JSON + validate schema (+ schema_retries)
+       → soft-recover completed-but-unstructured when possible
        → return object | null
 ```
 
-Structured return path: extend multi-agent so a child can call something like `workflow_return({ ... })` or write a validated envelope the wait path already surfaces. Free-text summary is fallback only.
+(Older design note: worker `agent_spawn` / `agent_wait` path is still used for interactive multi-agent, not the EVE control plane.)
 
 ### `parallel(thunks: (() => Promise)[]) → any[]`
 

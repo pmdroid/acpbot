@@ -818,9 +818,11 @@ export async function startAcpHostServer(
                   text: input.prompt,
                 });
                 for await (const event of turn.events) {
+                  // SessionHost maps ACP agent_message_chunk → text_delta (output).
                   if (
-                    event.type === "agent_message_chunk" &&
-                    typeof event.text === "string"
+                    event.type === "text_delta" &&
+                    typeof event.text === "string" &&
+                    event.stream !== "thought"
                   ) {
                     summary += event.text;
                   }

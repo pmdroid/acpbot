@@ -77,6 +77,7 @@ agent_kill({ to: "impl-auth" })
 
 - `name` is a short slug `[a-z0-9-]` → session key `{parent}--{name}` (e.g. `work/plan--impl-auth`).  
 - After a kickoff `prompt`, spawn finishes with **idle** status and a durable **last result summary** so `agent_wait` works without extra marks.
+- **EVE** leaves use the same worktree machinery on **acp-host**; their structured return is JSON schema + soft handoff — see [EVE → leaf handoff](/docs/eve#leaf-handoff-schema--digests).
 
 ## Worktrees and branches
 

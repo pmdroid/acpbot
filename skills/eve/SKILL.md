@@ -137,7 +137,7 @@ Paths: project `.acpbot/eve/<name>.js`, or user `$state_dir/eve/directives/`.
 
 | Name | Role |
 |---|---|
-| `agent(prompt, opts?)` | Spawn a leaf ACP worker; returns parsed JSON or **`null` on failure** |
+| `agent(prompt, opts?)` | Spawn a leaf ACP worker; returns parsed JSON, a **soft partial** object, or **`null` on hard failure** |
 | `parallel([() => …, …])` | Run thunks concurrently (respects `max_concurrent`) |
 | `pipeline(items, …stages)` | For each item, run stage functions left→right; collect results |
 | `phase(title)` | Mark active phase (status UI) |
@@ -161,14 +161,30 @@ Paths: project `.acpbot/eve/<name>.js`, or user `$state_dir/eve/directives/`.
 
 Orchestrator has **no `fs` / network / shell**. Only leaf agents touch the world.
 
+### Leaf handoff (how results come back)
+
+1. Host runs the leaf, collects **assistant output text** (not thought stream).
+2. Parses JSON (prefer a final ` ```json ` fence).
+3. Validates `schema` when set; retries (`schema_retries`) with a fix-up prompt.
+4. If the leaf **completed** but JSON still fails schema, the host may **soft-fill**
+   a partial object (`status: "partial"`, `summary`, `issueId` from `label` when
+   that matches the schema) so sequential drains don’t get false `null`s for
+   successful work. Hard failures stay `null`.
+
+**Leaf prompt tip:** after commit/push, always **print the schema JSON** as the
+last assistant message. Tools-only finishes used to look like “null failure”
+even when git work was fine.
+
+Telegram digests: ✅ valid · ⚠️ soft partial · 🚫 failed.
+
 ## Hard rules
 
 1. **Schemas on every structured edge** — discover lists, per-item results, final merge
-2. **Failed leaves are `null`** — always `.filter(Boolean)` before counting
+2. **Failed / missing leaves are falsy** — always `.filter(Boolean)`; treat `status === "partial"` as “work maybe done, handoff weak”
 3. **Guard loops** with `if (!budget.ok()) break` (and cap fan-out size)
 4. **One logical task per leaf** — don’t ask one agent to do five issues
 5. **No secrets** in scripts or prompts (tokens live in host OAuth / config)
-6. **Idempotent labels** — same `label`+`phase` can resume from cache after pause
+6. **Idempotent labels** — same `label`+`phase` can resume from cache after pause; labels like `pas-134` help soft `issueId`
 7. Prefer **`pipeline`** for “map over list”; **`parallel`** for fixed independent stages
 8. Keep prompts **self-contained** — leaf sees only its prompt, not chat history
 

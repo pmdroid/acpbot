@@ -89,6 +89,25 @@ return (audits || []).filter(Boolean)
 Injected: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, `host`, `workflow`.
 See the **eve** skill for full API, recipes (Linear drain, audit, plan→impl→verify), and rules.
 
+## Leaf handoff (schema + digests)
+
+Each `agent()` leaf is a **headless** ACP slot (worktree + bypass tool policy). When the leaf finishes, the host:
+
+1. Collects the assistant **output text** (`text_delta`, not thought stream)
+2. Parses JSON (fenced json code block preferred)
+3. Validates against your `schema` when provided
+4. Retries up to `[eve].schema_retries` with a fix-up hint if validation fails
+
+| Outcome | Telegram | `agent()` return |
+|---|---|---|
+| Valid JSON | ✅ done | parsed object |
+| Agent **completed** but missing/invalid JSON | ⚠️ done (partial / unstructured) | soft object when it can still match schema (e.g. `{ status: "partial", summary, issueId }` from the leaf `label`) |
+| Hard failure / kill / no recoverable shape | 🚫 failed | `null` |
+
+**Always** treat results as nullable: `.filter(Boolean)` and check `status`. Prefer tight schemas and ask leaves to **end with a JSON fence** after the real work (commit/push), not tools-only silence.
+
+Log lines like `schema soft-ok … → partial` mean the leaf shipped work but the structured handoff was filled in by the host — not a silent drop.
+
 ## MCP tools
 
 Server **`acpbot`**: `eve_list`, `eve_run`, `eve_approve`, `eve_status`, `eve_pause`, `eve_resume`, `eve_kill`, `eve_write`.

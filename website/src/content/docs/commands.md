@@ -42,7 +42,7 @@ Commands are registered in `src/core/commands.ts`.
 | **Codex** | Session mode **`agent`** (not `agent-full-access`). Many Codex tools run inside the adapter and may not hit Telegram. |
 | **OpenCode** | Mode **`build`/`plan`** only; tools often run in-process without ACP `request_permission`. |
 
-**bypass** maps to agent auto-approve modes (`bypassPermissions` / `agent-full-access` / Grok yolo) and skips host-side gates.
+**bypass** skips host-side tool gates (auto-allow). Grok is **not** started with `--always-approve` / yolo — that would skip **plan exit** approval. See [Agents → plan exit](/docs/agents#plan-exit-approval-grok).
 
 Permission keyboards are **deleted** after you answer (chat stays clean). Concurrent identical asks (e.g. parallel shell + host gate) are coalesced so you only see one prompt.
 
@@ -51,11 +51,16 @@ To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.tx
 | Command | Effect |
 |---|---|
 | `/plan` | Switch to plan mode (read-only-ish) |
-| `/build` | Switch to build/code mode (tools on) |
+| `/build` | Switch to build/code mode (tools on); also used after a plan is ready |
 | `/skills` | Pick a skill, then send a prompt |
 | `/mcp` | Remote MCP registry + OAuth (see below) |
 | `/linear` | Linear OAuth MCP + topic↔project bind / export / next / work / fanout — [Linear](/docs/linear) |
 | `/help` | Topic help (includes queue vs steer notes) |
+
+### Plan ready → approve
+
+After **`/plan`**, when the agent exits plan mode you get a Telegram **Approve / Reject** (plan exit is always forced to ask). **Approve** or **`/build`** to implement; stay in plan and keep chatting if you want changes first.
+
 
 ### Live “working” bubble
 

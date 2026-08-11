@@ -8,7 +8,13 @@ import {
   loadEveRun,
   saveEveRun,
 } from "./store";
-import { parseAgentStructuredResult, validateJsonSchema } from "./schema";
+import {
+  isEveLeafFailureStatus,
+  isEveLeafSuccessStatus,
+  parseAgentStructuredResult,
+  recoverEveStructuredResult,
+  validateJsonSchema,
+} from "./schema";
 import { runEveScript } from "./sandbox";
 import type {
   EveAgentOptions,
@@ -223,15 +229,23 @@ export async function executeEveRun(
 
       for (let attempt = 0; attempt <= schemaRetries; attempt++) {
         await checkAbort();
+        const prevErr =
+          typeof parsed === "object" &&
+          parsed &&
+          "error" in (parsed as object)
+            ? String((parsed as { error?: string }).error)
+            : "";
         const retryHint =
           attempt === 0
             ? ""
-            : `\n\nYour previous reply did not match the required JSON schema. ` +
-              `Reply with ONLY valid JSON matching the schema. Error: ${
-                typeof parsed === "object" && parsed && "error" in (parsed as object)
-                  ? String((parsed as { error?: string }).error)
-                  : "validation failed"
-              }`;
+            : lastSummary.trim()
+              ? `\n\nYour previous reply did not match the required JSON schema. ` +
+                `Reply with ONLY valid JSON matching the schema. Error: ${
+                  prevErr || "validation failed"
+                }`
+              : `\n\nYour previous reply had no assistant text. ` +
+                `Reply with ONLY a single JSON object matching the schema ` +
+                `(no tools-only finish).`;
 
         const fullPrompt =
           prompt +
@@ -255,7 +269,15 @@ export async function executeEveRun(
         childSessionKey = out.childSessionKey;
         parsed = parseAgentStructuredResult(lastSummary);
 
-        if (!options?.schema) break;
+        if (!options?.schema) {
+          if (parsed == null && isEveLeafSuccessStatus(lastStatus)) {
+            parsed = {
+              status: "done",
+              summary: lastSummary.trim() || "(no text)",
+            };
+          }
+          break;
+        }
         const v = validateJsonSchema(
           options.schema as Record<string, unknown>,
           parsed,
@@ -263,20 +285,47 @@ export async function executeEveRun(
         if (v.ok) break;
         parsed = { error: v.error };
         if (attempt === schemaRetries) {
-          run = await persist(
-            appendEveLog(
-              run,
-              `schema fail ${options?.label ?? nodeKey}: ${v.error}`,
-            ),
-          );
-          parsed = null;
+          const recovered = recoverEveStructuredResult({
+            summary: lastSummary,
+            status: lastStatus,
+            label: options?.label,
+            schema: options.schema as Record<string, unknown>,
+            parsed: parseAgentStructuredResult(lastSummary),
+            schemaError: v.error,
+          });
+          if (recovered.value != null) {
+            run = await persist(
+              appendEveLog(
+                run,
+                `schema soft-ok ${options?.label ?? nodeKey}: ${v.error} → partial`,
+              ),
+            );
+            parsed = recovered.value;
+          } else {
+            run = await persist(
+              appendEveLog(
+                run,
+                `schema fail ${options?.label ?? nodeKey}: ${v.error}` +
+                  (lastSummary.trim()
+                    ? ""
+                    : ` (empty summary, status=${lastStatus})`),
+              ),
+            );
+            parsed = null;
+          }
         }
       }
 
       const failed =
-        parsed === null ||
-        lastStatus === "failed" ||
-        lastStatus === "killed";
+        parsed === null || isEveLeafFailureStatus(lastStatus);
+
+      const softNote =
+        !failed &&
+        typeof parsed === "object" &&
+        parsed &&
+        (parsed as { status?: string }).status === "partial"
+          ? " (partial / unstructured)"
+          : "";
 
       run = await persist({
         ...run,
@@ -289,7 +338,15 @@ export async function executeEveRun(
             finishedAt: Date.now(),
             label: options?.label,
             phase: options?.phase ?? activePhase,
-            ...(failed ? { error: lastSummary.slice(0, 500) || lastStatus } : {}),
+            ...(failed
+              ? {
+                  error:
+                    lastSummary.slice(0, 500) ||
+                    (isEveLeafSuccessStatus(lastStatus)
+                      ? `schema/empty handoff (status=${lastStatus})`
+                      : lastStatus),
+                }
+              : {}),
           },
         },
         resultCache: {
@@ -300,10 +357,10 @@ export async function executeEveRun(
       });
 
       if (deps.notify && options?.label) {
-        const icon = failed ? "🚫" : "✅";
+        const icon = failed ? "🚫" : softNote ? "⚠️" : "✅";
         await deps.notify(
           run.sessionKey,
-          `${icon} EVE · ${options.label}${failed ? " failed" : " done"}`,
+          `${icon} EVE · ${options.label}${failed ? " failed" : ` done${softNote}`}`,
         ).catch(() => {});
       }
 

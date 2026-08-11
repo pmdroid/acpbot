@@ -274,4 +274,10 @@ export function createEveService(input: {
 /** Re-export helpers for tests. */
 export { extractEveMeta, resolveEveScript, writeEveScript } from "./script-load";
 export { executeEveRun } from "./runtime";
-export { validateJsonSchema, parseAgentStructuredResult } from "./schema";
+export {
+  validateJsonSchema,
+  parseAgentStructuredResult,
+  softEveAgentResult,
+  recoverEveStructuredResult,
+  isEveLeafSuccessStatus,
+} from "./schema";

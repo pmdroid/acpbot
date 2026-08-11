@@ -76,12 +76,14 @@ Usage:
 
 ## Tool permissions (ask vs bypass)
 
-Separate from session **mode** (plan/build). Controls whether tool calls show Telegram approve buttons.
+Separate from session **mode** (plan/build). Controls whether **ordinary tool** calls show Telegram approve buttons.
 
 | Setting | Effect |
 |---|---|
 | `ask` (default) | Each tool permission → Telegram keyboard (message **deleted** after you answer) |
-| `bypass` | Auto-allow tools (Grok: `--always-approve` + `yoloMode`; all agents: host auto-allow) |
+| `bypass` | Host **auto-allows** tool `request_permission` (no keyboard). Agent still runs without Grok `--always-approve` / `yoloMode` |
+
+**Why not Grok always-approve?** Grok’s yolo / `--always-approve` short-circuits **`exit_plan_mode`** (plan approval) and cancels the turn without a client permission UI — so Telegram never gets Approve/Reject for the plan. Host bypass still auto-allows shell/fs tools; plan exit is **always forced to ask** (see below).
 
 Duplicate concurrent prompts for the same action are coalesced (one keyboard).
 
@@ -91,6 +93,8 @@ Duplicate concurrent prompts for the same action are coalesced (one keyboard).
 [features]
 permission_mode = "ask"            # or "bypass"
 ```
+
+Do **not** set `GROK_PERMISSION_MODE=always-approve` on LaunchAgents for the same reason.
 
 **Setup TUI** asks once on `acpbot setup`.
 
@@ -102,7 +106,7 @@ permission_mode = "ask"            # or "bypass"
 | `/permissions ask\|bypass` | This topic only |
 | `/permissions default ask\|bypass` | New topics — writes `config.toml` + `state_dir/permission-mode.json` |
 
-Changing a topic’s policy re-ensures the agent slot so Grok spawn flags apply.
+Changing a topic’s policy re-ensures the agent slot.
 
 | Field | Meaning |
 |---|---|
@@ -122,7 +126,7 @@ From [xai-org/grok-build](https://github.com/xai-org/grok-build):
 
 acpbot seeds Grok’s mode catalog as `default` / `plan` / `ask` so `/mode`, `/plan`, and `/build` work. Effort stays on `/effort`.
 
-## Modes (permission)
+## Modes (plan / build)
 
 | Command | Intent |
 |---|---|
@@ -136,6 +140,15 @@ Modes come from:
 2. ACP `configOptions` with id/category `"mode"` (OpenCode: `build` / `plan`)
 
 Reasoning effort is **not** a permission mode — use `/effort` when the agent advertises it.
+
+### Plan exit approval (Grok)
+
+When the agent finishes a plan it calls **`exit_plan_mode`**. acpbot always treats that as an operator decision:
+
+1. Telegram shows **Approve / Reject** (even if `permission_mode = "bypass"`)
+2. Approve → continue into build (or your next instruction); Reject → stay in plan
+
+If the agent auto-cancels plan exit without a client permission (misconfigured yolo), the worker **fallback** posts `plan.md` (when found) and tells you to run **`/build`** or keep planning.
 
 ## Effort (reasoning)
 

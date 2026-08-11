@@ -2,6 +2,7 @@
  * Drain an ACP turn event stream and deliver the final reply to Telegram.
  * Owns end-of-turn status, TTS, and working-bubble teardown.
  */
+import { readFile } from "node:fs/promises";
 import type { Logger } from "../env/logger";
 import type {
   AcpTurnEvent,
@@ -104,6 +105,10 @@ export function createTurnRunner(deps: {
     let deathError: string | undefined;
     /** Agent requested voice via MCP speak tool. */
     let speakFromTool: SpeakRequest | undefined;
+    /** Grok plan-mode exit — may cancel without client permission UI. */
+    let sawExitPlanMode = false;
+    let planMdPath: string | undefined;
+    let turnStopReason: string | undefined;
 
     const turnStartedAt = now();
     let activityLabel = "Working…";
@@ -148,6 +153,12 @@ export function createTurnRunner(deps: {
             textParts.push(event.text);
           }
           if (event.type === "tool_call") {
+            const title = String(event.title ?? "");
+            if (isExitPlanModeTitle(title)) {
+              sawExitPlanMode = true;
+            }
+            const planPath = extractPlanMdPath(event);
+            if (planPath) planMdPath = planPath;
             // Outbound Telegram MCP tools call the worker Unix API directly.
             if (isSpeakToolName(event.title)) {
               // MCP speak already delivered; skip end-of-turn TTS.
@@ -168,6 +179,9 @@ export function createTurnRunner(deps: {
                 paintWorking(activityLabel);
               }
             }
+          }
+          if (event.type === "turn_ended") {
+            turnStopReason = event.stopReason;
           }
           // tool_call_update completed: do NOT flip bubble back to "Working…"
           // (that spam-edited the same line for every micro tool). Leave last
@@ -212,6 +226,28 @@ export function createTurnRunner(deps: {
             undefined,
             { html: true },
           );
+          return;
+        }
+
+        // Plan exit often ends as cancelled when the agent auto-approves
+        // exit_plan_mode (GROK_PERMISSION_MODE / --always-approve). Deliver
+        // plan.md so the operator still gets the plan + how to proceed.
+        const cancelled =
+          turnStopReason === "cancelled" ||
+          turnStopReason === "cancel" ||
+          status === "idle";
+        if (sawExitPlanMode && cancelled) {
+          log.info("plan-exit fallback: deliver plan after cancelled turn", {
+            sessionKey: session.sessionKey,
+            planMdPath: planMdPath ?? null,
+            stopReason: turnStopReason ?? null,
+          });
+          await deliverPlanExitFallback(session, planMdPath, sendInTopic, log);
+          // Still send any assistant text from the turn (context before plan)
+          const pre = stripSpeakMarkers(textParts.join("")).trim();
+          if (pre) {
+            await sendInTopic(session, pre, undefined, { html: true });
+          }
           return;
         }
 
@@ -273,4 +309,116 @@ export function createTurnRunner(deps: {
   }
 
   return { drainTurn, maybeSendTts };
+}
+
+function isExitPlanModeTitle(title: string): boolean {
+  const t = title.toLowerCase();
+  return (
+    t.includes("exit_plan") ||
+    t.includes("exit plan") ||
+    t.includes("plan: exit") ||
+    t === "plan exit"
+  );
+}
+
+function extractPlanMdPath(event: {
+  title?: string | undefined;
+  rawInput?: unknown;
+}): string | undefined {
+  const tryPath = (s: string | undefined): string | undefined => {
+    if (!s) return undefined;
+    if (/plan\.md$/i.test(s) || s.includes("/plan.md")) return s;
+    return undefined;
+  };
+  const title = event.title ? String(event.title) : "";
+  // Write `/path/to/plan.md`
+  const m = title.match(/`([^`]+\.md)`/);
+  if (m?.[1] && tryPath(m[1])) return m[1];
+  if (tryPath(title)) return title;
+
+  const ri = event.rawInput;
+  if (ri && typeof ri === "object") {
+    const o = ri as Record<string, unknown>;
+    for (const k of ["file_path", "path", "target_file", "filePath"]) {
+      if (typeof o[k] === "string" && tryPath(o[k] as string)) {
+        return o[k] as string;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function deliverPlanExitFallback(
+  session: PersistedSession,
+  planMdPath: string | undefined,
+  sendInTopic: SendInTopic,
+  log: Logger,
+): Promise<void> {
+  let body = "";
+  if (planMdPath) {
+    try {
+      body = await readFile(planMdPath, "utf8");
+    } catch (err) {
+      log.warn("plan-exit fallback: could not read plan.md", {
+        sessionKey: session.sessionKey,
+        planMdPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const header =
+    `📋 <b>Plan ready</b>\n` +
+    `<i>Plan mode finished — approve with <code>/build</code> to implement, ` +
+    `or stay in plan with <code>/plan</code> / keep chatting.</i>\n`;
+
+  if (!body.trim()) {
+    await sendInTopic(
+      session,
+      header +
+        `\n<code>plan.md</code> not found on disk. Ask the agent to reprint the plan, then <code>/build</code>.`,
+      undefined,
+      { html: true },
+    );
+    return;
+  }
+
+  // Telegram message limit ~4096; leave room for header.
+  const maxBody = 3500;
+  const chunks: string[] = [];
+  let rest = body.trim();
+  while (rest.length > 0) {
+    if (rest.length <= maxBody) {
+      chunks.push(rest);
+      break;
+    }
+    let cut = rest.lastIndexOf("\n", maxBody);
+    if (cut < maxBody / 2) cut = maxBody;
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, "");
+  }
+
+  await sendInTopic(session, header, undefined, { html: true });
+  for (let i = 0; i < chunks.length; i++) {
+    const part = chunks[i]!;
+    const prefix =
+      chunks.length > 1 ? `<b>Plan (${i + 1}/${chunks.length})</b>\n` : "";
+    // Escape minimal HTML in plan body by wrapping as pre
+    const safe = part
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    await sendInTopic(
+      session,
+      `${prefix}<pre>${safe.slice(0, 3800)}</pre>`,
+      undefined,
+      { html: true },
+    );
+  }
+  await sendInTopic(
+    session,
+    `Next: <code>/build</code> to leave plan mode and implement, or keep refining in plan.`,
+    undefined,
+    { html: true },
+  );
 }
