@@ -781,7 +781,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     cwd: string;
     permissionMode?: "ask" | "bypass";
   }): Promise<LiveSession> {
-    const alwaysApprove = input.permissionMode === "bypass";
+    // Do NOT pass Grok --always-approve / yoloMode. Host-side permissionMode
+    // "bypass" already auto-allows tool request_permission. Grok's
+    // --always-approve short-circuits exit_plan_mode (plan approval) and
+    // cancels the turn without ever calling the ACP client — so Telegram
+    // never gets Approve/Reject. See plan-exit force-ask in handlePermission.
+    const alwaysApprove = false;
     const launch = resolveAgentLaunchForSpawn(
       input.agent,
       process.env,
@@ -794,6 +799,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       args: launch.args,
       cwd: input.cwd,
       permissionMode: input.permissionMode ?? "ask",
+      alwaysApprove,
     });
 
     // posix_spawn reports ENOENT on the *binary* when cwd is missing — detect first.
@@ -805,9 +811,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       );
     }
 
-    const childEnv = {
-      ...process.env,
-    };
+    // LaunchAgents may set GROK_PERMISSION_MODE=always-approve on the host;
+    // children inherit it and skip plan-exit client permissions. Strip it.
+    const childEnv = { ...process.env };
+    delete childEnv.GROK_PERMISSION_MODE;
+    delete childEnv.GROK_ALWAYS_APPROVE;
 
     const child = spawn(launch.command, launch.args, {
       cwd: input.cwd,
@@ -1013,16 +1021,12 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     }
 
     if (!resumed) {
-      // Grok: yoloMode in session/new _meta enables bypass for this session.
-      const newMeta: Record<string, unknown> | undefined =
-        input.permissionMode === "bypass"
-          ? { yoloMode: true }
-          : undefined;
+      // Never set yoloMode — host bypass auto-allows tool permissions; yoloMode
+      // makes Grok skip client permission for exit_plan_mode (plan approval).
       session = await connection.agent
         .buildSession({
           cwd: input.cwd,
           mcpServers: mcpList,
-          ...(newMeta ? { _meta: newMeta } : {}),
         })
         .start();
       log.info("session/new ok", {
@@ -1031,7 +1035,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         mcp: mcpList.map((s) => s.name),
         hadPrior: Boolean(prior),
         permissionMode: input.permissionMode ?? "ask",
-        yoloMode: Boolean(newMeta?.yoloMode),
+        yoloMode: false,
       });
     }
 
