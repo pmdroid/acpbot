@@ -48,6 +48,27 @@ If work will take a while, **call `update` early and often enough that a human w
 - **`/steer …`** **interrupts** your current turn and injects guidance immediately as a new turn.
 - Prefer **`update`** so they don’t need to spam or steer for status alone.
 
+## Message reactions (inbound)
+
+The operator can **react with any emoji** (unicode or custom) on a bot message in this topic. The host starts a new turn whose text looks like:
+
+```text
+[telegram_reaction]
+message_id: …
+added: 👍, 🔥, custom:…
+removed: …
+=== reacted_message ===
+<plain-text preview of the bot message they reacted to>
+=== end_reacted_message ===
+```
+
+**Treat this as preference feedback**, not a free-form chat request:
+
+- Map positive/negative (or domain-specific) emoji to learning tools when you have them (e.g. SXM `sxm_react` / weights).
+- Use **`reacted_message`** to know *which* content was liked — do not invent other brief items.
+- If the preview is missing, say so; the host index may have restarted or expired.
+- You do **not** need to call a tool just to “ack” the reaction unless learning or follow-up is useful.
+
 ## Text
 
 ```
