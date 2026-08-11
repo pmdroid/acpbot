@@ -35,6 +35,7 @@ import {
   runSkillsCli,
 } from "./setup/skills-cli";
 import { runMcpProxyMain } from "./mcp/proxy";
+import { isChatCliCommand, runChatCli } from "./chat/cli";
 
 function printHelp(): void {
   console.log(acpbotCliHelp());
@@ -70,6 +71,13 @@ async function main(): Promise<void> {
   // Bundled skills install (global agent dirs)
   if (isSkillsCliCommand(process.argv)) {
     const code = await runSkillsCli(process.argv);
+    process.exitCode = code;
+    return;
+  }
+
+  // Multi-session chat hub (requires host; no Telegram worker)
+  if (isChatCliCommand(process.argv)) {
+    const code = await runChatCli(process.argv);
     process.exitCode = code;
     return;
   }

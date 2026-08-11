@@ -13,6 +13,7 @@ Usage:
 Processes (foreground):
   acpbot host                 ACP host — agents, schedules, OAuth callback
   acpbot worker               Telegram worker (requires host)
+  acpbot chat                 Multi-session terminal hub (requires host)
   acpbot mcp-proxy            Stdio proxy for a remote OAuth MCP (agent child)
 
 Setup & config:

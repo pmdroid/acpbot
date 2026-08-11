@@ -52,8 +52,18 @@ export type EveHostResult = {
   meta?: unknown;
 };
 
+export type HostSlotListItem = {
+  slotKey: string;
+  agentSessionId: string | null;
+  agent: string;
+  cwd: string;
+  busy: boolean;
+};
+
 /** SessionHost plus EVE control plane (orchestration runs on acp-host). */
 export type AcpHostClientApi = SessionHost & {
+  /** Live agent slots on the host (for multi-session CLI hub). */
+  listSlots(): Promise<HostSlotListItem[]>;
   eveRun(input: {
     sessionKey: string;
     repoKey: string;
@@ -582,12 +592,21 @@ export function createAcpHostClient(
     });
   }
 
-  const api: SessionHost = {
-    setHooks(next) {
+  // Built as a plain object then cast — includes SessionHost + listSlots + EVE.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const api: any = {
+    setHooks(next: Parameters<SessionHost["setHooks"]>[0]) {
       hooks = { ...hooks, ...next };
     },
 
-    async ensureSession(input) {
+    async ensureSession(input: {
+      sessionKey: string;
+      agent: string;
+      cwd: string;
+      permissionMode?: "ask" | "bypass";
+      forceRespawn?: boolean;
+      forceNewSession?: boolean;
+    }) {
       await connect();
       const reqId = randomUUID();
       const config: HostAgentConfig = {
@@ -646,7 +665,12 @@ export function createAcpHostClient(
       } satisfies HostSession;
     },
 
-    startTurn(input) {
+    startTurn(input: {
+      sessionKey: string;
+      text: string;
+      attachments?: Array<{ mediaType: string; data: string }>;
+      signal?: AbortSignal;
+    }) {
       const reqId = randomUUID();
       const queue: HostTurnEvent[] = [];
       let wait: ((v: IteratorResult<HostTurnEvent>) => void) | null = null;
@@ -763,7 +787,7 @@ export function createAcpHostClient(
       } satisfies HostTurn;
     },
 
-    async cancel(sessionKey) {
+    async cancel(sessionKey: string) {
       await connect();
       await request({
         type: "cancel",
@@ -772,7 +796,7 @@ export function createAcpHostClient(
       });
     },
 
-    async setMode(sessionKey, modeId) {
+    async setMode(sessionKey: string, modeId: string) {
       await connect();
       const msg = await request({
         type: "set_mode",
@@ -793,7 +817,7 @@ export function createAcpHostClient(
       return st;
     },
 
-    async getModeState(sessionKey) {
+    async getModeState(sessionKey: string) {
       await connect();
       const msg = await request({
         type: "get_mode",
@@ -811,12 +835,12 @@ export function createAcpHostClient(
       return st;
     },
 
-    async getAvailableModes(sessionKey) {
+    async getAvailableModes(sessionKey: string) {
       const st = await api.getModeState(sessionKey);
       return st?.availableModeIds ?? [];
     },
 
-    async getConfigOptions(sessionKey) {
+    async getConfigOptions(sessionKey: string) {
       await connect();
       const msg = await request({
         type: "get_config",
@@ -835,7 +859,7 @@ export function createAcpHostClient(
       return opts;
     },
 
-    async setConfigOption(sessionKey, configId, value) {
+    async setConfigOption(sessionKey: string, configId: string, value: string | boolean) {
       await connect();
       const msg = await request({
         type: "set_config",
@@ -856,7 +880,7 @@ export function createAcpHostClient(
       return opts;
     },
 
-    async disposeSession(sessionKey) {
+    async disposeSession(sessionKey: string) {
       await connect();
       await request({
         type: "kill",
@@ -887,8 +911,28 @@ export function createAcpHostClient(
       sock = null;
     },
 
+    async listSlots() {
+      await connect();
+      const msg = await request({
+        type: "list",
+        reqId: randomUUID(),
+      });
+      if (msg.type !== "list_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return msg.slots.map((s) => ({
+        slotKey: s.slotKey,
+        agentSessionId: s.agentSessionId,
+        agent: s.agent,
+        cwd: s.cwd,
+        busy: s.busy,
+      }));
+    },
+
     // ── EVE (host-side orchestration) ────────────────────────────────────
-    async eveRun(input) {
+    async eveRun(input: any) {
       await connect();
       const msg = await request({
         type: "eve_run",
@@ -916,7 +960,7 @@ export function createAcpHostClient(
         run: msg.run,
       };
     },
-    async eveApprove(input) {
+    async eveApprove(input: any) {
       await connect();
       const msg = await request({
         type: "eve_approve",
@@ -931,7 +975,7 @@ export function createAcpHostClient(
       }
       return { message: msg.message, runId: msg.runId, run: msg.run };
     },
-    async eveStatus(runId) {
+    async eveStatus(runId: string) {
       await connect();
       const msg = await request({
         type: "eve_status",
@@ -950,7 +994,7 @@ export function createAcpHostClient(
         text: msg.text,
       };
     },
-    async eveList(input) {
+    async eveList(input: any) {
       await connect();
       const msg = await request({
         type: "eve_list",
@@ -969,7 +1013,7 @@ export function createAcpHostClient(
         scripts: msg.scripts,
       };
     },
-    async evePause(runId) {
+    async evePause(runId: string) {
       await connect();
       const msg = await request({
         type: "eve_pause",
@@ -983,7 +1027,7 @@ export function createAcpHostClient(
       }
       return { message: msg.message, runId: msg.runId, run: msg.run };
     },
-    async eveResume(input) {
+    async eveResume(input: any) {
       await connect();
       const msg = await request({
         type: "eve_resume",
@@ -998,7 +1042,7 @@ export function createAcpHostClient(
       }
       return { message: msg.message, runId: msg.runId, run: msg.run };
     },
-    async eveKill(runId) {
+    async eveKill(runId: string) {
       await connect();
       const msg = await request({
         type: "eve_kill",
@@ -1012,7 +1056,7 @@ export function createAcpHostClient(
       }
       return { message: msg.message, runId: msg.runId, run: msg.run };
     },
-    async eveWrite(input) {
+    async eveWrite(input: any) {
       await connect();
       const msg = await request({
         type: "eve_write",
@@ -1034,5 +1078,5 @@ export function createAcpHostClient(
       };
     },
   };
-  return api;
+  return api as unknown as AcpHostClientApi;
 }
