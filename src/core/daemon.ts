@@ -1,5 +1,6 @@
 import type {
   Environment,
+  MessageReactionUpdated,
   PermissionDecision,
   PermissionRequest,
   SessionIdentity,
@@ -9,6 +10,11 @@ import type {
 } from "../env/types";
 import { TelegramApiError } from "../env/types";
 import { silentLogger, summarizeUpdate } from "../env/logger";
+import { createOutboundMessageIndex } from "./outbound-messages";
+import {
+  formatTelegramReactionPrompt,
+  reactionSetChanged,
+} from "./telegram-reactions";
 import {
   buildAskQuestionUi,
   createAskUserQuestionBroker,
@@ -475,6 +481,8 @@ export function createDaemon(
     return true;
   }
 
+  const outboundMessages = createOutboundMessageIndex();
+
   const senderOf = (update: TelegramUpdate): number | undefined => {
     if (update.message?.from?.id !== undefined) return update.message.from.id;
     if (update.callback_query?.from?.id !== undefined) {
@@ -483,6 +491,9 @@ export function createDaemon(
     if (update.edited_message?.from?.id !== undefined) {
       return update.edited_message.from.id;
     }
+    if (update.message_reaction?.user?.id !== undefined) {
+      return update.message_reaction.user.id;
+    }
     return undefined;
   };
 
@@ -490,7 +501,8 @@ export function createDaemon(
     const from =
       update.message?.from ??
       update.edited_message?.from ??
-      update.callback_query?.from;
+      update.callback_query?.from ??
+      update.message_reaction?.user;
     if (!from) return false;
     if (from.is_bot === true) return true;
     if (botUserId !== undefined && from.id === botUserId) return true;
@@ -878,6 +890,16 @@ export function createDaemon(
             .replace(/&amp;/g, "&"),
           messageThreadId: session.messageThreadId,
           ...(isLast && replyMarkup !== undefined ? { replyMarkup } : {}),
+        });
+      }
+      // Index every chunk so reactions on multi-part agent replies resolve.
+      if (last.message_id) {
+        outboundMessages.record({
+          chatId: session.chatId,
+          messageId: last.message_id,
+          sessionKey: session.sessionKey,
+          messageThreadId: session.messageThreadId,
+          kind: replyMarkup !== undefined && isLast ? "ui" : "agent",
         });
       }
     }
@@ -5379,6 +5401,73 @@ export function createDaemon(
     }
   }
 
+  /**
+   * Operator reacted to a bot message — inject a synthetic prompt so the agent
+   * (e.g. SXM) can learn. All emoji / custom_emoji tokens are forwarded as-is.
+   */
+  async function handleMessageReaction(
+    reaction: MessageReactionUpdated,
+  ): Promise<void> {
+    if (!reactionSetChanged(reaction)) {
+      log.debug("ignore reaction no-op", {
+        message_id: reaction.message_id,
+        chat: reaction.chat.id,
+      });
+      return;
+    }
+
+    const threadId =
+      reaction.message_thread_id ??
+      outboundMessages.lookup(reaction.chat.id, reaction.message_id)
+        ?.messageThreadId;
+
+    let sessionKey: string | undefined;
+    if (threadId !== undefined) {
+      sessionKey = sessionIndex.byThread[String(threadId)];
+    }
+    if (!sessionKey) {
+      sessionKey = outboundMessages.lookup(
+        reaction.chat.id,
+        reaction.message_id,
+      )?.sessionKey;
+    }
+    if (!sessionKey) {
+      log.debug("ignore reaction: unknown session", {
+        message_id: reaction.message_id,
+        chat: reaction.chat.id,
+        thread: threadId,
+      });
+      return;
+    }
+    const session = sessionIndex.byKey[sessionKey];
+    if (!session) return;
+
+    const agentText = formatTelegramReactionPrompt(reaction);
+    log.info("action: message reaction", {
+      sessionKey,
+      message_id: reaction.message_id,
+      added: reaction.new_reaction?.length,
+      textLen: agentText.length,
+    });
+
+    if (sessionTurnBusy(session.sessionKey)) {
+      const { item, depth, dropped } = enqueueTopicPrompt(session.sessionKey, {
+        text: agentText,
+        attachments: [],
+        kind: "prompt",
+      });
+      log.info("action: queue reaction (turn busy)", {
+        sessionKey: session.sessionKey,
+        depth,
+        dropped,
+        id: item.id,
+      });
+      return;
+    }
+
+    await beginTopicTurn(session, agentText, []);
+  }
+
   async function handleUpdate(update: TelegramUpdate): Promise<void> {
     const summary = summarizeUpdate(update);
     // Own outbound messages (service/topic events) must not re-enter the core —
@@ -5396,11 +5485,13 @@ export function createDaemon(
       const chatId =
         update.message?.chat.id ??
         update.edited_message?.chat.id ??
-        update.callback_query?.message?.chat.id;
+        update.callback_query?.message?.chat.id ??
+        update.message_reaction?.chat.id;
       const chatType =
         update.message?.chat.type ??
         update.edited_message?.chat.type ??
-        update.callback_query?.message?.chat.type;
+        update.callback_query?.message?.chat.type ??
+        update.message_reaction?.chat.type;
       // Only private chats can pair (no group claim races).
       if (
         senderId !== undefined &&
@@ -5410,7 +5501,8 @@ export function createDaemon(
         const from =
           update.message?.from ??
           update.edited_message?.from ??
-          update.callback_query?.from;
+          update.callback_query?.from ??
+          update.message_reaction?.user;
         await issuePairingForUser(senderId, chatId, from);
       }
       return;
@@ -5429,6 +5521,11 @@ export function createDaemon(
         from: update.callback_query.from?.id,
       });
       await handleCallbackQuery(update);
+      return;
+    }
+
+    if (update.message_reaction) {
+      await handleMessageReaction(update.message_reaction);
       return;
     }
 
@@ -5599,6 +5696,13 @@ export function createDaemon(
         updates = await env.telegram.getUpdates({
           offset,
           timeout: pollTimeoutSec,
+          // Explicit list required to receive message_reaction (not in default).
+          allowedUpdates: [
+            "message",
+            "edited_message",
+            "callback_query",
+            "message_reaction",
+          ],
         });
       } catch (err) {
         if (signal?.aborted) break;
