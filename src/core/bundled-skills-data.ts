@@ -6,7 +6,7 @@
  */
 
 export const BUNDLED_SKILLS: Record<string, Record<string, string>> = {
-  eve: {
+  "eve": {
     "SKILL.md": `---
 name: eve
 description: >
@@ -271,7 +271,7 @@ Hard spawn caps from \`[agents.spawn]\` still apply. Leaves free slots after eac
 - Commit secrets into \`.acpbot/eve/*.js\`
 `,
   },
-  linear: {
+  "linear": {
     "SKILL.md": `---
 name: linear
 description: >
@@ -393,7 +393,7 @@ See the **multi-agent** skill for spawn/wait rules. Parent is A2A hub only.
 | \`/linear unbind\` | Clear binding |
 `,
   },
-  multi-agent: {
+  "multi-agent": {
     "SKILL.md": `---
 name: multi-agent
 description: >
@@ -454,7 +454,7 @@ agent_list({})
 \`\`\`
 `,
   },
-  schedules: {
+  "schedules": {
     "SKILL.md": `---
 name: schedules
 description: >
@@ -519,7 +519,7 @@ directive names exist.
 - Assume non-UTC \`timezone\` shifts the clock (firing is UTC for now).
 `,
   },
-  telegram: {
+  "telegram": {
     "SKILL.md": `---
 name: telegram
 description: >
