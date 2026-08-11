@@ -75,7 +75,7 @@ Telegram message_reaction
   <plain preview of bot text>
 ```
 
-All reaction types are forwarded (`emoji`, `custom_emoji`, `paid`, unknown). Preview is in-memory (lost on worker restart; TTL/cap apply). See [Commands](/docs/commands#message-reactions-preference-signal).
+All reaction types are forwarded (`emoji`, `custom_emoji`, `paid`, unknown). The outbound index is **persisted** under `$state_dir/outbound-messages.json` so reactions still resolve after worker restart or when the agent slot is cold (TTL ~7d, cap ~5000). See [Commands](/docs/commands#message-reactions-preference-signal).
 
 ### ACP session host (`src/acp/`)
 

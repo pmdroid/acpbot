@@ -481,7 +481,24 @@ export function createDaemon(
     return true;
   }
 
-  const outboundMessages = createOutboundMessageIndex();
+  /** Survives worker restart so reactions still map message_id → session. */
+  const outboundMessagesPath = join(stateDir, "outbound-messages.json");
+  let outboundSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleOutboundSave = () => {
+    if (outboundSaveTimer) clearTimeout(outboundSaveTimer);
+    outboundSaveTimer = setTimeout(() => {
+      outboundSaveTimer = undefined;
+      void outboundMessages.saveFile(outboundMessagesPath).catch((err) => {
+        log.warn("outbound message index save failed", {
+          path: outboundMessagesPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }, 400);
+  };
+  const outboundMessages = createOutboundMessageIndex({
+    onChange: scheduleOutboundSave,
+  });
 
   const senderOf = (update: TelegramUpdate): number | undefined => {
     if (update.message?.from?.id !== undefined) return update.message.from.id;
@@ -532,6 +549,20 @@ export function createDaemon(
       operatorChatId = env.config.operatorChatId;
     }
     await loadRuntimePermissionDefault();
+    try {
+      const { loaded } = await outboundMessages.loadFile(outboundMessagesPath);
+      if (loaded > 0) {
+        log.info("outbound message index loaded", {
+          path: outboundMessagesPath,
+          entries: loaded,
+        });
+      }
+    } catch (err) {
+      log.warn("outbound message index load failed", {
+        path: outboundMessagesPath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     // Naming mode is never durable — process start/restart always exits it.
     clearPendingNew("hydrate/restart");
     wirePermissionHandler();
@@ -5405,6 +5436,10 @@ export function createDaemon(
   /**
    * Operator reacted to a bot message — inject a synthetic prompt so the agent
    * (e.g. SXM) can learn. All emoji / custom_emoji tokens are forwarded as-is.
+   *
+   * Telegram often omits message_thread_id on message_reaction — routing relies
+   * on the outbound message index (persisted across worker restarts). Cold
+   * agent slots are ensured via beginTopicTurn → ensureSessionWithPerms.
    */
   async function handleMessageReaction(
     reaction: MessageReactionUpdated,
@@ -5431,16 +5466,39 @@ export function createDaemon(
     if (!sessionKey) {
       sessionKey = outbound?.sessionKey;
     }
+    // Last resort: single session in this chat (rare: one topic only).
     if (!sessionKey) {
-      log.debug("ignore reaction: unknown session", {
+      const inChat = Object.values(sessionIndex.byKey).filter(
+        (s) => s.chatId === reaction.chat.id,
+      );
+      if (inChat.length === 1) {
+        sessionKey = inChat[0]!.sessionKey;
+        log.info("reaction session inferred (sole topic in chat)", {
+          sessionKey,
+          message_id: reaction.message_id,
+        });
+      }
+    }
+    if (!sessionKey) {
+      log.warn("ignore reaction: unknown session", {
         message_id: reaction.message_id,
         chat: reaction.chat.id,
         thread: threadId,
+        hasOutbound: Boolean(outbound),
+        indexSize: outboundMessages.size(),
+        hint:
+          "message_id not in outbound index (pre-index message or lost file). React to a newer bot reply.",
       });
       return;
     }
     const session = sessionIndex.byKey[sessionKey];
-    if (!session) return;
+    if (!session) {
+      log.warn("ignore reaction: session key missing from index", {
+        sessionKey,
+        message_id: reaction.message_id,
+      });
+      return;
+    }
 
     const agentText = formatTelegramReactionPrompt(reaction, {
       ...(outbound?.textPreview !== undefined
@@ -5455,7 +5513,18 @@ export function createDaemon(
       added: reaction.new_reaction?.length,
       hasPreview: Boolean(outbound?.textPreview),
       textLen: agentText.length,
+      sessionStatus: session.status,
     });
+
+    // Closed/soft-closed children: restore before queuing/turning.
+    try {
+      await maybeRestoreClosedChild(session.sessionKey);
+    } catch (err) {
+      log.warn("reaction: restore closed child failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     if (sessionTurnBusy(session.sessionKey)) {
       const { item, depth, dropped } = enqueueTopicPrompt(session.sessionKey, {
@@ -5472,7 +5541,26 @@ export function createDaemon(
       return;
     }
 
-    await beginTopicTurn(session, agentText, []);
+    try {
+      await beginTopicTurn(session, agentText, []);
+    } catch (err) {
+      log.error("reaction: failed to start agent turn", {
+        sessionKey: session.sessionKey,
+        message_id: reaction.message_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Surface so operator knows the reaction was not swallowed.
+      try {
+        await sendInTopic(
+          session,
+          `⚠️ Could not start agent for your reaction: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   async function handleUpdate(update: TelegramUpdate): Promise<void> {

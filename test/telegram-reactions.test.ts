@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createOutboundMessageIndex } from "../src/core/outbound-messages";
 import {
   formatTelegramReactionPrompt,
@@ -130,5 +133,31 @@ describe("outbound message index", () => {
     expect(idx.size()).toBe(3);
     expect(idx.lookup(1, 1)).toBeUndefined();
     expect(idx.lookup(1, 5)?.sessionKey).toBe("s/5");
+  });
+
+  test("persists and reloads across index instances", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "outbound-idx-"));
+    const path = join(dir, "outbound-messages.json");
+    try {
+      const a = createOutboundMessageIndex({ max: 100, ttlMs: 60_000 });
+      a.record({
+        chatId: 9,
+        messageId: 42,
+        sessionKey: "sxm/main",
+        messageThreadId: 7,
+        text: "Brief item Alice",
+      });
+      await a.saveFile(path);
+
+      const b = createOutboundMessageIndex({ max: 100, ttlMs: 60_000 });
+      const { loaded } = await b.loadFile(path);
+      expect(loaded).toBe(1);
+      const hit = b.lookup(9, 42);
+      expect(hit?.sessionKey).toBe("sxm/main");
+      expect(hit?.messageThreadId).toBe(7);
+      expect(hit?.textPreview).toContain("Alice");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

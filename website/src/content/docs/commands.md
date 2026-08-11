@@ -68,7 +68,7 @@ React to a **bot message** in a topic with **any** emoji (unicode or custom). Th
 1. Resolves the session (topic thread and/or outbound `message_id` index)
 2. Starts a synthetic agent turn with `[telegram_reaction]`, including **added/removed** tokens and a **plain-text preview** of the message you reacted to (when still in the in-memory index)
 
-No thumbs-only filter — all emojis forward. Mid-turn reactions are **queued** like free text. Use this for learning (e.g. liked a brief item); the agent maps valence, not the host.
+No thumbs-only filter — all emojis forward. Mid-turn reactions are **queued** like free text. The agent process is **started on demand** if idle/cold. Routing uses a durable message-id map (not only “agent currently running”), so reactions still work after restart when the bot had sent that message under this worker. Use this for learning (e.g. liked a brief item); the agent maps valence, not the host.
 
 ### Live “working” bubble
 
