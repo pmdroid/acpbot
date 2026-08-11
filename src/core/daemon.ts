@@ -892,7 +892,7 @@ export function createDaemon(
           ...(isLast && replyMarkup !== undefined ? { replyMarkup } : {}),
         });
       }
-      // Index every chunk so reactions on multi-part agent replies resolve.
+      // Index every chunk (incl. text) so reactions resolve + agent sees content.
       if (last.message_id) {
         outboundMessages.record({
           chatId: session.chatId,
@@ -900,6 +900,7 @@ export function createDaemon(
           sessionKey: session.sessionKey,
           messageThreadId: session.messageThreadId,
           kind: replyMarkup !== undefined && isLast ? "ui" : "agent",
+          text: chunk,
         });
       }
     }
@@ -5416,20 +5417,19 @@ export function createDaemon(
       return;
     }
 
+    const outbound = outboundMessages.lookup(
+      reaction.chat.id,
+      reaction.message_id,
+    );
     const threadId =
-      reaction.message_thread_id ??
-      outboundMessages.lookup(reaction.chat.id, reaction.message_id)
-        ?.messageThreadId;
+      reaction.message_thread_id ?? outbound?.messageThreadId;
 
     let sessionKey: string | undefined;
     if (threadId !== undefined) {
       sessionKey = sessionIndex.byThread[String(threadId)];
     }
     if (!sessionKey) {
-      sessionKey = outboundMessages.lookup(
-        reaction.chat.id,
-        reaction.message_id,
-      )?.sessionKey;
+      sessionKey = outbound?.sessionKey;
     }
     if (!sessionKey) {
       log.debug("ignore reaction: unknown session", {
@@ -5442,11 +5442,18 @@ export function createDaemon(
     const session = sessionIndex.byKey[sessionKey];
     if (!session) return;
 
-    const agentText = formatTelegramReactionPrompt(reaction);
+    const agentText = formatTelegramReactionPrompt(reaction, {
+      ...(outbound?.textPreview !== undefined
+        ? { textPreview: outbound.textPreview }
+        : {}),
+      ...(outbound?.textTruncated ? { textTruncated: true } : {}),
+      ...(outbound?.kind ? { kind: outbound.kind } : {}),
+    });
     log.info("action: message reaction", {
       sessionKey,
       message_id: reaction.message_id,
       added: reaction.new_reaction?.length,
+      hasPreview: Boolean(outbound?.textPreview),
       textLen: agentText.length,
     });
 
