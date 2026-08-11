@@ -135,7 +135,7 @@ src/env/      ports + fakes + real telegram / agents / speech / store
 |---|---|
 | `~/.config/acpbot/config.toml` | Primary process config (TOML) |
 | `store_path` (default `~/.local/share/acpbot/store.json`) | Durable acpbot JSON (sessions registry, offsets, …) |
-| `$state_dir/sessions/` | ACP session records (for `session/load`) |
+| `$state_dir/sessions/` | ACP session records (for `session/load`) — atomic write + fsync; corrupt files are quarantined so ensure can recover |
 | `$state_dir/worker-api.sock` | Outbound worker HTTP API |
 | `$state_dir/acp-host.sock` | Required host control socket |
 | `$state_dir/mcp-oauth/` | Pending PKCE + tokens (mode `0600`) |
