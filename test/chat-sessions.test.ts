@@ -120,6 +120,28 @@ describe("mergeSessionLists + format", () => {
     expect(tree).toContain("*2. b/x");
     expect(tree).toContain(" busy");
   });
+
+  test("formatSessionTree indents spawn children", () => {
+    const tree = formatSessionTree(
+      [{ sessionKey: "demo/main", agent: "g", cwd: "/" }],
+      "demo/main--impl",
+      {
+        childrenByParent: {
+          "demo/main": [
+            {
+              sessionKey: "demo/main--impl",
+              agent: "g",
+              status: "idle",
+              role: "impl",
+            },
+          ],
+        },
+      },
+    );
+    expect(tree).toContain("demo/main");
+    expect(tree).toMatch(/  demo\/main--impl/);
+    expect(tree).toContain("*");
+  });
 });
 
 describe("focus persistence", () => {

@@ -66,6 +66,24 @@ export type AcpHostClientApi = SessionHost & {
   listSlots(): Promise<HostSlotListItem[]>;
   /** Kill a live slot (dispose agent process). */
   killSlot(sessionKey: string): Promise<void>;
+  /** Multi-agent spawn (host-only; worktree + registry). */
+  spawnChild(input: {
+    parentSlotKey: string;
+    name: string;
+    agent: string;
+    role?: string;
+    prompt?: string;
+    permissionMode?: "ask" | "bypass";
+  }): Promise<import("../core/agent-spawn-registry").SpawnRecord>;
+  listSpawnChildren(
+    parentSlotKey: string,
+  ): Promise<import("../core/agent-spawn-registry").SpawnRecord[]>;
+  killSpawnChild(input: {
+    parentSlotKey: string;
+    childSlotKey: string;
+    dispose?: boolean;
+    removeWorktree?: boolean;
+  }): Promise<import("../core/agent-spawn-registry").SpawnRecord | undefined>;
   eveRun(input: {
     sessionKey: string;
     repoKey: string;
@@ -949,6 +967,66 @@ export function createAcpHostClient(
       sessionMeta.delete(sessionKey);
       modeCache.delete(sessionKey);
       configCache.delete(sessionKey);
+    },
+
+    async spawnChild(input) {
+      await connect();
+      const msg = await request({
+        type: "spawn",
+        reqId: randomUUID(),
+        parentSlotKey: input.parentSlotKey,
+        name: input.name,
+        agent: input.agent,
+        ...(input.role ? { role: input.role } : {}),
+        ...(input.prompt ? { prompt: input.prompt } : {}),
+        ...(input.permissionMode
+          ? { permissionMode: input.permissionMode }
+          : {}),
+      });
+      if (msg.type !== "spawn_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return msg.record;
+    },
+
+    async listSpawnChildren(parentSlotKey: string) {
+      await connect();
+      const msg = await request({
+        type: "spawn_list",
+        reqId: randomUUID(),
+        parentSlotKey,
+      });
+      if (msg.type !== "spawn_list_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return msg.children;
+    },
+
+    async killSpawnChild(input) {
+      await connect();
+      const msg = await request({
+        type: "spawn_kill",
+        reqId: randomUUID(),
+        parentSlotKey: input.parentSlotKey,
+        childSlotKey: input.childSlotKey,
+        ...(input.dispose !== undefined ? { dispose: input.dispose } : {}),
+        ...(input.removeWorktree !== undefined
+          ? { removeWorktree: input.removeWorktree }
+          : {}),
+      });
+      if (msg.type !== "spawn_kill_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      sessionMeta.delete(input.childSlotKey);
+      modeCache.delete(input.childSlotKey);
+      configCache.delete(input.childSlotKey);
+      return msg.record;
     },
 
     // ── EVE (host-side orchestration) ────────────────────────────────────

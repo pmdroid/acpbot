@@ -13,6 +13,8 @@ export type ChatSessionRef = {
   agentSessionId?: string | null;
   /** Optional leaf slug for display (after --). */
   slug?: string;
+  role?: string;
+  spawnStatus?: string;
 };
 
 export type FocusState = {
@@ -188,16 +190,56 @@ export function mergeSessionLists(
 export function formatSessionTree(
   sessions: ChatSessionRef[],
   focusKey: string | null,
+  opts?: {
+    /** Spawn registry children keyed by parent sessionKey. */
+    childrenByParent?: Record<
+      string,
+      Array<{ sessionKey: string; agent?: string; status?: string; role?: string }>
+    >;
+  },
 ): string {
   if (sessions.length === 0) return "(no sessions)";
   const lines: string[] = [];
-  sessions.forEach((s, i) => {
-    const n = i + 1;
+  const listed = new Set<string>();
+  let n = 0;
+  const emit = (
+    s: ChatSessionRef,
+    indent: string,
+  ) => {
+    n += 1;
+    listed.add(s.sessionKey);
     const mark = s.sessionKey === focusKey ? "*" : " ";
     const busy = s.busy ? " busy" : "";
     const agent = s.agent ? ` [${s.agent}]` : "";
-    lines.push(`${mark}${n}. ${s.sessionKey}${agent}${busy}`);
-  });
+    const role = s.role ? ` (${s.role})` : "";
+    const status = s.spawnStatus ? ` {${s.spawnStatus}}` : "";
+    lines.push(
+      `${mark}${n}. ${indent}${s.sessionKey}${agent}${role}${status}${busy}`,
+    );
+    const kids = opts?.childrenByParent?.[s.sessionKey] ?? [];
+    for (const k of kids) {
+      if (listed.has(k.sessionKey)) continue;
+      emit(
+        {
+          sessionKey: k.sessionKey,
+          agent: k.agent ?? "",
+          cwd: "",
+          slug: childSlugOf(k.sessionKey),
+          ...(k.role ? { role: k.role } : {}),
+          ...(k.status ? { spawnStatus: k.status } : {}),
+        },
+        `${indent}  `,
+      );
+    }
+  };
+
+  // Roots first (no -- in key), then orphans
+  const roots = sessions.filter((s) => !s.sessionKey.includes("--"));
+  const rest = sessions.filter((s) => s.sessionKey.includes("--"));
+  for (const s of roots) emit(s, "");
+  for (const s of rest) {
+    if (!listed.has(s.sessionKey)) emit(s, "");
+  }
   return lines.join("\n");
 }
 

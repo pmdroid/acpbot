@@ -98,6 +98,31 @@ export type WorkerToHost =
     }
   | { type: "ping"; reqId: string }
   | { type: "list"; reqId: string }
+  /** Multi-agent spawn (host-only; no Telegram worker). */
+  | {
+      type: "spawn";
+      reqId: string;
+      parentSlotKey: string;
+      name: string;
+      agent: string;
+      role?: string;
+      prompt?: string;
+      /** Child tool policy (default: host config / bypass for unattended). */
+      permissionMode?: "ask" | "bypass";
+    }
+  | {
+      type: "spawn_list";
+      reqId: string;
+      parentSlotKey: string;
+    }
+  | {
+      type: "spawn_kill";
+      reqId: string;
+      parentSlotKey: string;
+      childSlotKey: string;
+      dispose?: boolean;
+      removeWorktree?: boolean;
+    }
   /** EVE: create/start a directive (orchestration runs on host). */
   | {
       type: "eve_run";
@@ -248,6 +273,21 @@ export type HostToWorker =
         cwd: string;
         busy: boolean;
       }>;
+    }
+  | {
+      type: "spawn_ok";
+      reqId: string;
+      record: import("../core/agent-spawn-registry").SpawnRecord;
+    }
+  | {
+      type: "spawn_list_ok";
+      reqId: string;
+      children: import("../core/agent-spawn-registry").SpawnRecord[];
+    }
+  | {
+      type: "spawn_kill_ok";
+      reqId: string;
+      record?: import("../core/agent-spawn-registry").SpawnRecord;
     }
   | { type: "err"; reqId: string; error: string }
   /** EVE command reply (run payload / text). */

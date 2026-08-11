@@ -32,6 +32,11 @@ import {
   markEveAbort,
 } from "../eve/host-runner";
 import { isPlanExitPermission } from "../acp/permission-map";
+import {
+  hostAgentKill,
+  hostAgentList,
+  hostAgentSpawn,
+} from "./host-spawn";
 
 
 type QueuedHostPrompt = {
@@ -894,6 +899,106 @@ export async function startAcpHostServer(
     })();
   }
 
+  function hostSpawnEnv() {
+    return {
+      stateDir,
+      repos,
+      defaultAgent: defaultAgent,
+      ...(baseConfig.agentSpawn
+        ? { agentSpawnConfig: baseConfig.agentSpawn }
+        : {}),
+      defaultPermissionMode: (baseConfig.permissionMode ?? "ask") as
+        | "ask"
+        | "bypass",
+      ensureSlot: async (input: {
+        slotKey: string;
+        agent: string;
+        cwd: string;
+        permissionMode?: "ask" | "bypass";
+      }) => {
+        const slot = await ensureSlotForSchedule({
+          slotKey: input.slotKey,
+          agent: input.agent,
+          cwd: input.cwd,
+          ...(input.permissionMode
+            ? { permissionMode: input.permissionMode }
+            : {}),
+        });
+        return {
+          host: slot.host,
+          agentSessionId: slot.agentSessionId,
+          permissionMode: slot.permissionMode,
+          busy: slot.busy,
+        };
+      },
+      killSlot: async (slotKey: string) => {
+        const slot = slots.get(slotKey);
+        if (!slot) return;
+        try {
+          await slot.host.dispose();
+        } catch {
+          /* */
+        }
+        slots.delete(slotKey);
+      },
+    };
+  }
+
+  async function handleSpawnMsg(
+    sock: HostConn,
+    msg: Extract<
+      WorkerToHost,
+      { type: "spawn" | "spawn_list" | "spawn_kill" }
+    >,
+  ): Promise<void> {
+    try {
+      if (msg.type === "spawn") {
+        const record = await hostAgentSpawn(hostSpawnEnv(), {
+          parentSlotKey: msg.parentSlotKey,
+          name: msg.name,
+          agent: msg.agent,
+          ...(msg.role ? { role: msg.role } : {}),
+          ...(msg.prompt ? { prompt: msg.prompt } : {}),
+          ...(msg.permissionMode
+            ? { permissionMode: msg.permissionMode }
+            : { permissionMode: "bypass" }),
+        });
+        send(sock, { type: "spawn_ok", reqId: msg.reqId, record });
+        return;
+      }
+      if (msg.type === "spawn_list") {
+        const children = await hostAgentList(stateDir, msg.parentSlotKey);
+        send(sock, {
+          type: "spawn_list_ok",
+          reqId: msg.reqId,
+          children,
+        });
+        return;
+      }
+      if (msg.type === "spawn_kill") {
+        const record = await hostAgentKill(hostSpawnEnv(), {
+          callerSlotKey: msg.parentSlotKey,
+          childSlotKey: msg.childSlotKey,
+          ...(msg.dispose !== undefined ? { dispose: msg.dispose } : {}),
+          ...(msg.removeWorktree !== undefined
+            ? { removeWorktree: msg.removeWorktree }
+            : {}),
+        });
+        send(sock, {
+          type: "spawn_kill_ok",
+          reqId: msg.reqId,
+          ...(record ? { record } : {}),
+        });
+      }
+    } catch (err) {
+      send(sock, {
+        type: "err",
+        reqId: msg.reqId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   async function handleEveMsg(
     sock: HostConn,
     msg: WorkerToHost,
@@ -1128,6 +1233,11 @@ export async function startAcpHostServer(
             busy: s.busy,
           })),
         });
+        return;
+      case "spawn":
+      case "spawn_list":
+      case "spawn_kill":
+        await handleSpawnMsg(sock, msg);
         return;
       case "ensure":
         await ensureSlot(sock, msg);

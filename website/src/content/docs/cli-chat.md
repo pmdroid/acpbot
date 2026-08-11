@@ -49,7 +49,11 @@ acpbot chat --bypass -m "…"      # auto-allow tools (no TTY prompts)
 | `/status` | Focus + defaults |
 | `/cancel` | Cancel in-flight turn |
 | `/fresh` | New ACP conversation (history cleared; key kept) |
+| `/spawn <slug> [prompt…]` | Child worktree under focus (`parent--slug`); host-only |
+| `/kill [key]` | Kill slot / spawn child (registry + optional process) |
 | `/exit` | Quit |
+
+`/sessions` indents spawn children under their parent when the host spawn registry knows them.
 
 ### Selectors
 
@@ -73,7 +77,7 @@ Non-TTY + ask fails closed (reject) so unattended scripts do not hang.
 - Shared turn helper: `src/chat/turn.ts` (`streamTurn` / `promptText`) — also the base for the OpenAI gateway.
 - Session helpers: `src/chat/sessions.ts`
 - Host discovery: `list` NDJSON → client `listSlots()`
-- Child worktrees / multi-agent from CLI: later milestones (`/spawn`)
+- Multi-agent: `/spawn` uses the **host** spawn API (worktree + `agent-spawns.json`) — **worker not required**
 
 ## Related
 

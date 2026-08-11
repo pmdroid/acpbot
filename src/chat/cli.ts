@@ -50,7 +50,8 @@ REPL commands:
   /status             Focus + session summary
   /cancel             Cancel in-flight turn on focus
   /fresh              New ACP conversation on focus (history cleared)
-  /kill [key]         Kill host slot (default: focus)
+  /spawn <slug> [prompt…]   Child worktree under focus (host-only)
+  /kill [key]         Kill host slot / spawn child (default: focus)
   /exit | /quit       Leave REPL
 
 Flags:
@@ -377,7 +378,47 @@ async function runRepl(input: {
 
     if (raw === "/sessions" || raw === "/ls") {
       const sessions = await listAll(host, store);
-      console.log(formatSessionTree(sessions, focus.focusKey));
+      const childrenByParent: Record<
+        string,
+        Array<{ sessionKey: string; agent?: string; status?: string; role?: string }>
+      > = {};
+      if (focus.focusKey) {
+        try {
+          const kids = await host.listSpawnChildren(focus.focusKey);
+          for (const k of kids) {
+            const p = k.parentSessionKey;
+            (childrenByParent[p] ??= []).push({
+              sessionKey: k.childSessionKey,
+              agent: k.agent,
+              status: k.status,
+              ...(k.role ? { role: k.role } : {}),
+            });
+          }
+        } catch {
+          /* */
+        }
+      }
+      // Also list children for every root in the list
+      for (const s of sessions) {
+        if (s.sessionKey.includes("--")) continue;
+        if (childrenByParent[s.sessionKey]) continue;
+        try {
+          const kids = await host.listSpawnChildren(s.sessionKey);
+          for (const k of kids) {
+            (childrenByParent[k.parentSessionKey] ??= []).push({
+              sessionKey: k.childSessionKey,
+              agent: k.agent,
+              status: k.status,
+              ...(k.role ? { role: k.role } : {}),
+            });
+          }
+        } catch {
+          /* */
+        }
+      }
+      console.log(
+        formatSessionTree(sessions, focus.focusKey, { childrenByParent }),
+      );
       prompt();
       return;
     }
@@ -484,6 +525,66 @@ async function runRepl(input: {
       return;
     }
 
+    if (raw.startsWith("/spawn")) {
+      if (!focus.focusKey) {
+        console.error("no focus — /use or /new first");
+        prompt();
+        return;
+      }
+      // /spawn <slug> [--agent id] [prompt…]
+      const body = raw.slice(6).trim();
+      if (!body) {
+        console.error("usage: /spawn <slug> [--agent id] [kickoff prompt]");
+        prompt();
+        return;
+      }
+      const tokens = body.split(/\s+/);
+      let agent = defaultAgent;
+      const nameParts: string[] = [];
+      const promptParts: string[] = [];
+      let phase: "name" | "prompt" = "name";
+      for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i]!;
+        if (t === "--agent" && tokens[i + 1]) {
+          agent = tokens[++i]!;
+          continue;
+        }
+        if (phase === "name" && nameParts.length === 0) {
+          nameParts.push(t);
+          phase = "prompt";
+          continue;
+        }
+        promptParts.push(t);
+      }
+      const slug = nameParts[0];
+      if (!slug) {
+        console.error("usage: /spawn <slug> [--agent id] [kickoff prompt]");
+        prompt();
+        return;
+      }
+      try {
+        const rec = await host.spawnChild({
+          parentSlotKey: focus.focusKey,
+          name: slug,
+          agent,
+          permissionMode: "bypass",
+          ...(promptParts.length
+            ? { prompt: promptParts.join(" ") }
+            : {}),
+        });
+        console.log(
+          `spawned ${rec.childSessionKey} [${rec.agent}] status=${rec.status}`,
+        );
+        console.log(`  worktree: ${rec.worktreePath}`);
+        console.log(`  branch:   ${rec.branch}`);
+        console.log(`  /use ${slug}  to focus`);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : e);
+      }
+      prompt();
+      return;
+    }
+
     if (raw.startsWith("/kill")) {
       const token = raw.slice(5).trim();
       try {
@@ -499,7 +600,22 @@ async function runRepl(input: {
           sessions,
           defaultRepo ? { defaultRepo } : undefined,
         );
-        await host.killSlot(ref.sessionKey);
+        // Spawn-registry kill when key is a child (…--slug)
+        const dd = ref.sessionKey.lastIndexOf("--");
+        if (dd > 0) {
+          const parentFromChild = ref.sessionKey.slice(0, dd);
+          try {
+            await host.killSpawnChild({
+              parentSlotKey: parentFromChild,
+              childSlotKey: ref.sessionKey,
+              dispose: true,
+            });
+          } catch {
+            await host.killSlot(ref.sessionKey);
+          }
+        } else {
+          await host.killSlot(ref.sessionKey);
+        }
         if (focus.focusKey === ref.sessionKey) {
           focus = await saveFocus(stateDir, null);
         }
