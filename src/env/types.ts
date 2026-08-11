@@ -138,11 +138,37 @@ export type CallbackQuery = {
   chat_instance?: string;
 };
 
+/**
+ * Bot API ReactionType — emoji | custom_emoji | paid.
+ * We accept any `type` string so new variants still forward.
+ */
+export type ReactionType = {
+  type: string;
+  /** Unicode emoji when type === "emoji" */
+  emoji?: string;
+  /** Custom emoji id when type === "custom_emoji" */
+  custom_emoji_id?: string;
+};
+
+/** Bot API MessageReactionUpdated (message_reaction updates). */
+export type MessageReactionUpdated = {
+  chat: TelegramChat;
+  message_id: number;
+  user?: TelegramUser;
+  actor_chat?: TelegramChat;
+  date: number;
+  old_reaction: ReactionType[];
+  new_reaction: ReactionType[];
+  /** Present for topic/forum messages when Telegram includes it. */
+  message_thread_id?: number;
+};
+
 export type TelegramUpdate = {
   update_id: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
   callback_query?: CallbackQuery;
+  message_reaction?: MessageReactionUpdated;
 };
 
 export type BotMe = {

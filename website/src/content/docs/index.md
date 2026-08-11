@@ -32,7 +32,7 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 | [Multi-agent](/docs/multi-agent) | Spawn child agents via MCP; worktrees + A2A |
 | [EVE](/docs/eve) | Agent-authored directive graphs; host orchestration; leaf schema handoff |
 | [Multi-host](/docs/multi-host) | Run acp-host on other machines; route repos over WSS |
-| [Commands](/docs/commands) | Lobby/topic slash surface; plan exit approve |
+| [Commands](/docs/commands) | Plan exit approve, **message reactions** → agent, queue/steer |
 | [Agents](/docs/agents) | Permissions vs plan mode; plan-exit always asks |
 
 ## Source

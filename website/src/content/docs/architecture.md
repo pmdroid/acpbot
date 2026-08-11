@@ -48,11 +48,34 @@ section: reference
 
 ### Worker (`src/main.ts` → `src/core/daemon.ts`)
 
-- Long-polls `getUpdates`
+- Long-polls `getUpdates` with an explicit `allowed_updates` list:
+  `message`, `edited_message`, `callback_query`, **`message_reaction`**
+  (reactions are **not** in Telegram’s default set — they must be listed)
 - Maps chat + `message_thread_id` → session
 - Slash commands never forward to the agent
 - Buffers agent text during a turn; flushes at end (Telegram chunk limits)
+- Indexes outbound bot `message_id` → session + **text preview** so reactions can be routed and the agent sees *what* was reacted to
 - Serves **worker API** on `$state_dir/worker-api.sock`
+
+### Operator message reactions
+
+When the operator adds/removes a reaction on a bot message in a session topic:
+
+```text
+Telegram message_reaction
+        │
+        ▼
+  worker: resolve session (thread and/or outbound index)
+        │
+        ▼
+  synthetic prompt → agent turn (or queue if busy)
+  [telegram_reaction]
+  added / removed / new / old
+  === reacted_message ===
+  <plain preview of bot text>
+```
+
+All reaction types are forwarded (`emoji`, `custom_emoji`, `paid`, unknown). Preview is in-memory (lost on worker restart; TTL/cap apply). See [Commands](/docs/commands#message-reactions-preference-signal).
 
 ### ACP session host (`src/acp/`)
 

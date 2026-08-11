@@ -128,6 +128,14 @@ export function summarizeUpdate(update: {
     from?: { id?: number };
     message?: { chat?: { id?: number }; message_thread_id?: number };
   };
+  message_reaction?: {
+    message_id?: number;
+    user?: { id?: number };
+    chat?: { id?: number };
+    message_thread_id?: number;
+    new_reaction?: unknown[];
+    old_reaction?: unknown[];
+  };
 }): LogMeta {
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -138,6 +146,19 @@ export function summarizeUpdate(update: {
       chat: cq.message?.chat?.id,
       thread: cq.message?.message_thread_id,
       data: cq.data,
+    };
+  }
+  if (update.message_reaction) {
+    const r = update.message_reaction;
+    return {
+      kind: "message_reaction",
+      update_id: update.update_id,
+      from: r.user?.id,
+      chat: r.chat?.id,
+      thread: r.message_thread_id,
+      message_id: r.message_id,
+      new: r.new_reaction?.length ?? 0,
+      old: r.old_reaction?.length ?? 0,
     };
   }
   const msg = update.message ?? update.edited_message;

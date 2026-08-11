@@ -61,6 +61,14 @@ To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.tx
 
 After **`/plan`**, when the agent exits plan mode you get a Telegram **Approve / Reject** (plan exit is always forced to ask). **Approve** or **`/build`** to implement; stay in plan and keep chatting if you want changes first.
 
+### Message reactions (preference signal)
+
+React to a **bot message** in a topic with **any** emoji (unicode or custom). The worker:
+
+1. Resolves the session (topic thread and/or outbound `message_id` index)
+2. Starts a synthetic agent turn with `[telegram_reaction]`, including **added/removed** tokens and a **plain-text preview** of the message you reacted to (when still in the in-memory index)
+
+No thumbs-only filter — all emojis forward. Mid-turn reactions are **queued** like free text. Use this for learning (e.g. liked a brief item); the agent maps valence, not the host.
 
 ### Live “working” bubble
 
