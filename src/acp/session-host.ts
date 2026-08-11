@@ -18,7 +18,10 @@ import type {
 import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 import { resolveAgentLaunchForSpawn } from "./agent-launch";
-import { decisionToPermissionResponse } from "./permission-map";
+import {
+  decisionToPermissionResponse,
+  isPlanExitPermission,
+} from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { AcpbotConfig } from "../env/types";
 import {
@@ -419,7 +422,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     const work = (async () => {
       const liveEntry = live.get(input.sessionKey);
-      if (liveEntry?.permissionMode === "bypass") {
+      // Plan-exit must always reach the operator even when tools are bypassed.
+      if (
+        liveEntry?.permissionMode === "bypass" &&
+        !isPlanExitPermission(input.raw)
+      ) {
         return { outcome: "allow_always" as const };
       }
       const decision = await hooks.onPermissionRequest!(
@@ -529,7 +536,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const sessionKey = resolveKey(params.sessionId);
     const toolCallId = params.toolCall?.toolCallId ?? "unknown";
     const entry = live.get(sessionKey);
-    if (entry?.permissionMode === "bypass") {
+    const planExit = isPlanExitPermission(params);
+    // Auto-bypass tools, but never auto-leave plan mode without a human click.
+    if (entry?.permissionMode === "bypass" && !planExit) {
       return decisionToPermissionResponse(params.options as never, {
         outcome: "allow_always",
       }) as acp.RequestPermissionResponse;
@@ -547,7 +556,18 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           : toolCallId;
       const kind =
         typeof params.toolCall?.kind === "string" ? params.toolCall.kind : "";
-      const fp = permissionFingerprint(sessionKey, kind, title);
+      // Do not coalesce plan-exit with other grants — unique fingerprint.
+      const fp = planExit
+        ? `plan-exit:${sessionKey}:${toolCallId}`
+        : permissionFingerprint(sessionKey, kind, title);
+      if (planExit) {
+        log.info("plan-exit permission forced to operator", {
+          sessionKey,
+          toolCallId,
+          title: title.slice(0, 80),
+          sessionBypass: entry?.permissionMode === "bypass",
+        });
+      }
       const decision = await askSharedPermission({
         sessionKey,
         fingerprint: fp,

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { decisionToPermissionResponse } from "../src/acp/permission-map";
+import {
+  decisionToPermissionResponse,
+  isPlanExitPermission,
+} from "../src/acp/permission-map";
 
 describe("decisionToPermissionResponse", () => {
   const options = [
@@ -23,5 +26,52 @@ describe("decisionToPermissionResponse", () => {
     expect(
       decisionToPermissionResponse(options, { outcome: "reject_once" }),
     ).toEqual({ outcome: { outcome: "selected", optionId: "r1" } });
+  });
+
+  test("falls back to Approve name when kinds missing (plan exit)", () => {
+    const planOpts = [
+      { optionId: "approve", name: "Approve plan" },
+      { optionId: "reject", name: "Keep planning" },
+    ];
+    expect(
+      decisionToPermissionResponse(planOpts, { outcome: "allow_once" }),
+    ).toEqual({ outcome: { outcome: "selected", optionId: "approve" } });
+    expect(
+      decisionToPermissionResponse(planOpts, { outcome: "allow_always" }),
+    ).toEqual({ outcome: { outcome: "selected", optionId: "approve" } });
+  });
+});
+
+describe("isPlanExitPermission", () => {
+  test("detects exit_plan_mode title", () => {
+    expect(
+      isPlanExitPermission({
+        toolCall: { title: "exit_plan_mode", kind: "other" },
+      }),
+    ).toBe(true);
+  });
+
+  test("detects Plan: Exit title", () => {
+    expect(
+      isPlanExitPermission({
+        toolCall: { title: "Plan: Exit", rawInput: { variant: "ExitPlanMode" } },
+      }),
+    ).toBe(true);
+  });
+
+  test("detects ExitPlanMode variant", () => {
+    expect(
+      isPlanExitPermission({
+        toolCall: { title: "other", rawInput: { variant: "ExitPlanMode" } },
+      }),
+    ).toBe(true);
+  });
+
+  test("ordinary tool is not plan exit", () => {
+    expect(
+      isPlanExitPermission({
+        toolCall: { title: "run_terminal_command", kind: "execute" },
+      }),
+    ).toBe(false);
   });
 });

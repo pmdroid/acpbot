@@ -50,6 +50,7 @@ import {
   createPermissionBroker,
   type PermissionBroker,
 } from "./permissions";
+import { isPlanExitPermission } from "../acp/permission-map";
 import {
   emptySessionIndex,
   loadOperatorChatId,
@@ -938,12 +939,21 @@ export function createDaemon(
       return { outcome: "reject_once" };
     }
 
-    if (effectivePermissionMode(session) === "bypass") {
+    const planExit = isPlanExitPermission(req.raw);
+    // Tools may bypass; plan-exit always needs a Telegram approve/reject.
+    if (effectivePermissionMode(session) === "bypass" && !planExit) {
       log.info("permission auto-approved (bypass)", {
         sessionKey,
         toolCallId: req.toolCallId,
       });
       return { outcome: "allow_always" };
+    }
+    if (planExit) {
+      log.info("plan-exit permission UI (forced ask)", {
+        sessionKey,
+        toolCallId: req.toolCallId,
+        sessionBypass: effectivePermissionMode(session) === "bypass",
+      });
     }
 
     const surface = resolveOperatorSurface(session);

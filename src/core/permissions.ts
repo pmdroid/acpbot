@@ -1,4 +1,5 @@
 import type { PermissionDecision, PermissionRequest } from "../env/types";
+import { isPlanExitPermission } from "../acp/permission-map";
 import {
   encodePermissionCallback,
   keyboardFromButtons,
@@ -81,8 +82,23 @@ export function formatPermissionPrompt(
     raw?.toolCall?.title ??
     raw?.title ??
     `Permission request (${req.toolCallId || "unknown"})`;
+  // Plan exit: make the approve/reject gate obvious in Telegram.
+  if (isPlanExitPermission(req.raw)) {
+    return (
+      `📋 <b>Plan ready</b>\n` +
+      `Approve to leave plan mode and implement, or reject to stay in plan.\n` +
+      `<i>${escapeHtml(String(title))}</i>`
+    );
+  }
   // Buttons carry options — keep body to the action title only.
   return `❓ Permission\n${title}`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export type BuiltPermissionUi = {

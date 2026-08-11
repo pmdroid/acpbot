@@ -31,6 +31,7 @@ import {
   bindHostEveRuntimeDeps,
   markEveAbort,
 } from "../eve/host-runner";
+import { isPlanExitPermission } from "../acp/permission-map";
 
 
 type QueuedHostPrompt = {
@@ -157,12 +158,23 @@ export async function startAcpHostServer(
     return {
       onPermissionRequest: async (req, ctx) => {
         const slot = slots.get(slotKey);
-        if (slot?.permissionMode === "bypass") {
+        // Never auto-approve leaving plan mode — operator must click.
+        if (
+          slot?.permissionMode === "bypass" &&
+          !isPlanExitPermission(req.raw)
+        ) {
           log.info("permission auto-approved (bypass)", {
             slotKey,
             toolCallId: req.toolCallId,
           });
           return { outcome: "allow_always" };
+        }
+        if (isPlanExitPermission(req.raw)) {
+          log.info("plan-exit permission → worker (forced ask)", {
+            slotKey,
+            toolCallId: req.toolCallId,
+            sessionBypass: slot?.permissionMode === "bypass",
+          });
         }
         if (!slot?.owner || slot.owner.destroyed) {
           log.warn("permission fail-closed (no worker)", { slotKey });
@@ -536,20 +548,34 @@ export async function startAcpHostServer(
     slotKey: string;
     agent: string;
     cwd: string;
+    /**
+     * Tool policy for unattended slots (schedules / EVE leaves).
+     * Default: config `permission_mode`, else ask.
+     * EVE leaves should pass `bypass` so they are not fail-closed without a
+     * human answering Telegram permission prompts.
+     */
+    permissionMode?: "ask" | "bypass";
   }): Promise<Slot> {
     const { slotKey, agent, cwd } = args;
+    const permissionMode =
+      args.permissionMode ?? baseConfig.permissionMode ?? "ask";
     let slot = slots.get(slotKey);
 
     if (slot) {
-      const same = slot.agent === agent && slot.cwd === cwd;
+      const same =
+        slot.agent === agent &&
+        slot.cwd === cwd &&
+        (slot.permissionMode ?? "ask") === permissionMode;
       if (same) {
         try {
           const hs = await slot.host.ensureSession({
             sessionKey: slotKey,
             agent,
             cwd,
+            permissionMode,
           });
           slot.agentSessionId = hs.agentSessionId;
+          slot.permissionMode = permissionMode;
           return slot;
         } catch (err) {
           log.warn("schedule ensure reattach failed; recreating", {
@@ -590,11 +616,13 @@ export async function startAcpHostServer(
         sessionKey: slotKey,
         agent,
         cwd,
+        permissionMode,
       });
       const created: Slot = {
         slotKey,
         agent,
         cwd,
+        permissionMode,
         host,
         agentSessionId: hs.agentSessionId,
         owner: null,
@@ -609,6 +637,7 @@ export async function startAcpHostServer(
         slotKey,
         agent,
         agentSessionId: hs.agentSessionId,
+        permissionMode,
       });
       return created;
     } catch (err) {
@@ -763,11 +792,13 @@ export async function startAcpHostServer(
           },
           leaf: {
             runLeaf: async (input) => {
-              // reuse the shared leaf impl via a nested call — inject owner
+              // Unattended EVE leaves must bypass tool asks — no human on the
+              // child topic; fail-closed ask would reject every shell/fs tool.
               const slot = await ensureSlotForSchedule({
                 slotKey: input.slotKey,
                 agent: input.agent,
                 cwd: input.cwd,
+                permissionMode: "bypass",
               });
               slot.owner = sock.destroyed ? null : sock;
               const deadline =
