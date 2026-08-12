@@ -312,7 +312,7 @@ export async function runFirstRunSetup(
           agentPick = agentSelectOptions({ availableOnly: false });
         } else {
           throw new Error(
-            "No agent CLIs on PATH. Install grok/claude/codex/opencode, then re-run acpbot setup.",
+            "No agent CLIs on PATH. Install grok/claude/codex/opencode/cursor-agent, then re-run acpbot setup.",
           );
         }
       } else {

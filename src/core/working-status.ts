@@ -2,7 +2,10 @@
  * Live per-session “working / waiting” bubble in a Telegram topic.
  * One message_id per sessionKey; progress edits in place; turn end deletes it.
  *
- * Concurrent set() calls are serialized per session so we never spam
+ * After other mid-turn outbound (telegram_send, photos, queue acks, …),
+ * call bump() so the ⏳ line stays the **last** message in the topic.
+ *
+ * Concurrent set/bump/clear calls are serialized per session so we never spam
  * duplicate ⏳ messages (common when many tool_call events fire at once).
  */
 import type { Logger } from "../env/logger";
@@ -13,13 +16,26 @@ export type SendInTopic = (
   session: PersistedSession,
   text: string,
   replyMarkup?: unknown,
-  opts?: { html?: boolean; alreadyHtml?: boolean },
+  opts?: {
+    html?: boolean;
+    alreadyHtml?: boolean;
+    /**
+     * True when this send *is* the working bubble (create/repost).
+     * Callers that auto-bump after outbound must skip bump for these.
+     */
+    workingBubble?: boolean;
+  },
 ) => Promise<{ message_id: number }>;
 
 export type WorkingStatus = {
   ensure(session: PersistedSession, text?: string): Promise<void>;
   set(session: PersistedSession, text: string): Promise<void>;
   clear(session: PersistedSession): Promise<void>;
+  /**
+   * Delete + re-post the current bubble so it is the latest message in the
+   * topic. No-op when there is no bubble (e.g. after clear / between turns).
+   */
+  bump(session: PersistedSession): Promise<void>;
   /** Current bubble message_id for a session, if any. */
   messageId(sessionKey: string): number | undefined;
 };
@@ -152,7 +168,7 @@ export function createWorkingStatus(deps: {
   const { telegram, sendInTopic, log } = deps;
   /** sessionKey → bubble state */
   const bySession = new Map<string, SessionBubble>();
-  /** Serialize ensure/set/clear per session to avoid duplicate posts. */
+  /** Serialize ensure/set/clear/bump per session to avoid duplicate posts. */
   const tail = new Map<string, Promise<void>>();
 
   function enqueue(sessionKey: string, op: () => Promise<void>): Promise<void> {
@@ -162,6 +178,46 @@ export function createWorkingStatus(deps: {
     const safe = next.catch(() => {});
     tail.set(sessionKey, safe);
     return next;
+  }
+
+  async function deleteBubbleMessage(
+    session: PersistedSession,
+    messageId: number,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await telegram.deleteMessage({
+        chatId: session.chatId,
+        messageId,
+      });
+    } catch (err) {
+      log.debug(`working status delete failed (${reason})`, {
+        sessionKey: session.sessionKey,
+        messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async function postBubble(
+    session: PersistedSession,
+    body: string,
+  ): Promise<void> {
+    try {
+      const sent = await sendInTopic(session, body, undefined, {
+        html: false,
+        workingBubble: true,
+      });
+      bySession.set(session.sessionKey, {
+        messageId: sent.message_id,
+        lastBody: body,
+      });
+    } catch (err) {
+      log.warn("working status post failed", {
+        sessionKey: session.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   async function ensure(
@@ -189,56 +245,46 @@ export function createWorkingStatus(deps: {
             cur.lastBody = body;
             return;
           }
-          // Message gone / can't edit — fall through to one new post
+          // Message gone / can't edit — delete orphan if possible, then repost
           log.debug("working status edit failed; will repost once", {
             sessionKey: session.sessionKey,
             messageId: cur.messageId,
             error: err instanceof Error ? err.message : String(err),
           });
           bySession.delete(session.sessionKey);
+          await deleteBubbleMessage(session, cur.messageId, "edit-failed");
         }
       }
 
       // Only create a new bubble if we don't have one.
       if (bySession.has(session.sessionKey)) return;
 
-      try {
-        const sent = await sendInTopic(session, body, undefined, {
-          html: false,
-        });
-        bySession.set(session.sessionKey, {
-          messageId: sent.message_id,
-          lastBody: body,
-        });
-      } catch (err) {
-        log.warn("working status post failed", {
-          sessionKey: session.sessionKey,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      await postBubble(session, body);
+    });
+  }
+
+  async function bump(session: PersistedSession): Promise<void> {
+    return enqueue(session.sessionKey, async () => {
+      const cur = bySession.get(session.sessionKey);
+      if (!cur) return;
+      const body = cur.lastBody;
+      const oldId = cur.messageId;
+      bySession.delete(session.sessionKey);
+      await deleteBubbleMessage(session, oldId, "bump");
+      await postBubble(session, body);
     });
   }
 
   return {
     ensure,
     set: (session, text) => ensure(session, text),
+    bump,
     async clear(session) {
       return enqueue(session.sessionKey, async () => {
         const cur = bySession.get(session.sessionKey);
         if (!cur) return;
         bySession.delete(session.sessionKey);
-        try {
-          await telegram.deleteMessage({
-            chatId: session.chatId,
-            messageId: cur.messageId,
-          });
-        } catch (err) {
-          log.debug("working status delete failed", {
-            sessionKey: session.sessionKey,
-            messageId: cur.messageId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        await deleteBubbleMessage(session, cur.messageId, "clear");
       });
     },
     messageId(sessionKey) {

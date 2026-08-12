@@ -599,12 +599,16 @@ export function createAcpHostClient(
         ...(input.forceRespawn ? { forceRespawn: true } : {}),
         ...(input.forceNewSession ? { forceNewSession: true } : {}),
       };
-      const msg = await request({
-        type: "ensure",
-        reqId,
-        slotKey: input.sessionKey,
-        config,
-      });
+      // Load+new recovery is bounded (~45s + 45s + 45s); don't wait 10 minutes.
+      const msg = await request(
+        {
+          type: "ensure",
+          reqId,
+          slotKey: input.sessionKey,
+          config,
+        },
+        180_000,
+      );
       if (msg.type !== "ensure_ok") {
         throw new Error(
           msg.type === "err" ? msg.error : `unexpected ${msg.type}`,

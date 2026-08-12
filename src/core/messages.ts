@@ -1,10 +1,11 @@
 /**
- * Provisional output volume policy — enough for a working control surface.
+ * Telegram text chunking helpers.
  *
- * Full streaming vs digest policy is still a separate effort. Until then:
- * - Buffer agent text during the turn
- * - Deliver once at turn end (chunked under Telegram's 4096 cap)
- * - Never emit tool-call payloads or diffs
+ * Delivery policy (see turn-runner):
+ * - Progressive mid-turn flush on paragraph / size / tool boundaries
+ *   (fire-and-forget so the ACP event queue stays unblocked)
+ * - Remainder at turn end (chunked under Telegram's 4096 cap)
+ * - Never emit tool-call payloads or diffs as agent messages
  */
 
 export const TELEGRAM_TEXT_LIMIT = 4096;

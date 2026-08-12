@@ -18,6 +18,7 @@ const SUPPORTED_AGENTS = [
   "claude",
   "codex",
   "opencode",
+  "cursor-agent",
 ] as const;
 
 describe("listRegisteredAgents (live PATH)", () => {
@@ -42,6 +43,6 @@ describe("listRegisteredAgents (live PATH)", () => {
 describe("live ACP suite location", () => {
   test("capability matrix is under test/contract/acp-capabilities.test.ts", () => {
     // Keeps discovery obvious when grepping for live agent tests.
-    expect(SUPPORTED_AGENTS.length).toBe(4);
+    expect(SUPPORTED_AGENTS.length).toBe(5);
   });
 });

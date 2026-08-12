@@ -108,6 +108,11 @@ export type LoadConfigOptions = {
 export function normalizeAgentName(name: string): string {
   const n = name.trim().toLowerCase();
   if (n === "grok" || n === "xai" || n === "grok-build") return "grok-build";
+  if (n === "claude-code" || n === "claude-acp") return "claude";
+  if (n === "opencode-ai" || n === "open-code") return "opencode";
+  if (n === "cursor" || n === "cursor-cli" || n === "cursor-agent") {
+    return "cursor-agent";
+  }
   return n;
 }
 

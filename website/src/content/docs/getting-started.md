@@ -16,6 +16,7 @@ No Bun or source checkout required for normal use. Download a **[v0.1.0](https:/
   - **Claude** — `claude` + `npx` (ACP adapter)
   - **Codex** — `codex` + `npx` (ACP adapter)
   - **OpenCode** — `opencode` (`opencode acp`)
+  - **Cursor Agent** — `cursor-agent` (`cursor-agent acp`; run `cursor-agent login` once)
 
 ## 1. Provision the bot
 
