@@ -1,6 +1,9 @@
 /**
- * Structured review report schema (OpenClaw-inspired) + merge helpers.
+ * Structured review report schema + merge helpers.
  * Host validates reviewer JSON before showing digests to the operator.
+ *
+ * Finding shape / panel contract inspired by OpenClaw autoreview:
+ * https://github.com/openclaw/agent-skills/tree/main/skills/autoreview
  */
 
 import { parseAgentStructuredResult, validateJsonSchema } from "../eve/schema";

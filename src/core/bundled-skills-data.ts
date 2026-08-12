@@ -15,11 +15,9 @@ description: >
   Advisory only — never auto-apply findings.
 ---
 
-# Auto Review (acpbot native)
+# Auto Review
 
-Run a **frozen-bundle dual review** using two ACP agents on PATH (e.g. Codex + Claude).
-
-This is **not** OpenClaw’s Python helper and not a nested \`codex review\`. acpbot owns the bundle, spawns temporary reviewer slots, validates structured JSON, and merges results.
+Run a **frozen-bundle dual review** using two ACP agents on PATH (e.g. Codex + Claude). acpbot freezes the change bundle, spawns temporary reviewer slots, validates structured JSON, and merges results.
 
 ## When to use
 
@@ -33,7 +31,7 @@ Skip for prose-only docs / skill text unless the operator insists.
 
 | Who | How |
 |---|---|
-| Operator | \`/review [local\\|branch] [agentA] [agentB] [panel\\|adversarial]\` |
+| Operator | \`/review [local\|branch] [agentA] [agentB] [panel\|adversarial]\` |
 | Agent | MCP \`review_run({ mode, protocol, agent_a, agent_b, … })\` |
 
 Defaults:
@@ -103,6 +101,10 @@ Include:
 - tests/proof run if you fixed anything
 
 Do not re-run review solely to polish wording after a clean result.
+
+## Credits
+
+Structured closeout review, priority-gated findings, and multi-reviewer panel ideas draw from the [OpenClaw autoreview skill](https://github.com/openclaw/agent-skills/tree/main/skills/autoreview). acpbot’s implementation is ACP-native (\`/review\`, \`review_run\`).
 `,
   },
   "eve": {

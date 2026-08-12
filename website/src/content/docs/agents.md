@@ -52,7 +52,7 @@ Unit tests may still import `echoAgents` as an in-memory fake.
 
 ## `/review` — dual-agent closeout review
 
-Native two-reviewer closeout (OpenClaw-style contract, ACP-native implementation):
+Two-reviewer closeout against a frozen git bundle:
 
 ```text
 /review [local|branch] [agentA] [agentB] [panel|adversarial]
@@ -71,6 +71,8 @@ Native two-reviewer closeout (OpenClaw-style contract, ACP-native implementation
 Default max priority is **P0** (blockers). Artifacts land under `$state_dir/reviews/<id>/`.
 
 Agents can call MCP **`review_run`** with the same options. See skill `autoreview`.
+
+Idea credit: structured multi-reviewer closeout patterns from [OpenClaw autoreview](https://github.com/openclaw/agent-skills/tree/main/skills/autoreview).
 
 ## `/agent` — switch process mid-session
 
