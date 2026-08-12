@@ -118,6 +118,22 @@ export type WorkerApiHandlers = {
     source: string;
     scope?: "project" | "user";
   }): Promise<{ message?: string; path?: string; meta?: unknown }>;
+  /** Dual-agent closeout review (optional). */
+  reviewRun?(input: {
+    sessionKey: string;
+    mode?: "local" | "branch";
+    protocol?: "panel" | "adversarial";
+    agent_a?: string;
+    agent_b?: string;
+    base?: string;
+    max_priority?: string;
+  }): Promise<{
+    message?: string;
+    markdown?: string;
+    resultPath?: string;
+    bundleDir?: string;
+    merged?: unknown;
+  }>;
 };
 
 export type WorkerApiServer = {
@@ -503,6 +519,30 @@ export function createWorkerApiServer(options: {
           source,
           ...(body.scope === "user" || body.scope === "project"
             ? { scope: body.scope }
+            : {}),
+        });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+
+      if (pathname === "/v1/review/run") {
+        if (!options.handlers.reviewRun) {
+          sendJson(res, 501, { ok: false, error: "review not enabled" });
+          return;
+        }
+        const out = await options.handlers.reviewRun({
+          sessionKey,
+          ...(body.mode === "local" || body.mode === "branch"
+            ? { mode: body.mode }
+            : {}),
+          ...(body.protocol === "panel" || body.protocol === "adversarial"
+            ? { protocol: body.protocol }
+            : {}),
+          ...(typeof body.agent_a === "string" ? { agent_a: body.agent_a } : {}),
+          ...(typeof body.agent_b === "string" ? { agent_b: body.agent_b } : {}),
+          ...(typeof body.base === "string" ? { base: body.base } : {}),
+          ...(typeof body.max_priority === "string"
+            ? { max_priority: body.max_priority }
             : {}),
         });
         sendJson(res, 200, { ok: true, ...out });

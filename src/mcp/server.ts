@@ -47,6 +47,7 @@ import {
   workerEveResume,
   workerEveKill,
   workerEveWrite,
+  workerReviewRun,
 } from "./worker-api";
 
 function linearStateDir(): string {
@@ -711,6 +712,69 @@ server.tool(
       return ack.message ?? "killed";
     } catch (err) {
       return `agent_kill failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "review_run",
+    description:
+      "Run a native two-agent closeout review on a frozen git bundle " +
+      "(local dirty or branch vs base). Independent panel or adversarial " +
+      "challenge. Advisory only — do not auto-apply findings. " +
+      "Prefer this over inventing dual agent_spawn review loops.",
+    input: z.object({
+      mode: z
+        .enum(["local", "branch"])
+        .optional()
+        .describe("Default local (dirty tree)"),
+      protocol: z
+        .enum(["panel", "adversarial"])
+        .optional()
+        .describe("panel = independent dual review; adversarial = find→challenge"),
+      agent_a: z
+        .string()
+        .optional()
+        .describe("First reviewer agent id (e.g. codex)"),
+      agent_b: z
+        .string()
+        .optional()
+        .describe("Second reviewer agent id (e.g. claude)"),
+      base: z
+        .string()
+        .optional()
+        .describe("Branch mode base ref (default origin/main)"),
+      max_priority: z
+        .enum(["P0", "P1", "P2", "P3"])
+        .optional()
+        .describe("Default P0 (blockers only)"),
+    }),
+  },
+  async (args) => {
+    const env = requireSessionEnv();
+    if (!env.ok) return `review_run failed: ${env.error}`;
+    try {
+      const ack = await workerReviewRun({
+        sessionKey: env.sessionKey,
+        ...(args.mode ? { mode: args.mode } : {}),
+        ...(args.protocol ? { protocol: args.protocol } : {}),
+        ...(args.agent_a ? { agent_a: args.agent_a } : {}),
+        ...(args.agent_b ? { agent_b: args.agent_b } : {}),
+        ...(args.base ? { base: args.base } : {}),
+        ...(args.max_priority ? { max_priority: args.max_priority } : {}),
+      });
+      if (!ack.ok) return `review_run failed: ${ack.error}`;
+      const parts = [
+        ack.message ?? "review complete",
+        ack.markdown ? `\n${ack.markdown}` : "",
+        ack.bundleDir ? `\n\nArtifacts: ${ack.bundleDir}` : "",
+      ];
+      return parts.join("").slice(0, 100_000);
+    } catch (err) {
+      return `review_run failed: ${
         err instanceof Error ? err.message : String(err)
       }`;
     }

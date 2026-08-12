@@ -50,6 +50,28 @@ JSON command overrides merge on top of the built-in registry (same shape: `comma
 The worker **always** uses real ACP agents (`realAgents` → acp-host by default).  
 Unit tests may still import `echoAgents` as an in-memory fake.
 
+## `/review` — dual-agent closeout review
+
+Native two-reviewer closeout (OpenClaw-style contract, ACP-native implementation):
+
+```text
+/review [local|branch] [agentA] [agentB] [panel|adversarial]
+```
+
+| Mode | Target |
+|---|---|
+| `local` (default) | Dirty tree (staged + unstaged + untracked) |
+| `branch` | Merge-base of `HEAD` vs `origin/main` (or master) |
+
+| Protocol | Behavior |
+|---|---|
+| `panel` (default) | Both agents review the **same frozen bundle** independently; host merges agreed vs unique findings |
+| `adversarial` | A finds issues; B accepts/rejects each finding |
+
+Default max priority is **P0** (blockers). Artifacts land under `$state_dir/reviews/<id>/`.
+
+Agents can call MCP **`review_run`** with the same options. See skill `autoreview`.
+
 ## `/agent` — switch process mid-session
 
 - Shows a picker of available agents (+ any ids from `agents.command_json`)

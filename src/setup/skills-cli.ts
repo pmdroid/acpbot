@@ -19,14 +19,14 @@ export function isSkillsCliCommand(argv: string[] = process.argv): boolean {
 
 export function skillsCliHelp(): string {
   return `Skills (operator skills for coding agents)
-  acpbot skills install         Install telegram + schedules into global agent dirs
+  acpbot skills install         Install bundled skills into global agent dirs
   acpbot skills list            Show bundled skill ids and source path
   acpbot skills help            This help
 
 Install targets (symlink preferred, copy fallback):
-  ~/.agents/skills/{telegram,schedules}
-  ~/.grok/skills/{telegram,schedules}
-  ~/.claude/skills/{telegram,schedules}
+  ~/.agents/skills/{telegram,schedules,multi-agent,linear,eve,autoreview,…}
+  ~/.grok/skills/…
+  ~/.claude/skills/…
 
 Source: package skills/ when present, else embedded skills materialised under
   ~/.local/share/acpbot/bundled-skills/

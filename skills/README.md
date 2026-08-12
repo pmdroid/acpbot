@@ -8,6 +8,7 @@ Operator skills shipped with acpbot and installed **globally** for coding agents
 | [`telegram`](./telegram/SKILL.md) | Progress, text, photo, file, voice via host MCP `acpbot` |
 | [`schedules`](./schedules/SKILL.md) | Delayed / recurring jobs via `schedule_*` tools |
 | [`multi-agent`](./multi-agent/SKILL.md) | Spawn child agents in git worktrees |
+| [`autoreview`](./autoreview/SKILL.md) | Two-agent panel / adversarial closeout review |
 | [`linear`](./linear/SKILL.md) | Linear MCP + topic↔project binding |
 | [`eve`](./eve/SKILL.md) | EVE background multi-agent directives (agent-authored JS graphs; no shipped scripts) |
 

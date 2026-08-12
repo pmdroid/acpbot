@@ -107,6 +107,12 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Switch agent process (respawn) or /agent <id>",
   },
   {
+    name: "/review",
+    scope: "topic",
+    summary:
+      "Two-agent closeout review: /review [local|branch] [a] [b] [panel|adversarial]",
+  },
+  {
     name: "/mcp",
     scope: "topic",
     summary:
