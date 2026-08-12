@@ -114,8 +114,14 @@ import {
 import {
   agentDisplayName,
   listRegisteredAgents,
+  normalizeAgentName,
   resolveAgentLaunch,
 } from "../acp/agent-launch";
+import {
+  runReviewPanel,
+  type ReviewProtocol,
+} from "./review-panel";
+import type { ReviewPriority } from "./review-schema";
 import {
   currentModelLabel,
   findEffortConfigOption,
@@ -2113,6 +2119,58 @@ export function createDaemon(
           message: `Sent Telegram voice note (${text.length} chars).`,
         };
       },
+      async reviewRun({
+        sessionKey,
+        mode,
+        protocol,
+        agent_a,
+        agent_b,
+        base,
+        max_priority,
+      }) {
+        const session = requireSession(sessionKey);
+        const maxPriority =
+          max_priority === "P0" ||
+          max_priority === "P1" ||
+          max_priority === "P2" ||
+          max_priority === "P3"
+            ? max_priority
+            : undefined;
+        const result = await executeSessionReview(session, {
+          mode: mode === "branch" ? "branch" : "local",
+          protocol: protocol === "adversarial" ? "adversarial" : "panel",
+          ...(agent_a ? { agentA: agent_a } : {}),
+          ...(agent_b ? { agentB: agent_b } : {}),
+          ...(base ? { base } : {}),
+          ...(maxPriority ? { maxPriority } : {}),
+          notifyProgress: true,
+        });
+        // Also post digest to the topic (MCP caller may not surface markdown).
+        try {
+          const body = result.markdown;
+          const chunk = 3500;
+          if (body.length <= chunk) {
+            await sendInTopic(session, body);
+          } else {
+            for (let i = 0; i < body.length; i += chunk) {
+              await sendInTopic(
+                session,
+                body.slice(i, i + chunk) +
+                  (i + chunk < body.length ? "\n…" : ""),
+              );
+            }
+          }
+        } catch {
+          /* best-effort */
+        }
+        return {
+          message: `review ${result.protocol} complete (${result.reviewers.join(" + ")})`,
+          markdown: result.markdown,
+          resultPath: result.resultPath,
+          bundleDir: result.bundle.dir,
+          merged: result.merged,
+        };
+      },
       async agentSpawn({ sessionKey, name, agent, role, prompt, headless }) {
         const parent = requireSession(sessionKey);
         if (operatorChatId === undefined) {
@@ -4023,6 +4081,229 @@ export function createDaemon(
     );
   }
 
+  type SessionReviewOpts = {
+    mode?: "local" | "branch";
+    protocol?: ReviewProtocol;
+    agentA?: string;
+    agentB?: string;
+    base?: string;
+    maxPriority?: ReviewPriority;
+    notifyProgress?: boolean;
+  };
+
+  async function executeSessionReview(
+    session: PersistedSession,
+    opts: SessionReviewOpts = {},
+  ) {
+    const agents = listRegisteredAgents();
+    if (agents.length < 2) {
+      throw new Error(
+        `Need two agent CLIs on PATH (have: ${agents.join(", ") || "none"})`,
+      );
+    }
+
+    const mode = opts.mode ?? "local";
+    const protocol = opts.protocol ?? "panel";
+    const maxPriority: ReviewPriority = opts.maxPriority ?? "P0";
+
+    const resolveAgent = (raw: string | undefined): string | undefined => {
+      if (!raw) return undefined;
+      const n = normalizeAgentName(raw);
+      return (
+        agents.find((a) => a === n) ??
+        agents.find((a) => a.toLowerCase() === raw.toLowerCase()) ??
+        agents.find(
+          (a) => agentDisplayName(a).toLowerCase() === raw.toLowerCase(),
+        )
+      );
+    };
+
+    let agentA = resolveAgent(opts.agentA);
+    let agentB = resolveAgent(opts.agentB);
+    if (opts.agentA && !agentA) {
+      throw new Error(
+        `Unknown reviewer A "${opts.agentA}". Installed: ${agents.join(", ")}`,
+      );
+    }
+    if (opts.agentB && !agentB) {
+      throw new Error(
+        `Unknown reviewer B "${opts.agentB}". Installed: ${agents.join(", ")}`,
+      );
+    }
+
+    if (!agentA || !agentB) {
+      const preferred = [
+        "codex",
+        "claude",
+        "grok-build",
+        "opencode",
+        "cursor-agent",
+      ];
+      const ordered = [
+        ...preferred.filter((p) => agents.includes(p)),
+        ...agents.filter((a) => !preferred.includes(a)),
+      ];
+      agentA = agentA ?? ordered[0]!;
+      agentB =
+        agentB ?? ordered.find((a) => a !== agentA) ?? ordered[1]!;
+    }
+    if (agentA === agentB) {
+      const other = agents.find((a) => a !== agentA);
+      if (!other) throw new Error("Need two different agents for a panel");
+      agentB = other;
+    }
+
+    return runReviewPanel({
+      cwd: session.cwd,
+      stateDir,
+      mode,
+      protocol,
+      maxPriority,
+      ...(opts.base ? { base: opts.base } : {}),
+      reviewers: [
+        { agent: agentA, label: agentA },
+        { agent: agentB, label: agentB },
+      ],
+      onProgress: async (msg) => {
+        if (opts.notifyProgress === false) return;
+        await sendInTopic(session, `🔍 ${msg}`).catch(() => {});
+      },
+      runReviewer: async ({ agent, label, prompt, cwd, reviewId }) => {
+        const slug = `rvw-${reviewId.slice(0, 8)}-${label
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 10)}`;
+        const identity = {
+          repo: session.identity.repo,
+          name: slug,
+          agent,
+        };
+        const handle = await env.agents.ensureSession(identity, {
+          cwd,
+          permissionMode: "ask",
+          forceNewSession: true,
+        });
+        let text = "";
+        try {
+          try {
+            const modes = await env.agents.getSessionMode?.(handle.sessionKey);
+            const ids = modes?.availableModeIds ?? [];
+            const prefer =
+              ids.find((m) => /^(plan|ask|read-only|readonly)$/i.test(m)) ??
+              ids.find((m) => /plan|ask|read/i.test(m));
+            if (prefer && env.agents.setSessionMode) {
+              await env.agents.setSessionMode(handle.sessionKey, prefer);
+            }
+          } catch {
+            /* mode optional */
+          }
+          const turn = await env.agents.runPromptTurn(handle, {
+            text: prompt,
+          });
+          for await (const ev of turn.events) {
+            if (ev.type === "agent_message_chunk" && ev.text) {
+              text += ev.text;
+            }
+          }
+          await turn.done;
+        } finally {
+          try {
+            await env.agents.disposeSession?.(handle.sessionKey);
+          } catch {
+            try {
+              await env.agents.cancelTurn?.(
+                handle.sessionKey,
+                "review complete",
+              );
+            } catch {
+              /* */
+            }
+          }
+        }
+        return { text };
+      },
+    });
+  }
+
+  /**
+   * /review [local|branch] [agentA] [agentB] [panel|adversarial]
+   * Two-agent closeout review against a frozen git bundle.
+   */
+  async function handleReviewCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const usage =
+      "Usage: `/review [local|branch] [agentA] [agentB] [panel|adversarial]`\n\n" +
+      "Examples:\n" +
+      "• `/review` — local dirty, first two installed agents, panel\n" +
+      "• `/review branch codex claude`\n" +
+      "• `/review local codex claude adversarial`\n\n" +
+      "Advisory only — verify findings before applying fixes.";
+
+    let mode: "local" | "branch" = "local";
+    let protocol: ReviewProtocol = "panel";
+    const tokens = [...args];
+    if (tokens[0] === "local" || tokens[0] === "branch") {
+      mode = tokens.shift() as "local" | "branch";
+    }
+    if (
+      tokens.length > 0 &&
+      (tokens[tokens.length - 1] === "panel" ||
+        tokens[tokens.length - 1] === "adversarial")
+    ) {
+      protocol = tokens.pop() as ReviewProtocol;
+    }
+
+    const agentA = tokens[0];
+    const agentB = tokens[1];
+
+    await sendInTopic(
+      session,
+      `🔍 **Review** starting…\n` +
+        `target: **${mode}** · protocol: **${protocol}**\n` +
+        `A: \`${agentA ?? "(auto)"}\` · B: \`${agentB ?? "(auto)"}\``,
+      undefined,
+      { html: true },
+    );
+
+    try {
+      const result = await executeSessionReview(session, {
+        mode,
+        protocol,
+        ...(agentA ? { agentA } : {}),
+        ...(agentB ? { agentB } : {}),
+        notifyProgress: true,
+      });
+
+      const body = result.markdown;
+      const chunk = 3500;
+      if (body.length <= chunk) {
+        await sendInTopic(session, body);
+      } else {
+        for (let i = 0; i < body.length; i += chunk) {
+          await sendInTopic(
+            session,
+            body.slice(i, i + chunk) +
+              (i + chunk < body.length ? "\n…" : ""),
+          );
+        }
+      }
+      await sendInTopic(
+        session,
+        `Artifacts: \`${result.bundle.dir}\`\n` +
+          `(\`${result.resultPath}\`)`,
+        undefined,
+        { html: true },
+      );
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `Review failed:\n\n${err instanceof Error ? err.message : String(err)}\n\n${usage}`,
+      );
+    }
+  }
+
   async function handleAgentCommand(
     session: PersistedSession,
     args: string[],
@@ -4898,6 +5179,10 @@ export function createDaemon(
       }
       if (slash.name === "/agent") {
         await handleAgentCommand(session, slash.args);
+        return;
+      }
+      if (slash.name === "/review") {
+        await handleReviewCommand(session, slash.args);
         return;
       }
       if (slash.name === "/mcp") {

@@ -341,6 +341,41 @@ export async function workerEveWrite(
   >;
 }
 
+export type WorkerReviewRunBody = {
+  sessionKey: string;
+  mode?: "local" | "branch";
+  protocol?: "panel" | "adversarial";
+  agent_a?: string;
+  agent_b?: string;
+  base?: string;
+  max_priority?: string;
+};
+
+export async function workerReviewRun(
+  body: WorkerReviewRunBody,
+  opts?: { sockPath?: string; timeoutMs?: number },
+): Promise<
+  WorkerApiResult & {
+    markdown?: string;
+    resultPath?: string;
+    bundleDir?: string;
+    merged?: unknown;
+  }
+> {
+  // Reviews can run two long agent turns — default 30m.
+  return workerApiRequest("/v1/review/run", body, {
+    ...opts,
+    timeoutMs: opts?.timeoutMs ?? 1_800_000,
+  }) as Promise<
+    WorkerApiResult & {
+      markdown?: string;
+      resultPath?: string;
+      bundleDir?: string;
+      merged?: unknown;
+    }
+  >;
+}
+
 export async function workerAgentWait(
   body: WorkerAgentWaitBody,
   opts?: { sockPath?: string; timeoutMs?: number },

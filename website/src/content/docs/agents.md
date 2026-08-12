@@ -54,6 +54,14 @@ JSON command overrides merge on top of the built-in registry (same shape: `comma
 The worker **always** uses real ACP agents (`realAgents` → acp-host by default).  
 Unit tests may still import `echoAgents` as an in-memory fake.
 
+## `/review` — dual-agent closeout review
+
+Two-reviewer closeout against a frozen git bundle (`/review`, MCP `review_run`). Full reference: **[Review](/docs/review)**.
+
+```text
+/review [local|branch] [agentA] [agentB] [panel|adversarial]
+```
+
 ## `/agent` — switch process mid-session
 
 - Shows a picker of available agents (+ any ids from `agents.command_json`)

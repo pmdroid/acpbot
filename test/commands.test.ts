@@ -68,6 +68,7 @@ describe("command registry", () => {
       "/ping",
       "/plan",
       "/queue",
+      "/review",
       "/sessions",
       "/skills",
       "/status",

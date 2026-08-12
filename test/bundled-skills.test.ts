@@ -10,12 +10,13 @@ import { listSkills } from "../src/core/skills";
 import { loadConfig } from "../src/config";
 
 describe("bundled skills", () => {
-  test("package skills/ contains telegram, schedules, multi-agent, linear, eve", async () => {
+  test("package skills/ contains telegram, schedules, multi-agent, linear, eve, autoreview", async () => {
     const root = bundledSkillsRoot();
     const skills = await listSkills([root]);
     const ids = skills.map((s) => s.id).sort();
     expect(ids).toContain("telegram");
     expect(ids).toContain("schedules");
+    expect(ids).toContain("autoreview");
     expect(ids).toContain("multi-agent");
     expect(ids).toContain("linear");
     expect(ids).toContain("eve");
