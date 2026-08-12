@@ -168,7 +168,7 @@ While a turn is in flight the worker posts **one** message in the topic and keep
 | Turn ends / cancel / fail | Bubble **deleted**, then final reply or error |
 
 - Multi-topic / multi-agent safe: status is always **in that session’s thread**, not a chat-level typing indicator
-- `telegram_send` / photo / file / speak still create **separate** permanent messages
+- `telegram_send` / photo / file / speak still create **separate** permanent messages; the bubble is then **re-posted** so `⏳` stays the **last** message in the topic while the turn runs
 - Session status is still tracked in the store for `/status` and steer vs prompt; only the **Telegram topic name** stays fixed
 
 ## Operator prompt queue
@@ -185,7 +185,9 @@ Host `promptQueue` (acp-host) remains a separate serialization for concurrent ho
 
 ## Message volume policy
 
-**Buffer agent text during the turn, flush once at the end**, chunked to Telegram limits. Mid-turn pings use explicit MCP tools (`update` → edit working bubble — **preferred progress channel**; `telegram_send`, photo, file, speak → new messages) via the worker API instead of streaming every token.
+**Progressive agent text:** complete paragraphs (or large chunks) are posted mid-turn so long work is visible before tools finish; remainder flushes at turn end (chunked to Telegram limits). Fire-and-forget so the ACP event stream is never blocked on Telegram I/O.
+
+Mid-turn pings still use MCP tools when the agent chooses them (`update` → edit working bubble; `telegram_send`, photo, file, speak → permanent messages). Tool-call payloads and diffs are never mirrored as chat text.
 
 ## Security notes
 

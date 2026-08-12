@@ -41,7 +41,13 @@ const PROMPT_TIMEOUT_MS = Number(
   process.env.ACPBOT_LIVE_ACP_PROMPT_TIMEOUT_MS ?? 90_000,
 );
 
-const AGENTS = ["grok-build", "codex", "opencode", "claude"] as const;
+const AGENTS = [
+  "grok-build",
+  "codex",
+  "opencode",
+  "claude",
+  "cursor-agent",
+] as const;
 type AgentId = (typeof AGENTS)[number];
 
 const SOFT_LAUNCH = new Set<AgentId>(["claude", "codex"]);

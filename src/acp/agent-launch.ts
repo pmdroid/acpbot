@@ -4,6 +4,7 @@
  *
  * Claude/Codex need the official ACP adapters (not bare `claude acp` / `codex acp`).
  * OpenCode has a native `opencode acp` command.
+ * Cursor CLI has a native `cursor-agent acp` command.
  *
  * The agent picker only lists agents whose required binaries are on PATH
  * (no duplicates, no ghost entries for missing CLIs).
@@ -45,7 +46,13 @@ type BuiltinSpec = {
 };
 
 /** Preferred picker order (unknown ids sort after, alpha). */
-const PREFERRED_ORDER = ["grok-build", "claude", "codex", "opencode"] as const;
+const PREFERRED_ORDER = [
+  "grok-build",
+  "claude",
+  "codex",
+  "opencode",
+  "cursor-agent",
+] as const;
 
 /**
  * Default npm package pins for ACP adapters (update when bumping adapters).
@@ -105,6 +112,16 @@ const BUILTINS_BASE: Record<
     requires: ["opencode"],
     label: "opencode",
   },
+  /**
+   * Cursor CLI native ACP (`cursor-agent acp`). Prefer the `cursor-agent`
+   * binary — bare `agent` collides with Grok's `agent` on PATH.
+   * https://cursor.com/docs/cli/acp
+   */
+  "cursor-agent": {
+    launchFor: () => ({ command: "cursor-agent", args: ["acp"] }),
+    requires: ["cursor-agent"],
+    label: "cursor",
+  },
 };
 
 /** Normalize friendly names onto canonical ids. */
@@ -113,6 +130,9 @@ export function normalizeAgentName(name: string): string {
   if (n === "grok" || n === "xai" || n === "grok-build") return "grok-build";
   if (n === "claude-code" || n === "claude-acp") return "claude";
   if (n === "opencode-ai" || n === "open-code") return "opencode";
+  if (n === "cursor" || n === "cursor-cli" || n === "cursor-agent") {
+    return "cursor-agent";
+  }
   return n;
 }
 
@@ -406,6 +426,7 @@ const SETUP_LABELS: Record<string, string> = {
   claude: "Claude",
   codex: "Codex",
   opencode: "OpenCode",
+  "cursor-agent": "Cursor Agent",
 };
 
 /** Human label for setup pickers (e.g. grok-build → Grok Build). */

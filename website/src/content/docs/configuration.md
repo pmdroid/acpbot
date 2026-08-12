@@ -34,7 +34,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Step | What |
 |---|---|
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
-| Agent | grok-build · claude · codex · opencode |
+| Agent | grok-build · claude · codex · opencode · cursor-agent |
 | Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [Commands](/docs/commands) `/permissions` |
 | Workspace | Optional `[repos]` entry for `/new` |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |

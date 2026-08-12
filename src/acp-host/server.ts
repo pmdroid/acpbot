@@ -301,7 +301,38 @@ export async function startAcpHostServer(
     return n;
   }
 
+  /**
+   * Coalesce concurrent ensure for the same slotKey. Without this, a worker
+   * timeout + retry spawns a *second* Grok while the first is still on
+   * session/load — both contend on the same agentSessionId and hang.
+   */
+  const ensureInflight = new Map<string, Promise<void>>();
+
   async function ensureSlot(
+    sock: Socket,
+    msg: Extract<WorkerToHost, { type: "ensure" }>,
+  ): Promise<void> {
+    const { slotKey } = msg;
+    const prev = ensureInflight.get(slotKey);
+    if (prev) {
+      log.info("ensure waiting for in-flight ensure", { slotKey });
+      try {
+        await prev;
+      } catch {
+        /* first ensure failed — fall through and retry */
+      }
+    }
+
+    const work = ensureSlotBody(sock, msg).finally(() => {
+      if (ensureInflight.get(slotKey) === work) {
+        ensureInflight.delete(slotKey);
+      }
+    });
+    ensureInflight.set(slotKey, work);
+    await work;
+  }
+
+  async function ensureSlotBody(
     sock: Socket,
     msg: Extract<WorkerToHost, { type: "ensure" }>,
   ): Promise<void> {

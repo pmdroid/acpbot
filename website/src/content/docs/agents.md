@@ -15,6 +15,7 @@ Defined in `src/acp/agent-launch.ts`. The `/agent` picker **only lists agents wh
 | `claude` | claude | `npx -y @agentclientprotocol/claude-agent-acp@0.64.0` | `npx`, `claude` |
 | `codex` | codex | `npx -y @agentclientprotocol/codex-acp@1.1.7` | `npx`, `codex` |
 | `opencode` | opencode | `opencode acp` | `opencode` |
+| `cursor-agent` | cursor | `cursor-agent acp` | `cursor-agent` |
 
 Adapter pins (npm) — TOML `[agents]` or env override:
 
@@ -23,7 +24,7 @@ Adapter pins (npm) — TOML `[agents]` or env override:
 | `agents.claude_acp_pkg` / `ACPBOT_CLAUDE_ACP_PKG` | `@agentclientprotocol/claude-agent-acp@0.64.0` |
 | `agents.codex_acp_pkg` / `ACPBOT_CODEX_ACP_PKG` | `@agentclientprotocol/codex-acp@1.1.7` |
 
-Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp).
+Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp), [Cursor CLI ACP](https://cursor.com/docs/cli/acp).
 
 **Aliases** (normalized before launch):
 
@@ -32,6 +33,9 @@ Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent
 | `grok`, `xai`, `grok-build` | `grok-build` |
 | `claude-code`, `claude-acp` | `claude` |
 | `opencode-ai`, `open-code` | `opencode` |
+| `cursor`, `cursor-cli`, `cursor-agent` | `cursor-agent` |
+
+**Cursor notes:** install the Cursor CLI so `cursor-agent` is on `PATH` (often `~/.local/bin/cursor-agent`). Run `cursor-agent login` once (or set `CURSOR_API_KEY`). We intentionally use the `cursor-agent` binary name — bare `agent` can collide with Grok’s CLI.
 
 ### Overrides
 

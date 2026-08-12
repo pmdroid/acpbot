@@ -1,6 +1,7 @@
 /**
- * Drain an ACP turn event stream and deliver the final reply to Telegram.
- * Owns end-of-turn status, TTS, and working-bubble teardown.
+ * Drain an ACP turn event stream and deliver agent text to Telegram.
+ * Progressive paragraph flushes mid-turn (fire-and-forget); remainder + TTS
+ * + working-bubble teardown at turn end.
  */
 import { readFile } from "node:fs/promises";
 import type { Logger } from "../env/logger";
@@ -34,6 +35,14 @@ export type TurnRunner = {
 
 /** How often to refresh the ⏳ bubble with elapsed time during long tool waits. */
 const WORKING_HEARTBEAT_MS = 15_000;
+
+/**
+ * Mid-turn agent text is flushed when we hit a paragraph break (or grow large),
+ * so long turns show progress in Telegram without waiting for turn end.
+ * Never await these flushes inside the ACP event loop.
+ */
+const MID_TURN_MIN_CHARS = 40;
+const MID_TURN_FORCE_CHARS = 1200;
 
 export function createTurnRunner(deps: {
   env: Environment;
@@ -92,8 +101,8 @@ export function createTurnRunner(deps: {
 
   /**
    * Drain events without awaiting Telegram inside the consumer loop.
-   * Progress: fire-and-forget edits to the ⏳ bubble on tool_call + heartbeat
-   * while long tools (e.g. subagent waits) produce no stream events.
+   * Progress: fire-and-forget ⏳ bubble paints + progressive text flushes.
+   * Final remainder / TTS run after the stream is exhausted.
    */
   async function drainTurn(
     session: PersistedSession,
@@ -102,6 +111,11 @@ export function createTurnRunner(deps: {
     let status: SessionStatus = session.status;
     const statusTransitions: SessionStatus[] = [];
     const textParts: string[] = [];
+    /** How many chars of `textParts.join("")` already sent mid-turn. */
+    let flushedLen = 0;
+    let midTurnMessages = 0;
+    /** Serialize mid-turn text posts; never awaited inside the event loop. */
+    let flushChain: Promise<void> = Promise.resolve();
     let deathError: string | undefined;
     /** Agent requested voice via MCP speak tool. */
     let speakFromTool: SpeakRequest | undefined;
@@ -132,6 +146,52 @@ export function createTurnRunner(deps: {
       });
     };
 
+    /**
+     * Post complete-ish agent text during the turn so the operator is not
+     * stuck staring at ⏳ until tools finish. Fire-and-forget only.
+     */
+    const enqueueTextFlush = (force: boolean) => {
+      flushChain = flushChain
+        .then(async () => {
+          const full = textParts.join("");
+          const unsent = full.slice(flushedLen);
+          if (!unsent) return;
+
+          let cut = unsent.length;
+          if (!force) {
+            const para = unsent.lastIndexOf("\n\n");
+            if (para >= MID_TURN_MIN_CHARS) {
+              cut = para + 2;
+            } else if (unsent.length >= MID_TURN_FORCE_CHARS) {
+              const nl = unsent.lastIndexOf("\n", MID_TURN_FORCE_CHARS);
+              cut =
+                nl >= MID_TURN_MIN_CHARS ? nl + 1 : MID_TURN_FORCE_CHARS;
+            } else {
+              return; // wait for more text / tool boundary / turn end
+            }
+          }
+
+          const piece = unsent.slice(0, cut);
+          flushedLen += piece.length;
+          const visible = stripSpeakMarkers(piece).trim();
+          if (!visible) return;
+
+          await sendInTopic(session, visible, undefined, { html: true });
+          midTurnMessages += 1;
+          log.debug("mid-turn agent text flushed", {
+            sessionKey: session.sessionKey,
+            chars: visible.length,
+            force,
+          });
+        })
+        .catch((err) => {
+          log.debug("mid-turn text flush failed", {
+            sessionKey: session.sessionKey,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    };
+
     const heartbeat = setInterval(() => {
       // Don't clobber permission / ask_user bubbles.
       if (status === "waiting-on-you") return;
@@ -151,8 +211,12 @@ export function createTurnRunner(deps: {
           }
           if (event.type === "agent_message_chunk" && event.text) {
             textParts.push(event.text);
+            enqueueTextFlush(false);
           }
           if (event.type === "tool_call") {
+            // Push any pending narrative before tool activity so it is not
+            // stuck behind a long subagent / command wait.
+            enqueueTextFlush(true);
             const title = String(event.title ?? "");
             if (isExitPlanModeTitle(title)) {
               sawExitPlanMode = true;
@@ -203,7 +267,8 @@ export function createTurnRunner(deps: {
         clearInterval(heartbeat);
       }
 
-      // Remove the working bubble before final status / reply so the chat stays clean.
+      // Finish any mid-turn posts, then drop the ⏳ bubble before final remainder.
+      await flushChain;
       await working.clear(session);
 
       try {
@@ -243,8 +308,10 @@ export function createTurnRunner(deps: {
             stopReason: turnStopReason ?? null,
           });
           await deliverPlanExitFallback(session, planMdPath, sendInTopic, log);
-          // Still send any assistant text from the turn (context before plan)
-          const pre = stripSpeakMarkers(textParts.join("")).trim();
+          // Only unsent assistant text (mid-turn may already have flushed some)
+          const pre = stripSpeakMarkers(
+            textParts.join("").slice(flushedLen),
+          ).trim();
           if (pre) {
             await sendInTopic(session, pre, undefined, { html: true });
           }
@@ -259,6 +326,7 @@ export function createTurnRunner(deps: {
         const rawReply = textParts.join("");
         // Strip any legacy speak markers from text; TTS is MCP speak (or always mode).
         const visibleText = stripSpeakMarkers(rawReply);
+        const remaining = stripSpeakMarkers(rawReply.slice(flushedLen)).trim();
         const ttsMode = env.config.ttsMode ?? "agent";
         const speakReq: SpeakRequest | undefined =
           ttsMode === "always"
@@ -267,9 +335,14 @@ export function createTurnRunner(deps: {
               ? undefined
               : speakFromTool;
 
-        if (visibleText.trim()) {
-          await sendInTopic(session, visibleText, undefined, { html: true });
-        } else if (status === "done" && !speakReq) {
+        if (remaining) {
+          await sendInTopic(session, remaining, undefined, { html: true });
+        } else if (
+          status === "done" &&
+          !speakReq &&
+          midTurnMessages === 0 &&
+          !visibleText.trim()
+        ) {
           await sendInTopic(
             session,
             "✓ turn finished (no text output)",
@@ -372,13 +445,17 @@ async function deliverPlanExitFallback(
     `<i>Plan mode finished — approve with <code>/build</code> to implement, ` +
     `or stay in plan with <code>/plan</code> / keep chatting.</i>\n`;
 
+  // These bodies are already Telegram HTML — use alreadyHtml so formatForTelegram
+  // does not escape <b>/<code>/… into visible &lt;b&gt; junk.
+  const html = { alreadyHtml: true as const };
+
   if (!body.trim()) {
     await sendInTopic(
       session,
       header +
         `\n<code>plan.md</code> not found on disk. Ask the agent to reprint the plan, then <code>/build</code>.`,
       undefined,
-      { html: true },
+      html,
     );
     return;
   }
@@ -398,7 +475,7 @@ async function deliverPlanExitFallback(
     rest = rest.slice(cut).replace(/^\n+/, "");
   }
 
-  await sendInTopic(session, header, undefined, { html: true });
+  await sendInTopic(session, header, undefined, html);
   for (let i = 0; i < chunks.length; i++) {
     const part = chunks[i]!;
     const prefix =
@@ -412,13 +489,13 @@ async function deliverPlanExitFallback(
       session,
       `${prefix}<pre>${safe.slice(0, 3800)}</pre>`,
       undefined,
-      { html: true },
+      html,
     );
   }
   await sendInTopic(
     session,
     `Next: <code>/build</code> to leave plan mode and implement, or keep refining in plan.`,
     undefined,
-    { html: true },
+    html,
   );
 }

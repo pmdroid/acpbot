@@ -775,18 +775,39 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       });
   }
 
-  async function spawnSession(input: {
-    sessionKey: string;
-    agent: string;
-    cwd: string;
-    permissionMode?: "ask" | "bypass";
-  }): Promise<LiveSession> {
+  async function spawnSession(
+    input: {
+      sessionKey: string;
+      agent: string;
+      cwd: string;
+      permissionMode?: "ask" | "bypass";
+    },
+    /**
+     * After a timed-out session/load the ACP stdio channel is often wedged.
+     * Retry once with a fresh process and skip load → session/new.
+     * If session/new also hangs (common while Grok starts MCP), retry with no MCP.
+     */
+    opts?: { skipLoad?: boolean; noMcp?: boolean },
+  ): Promise<LiveSession> {
     // Do NOT pass Grok --always-approve / yoloMode. Host-side permissionMode
     // "bypass" already auto-allows tool request_permission. Grok's
     // --always-approve short-circuits exit_plan_mode (plan approval) and
     // cancels the turn without ever calling the ACP client — so Telegram
     // never gets Approve/Reject. See plan-exit force-ask in handlePermission.
     const alwaysApprove = false;
+    const skipLoad = opts?.skipLoad === true;
+    const noMcp = opts?.noMcp === true;
+
+    const raceTimeout = <T>(p: Promise<T>, ms: number, label: string) =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error(`${label} timed out after ${ms}ms`)),
+            ms,
+          );
+        }),
+      ]);
     const launch = resolveAgentLaunchForSpawn(
       input.agent,
       process.env,
@@ -914,13 +935,50 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       protocolVersion: initResult.protocolVersion,
     });
 
+    // Cursor (and some agents) advertise authMethods and require authenticate
+    // before session/new. Prefer cursor_login when present; otherwise first id.
+    // Pre-login via `cursor-agent login` / CURSOR_API_KEY usually makes this a no-op.
+    const authMethods = Array.isArray(initResult.authMethods)
+      ? initResult.authMethods
+      : [];
+    if (authMethods.length > 0) {
+      const preferred =
+        authMethods.find((m) => m && typeof m === "object" && m.id === "cursor_login") ??
+        authMethods.find((m) => m && typeof m === "object" && typeof m.id === "string");
+      const methodId =
+        preferred && typeof preferred === "object" && typeof preferred.id === "string"
+          ? preferred.id
+          : undefined;
+      if (methodId) {
+        log.info("acp authenticate", {
+          sessionKey: input.sessionKey,
+          methodId,
+        });
+        try {
+          // ClientContext exposes request/notify only (not high-level helpers).
+          await connection.agent.request(acp.methods.agent.authenticate, {
+            methodId,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new Error(
+            `ACP authenticate failed (methodId=${methodId}): ${msg}` +
+              (methodId === "cursor_login"
+                ? "\nRun `cursor-agent login` (or set CURSOR_API_KEY) then retry."
+                : ""),
+          );
+        }
+      }
+    }
+
     // sessionKey is `repo/name` — use repo segment for OAuth token path.
     const repoKeyFromSession = input.sessionKey.includes("/")
       ? input.sessionKey.slice(0, input.sessionKey.indexOf("/"))
       : input.sessionKey;
 
-    const mcpList: acp.McpServer[] =
-      options.mcpEnabled === false
+    const mcpList: acp.McpServer[] = noMcp
+      ? []
+      : options.mcpEnabled === false
         ? []
         : await buildSessionMcpServers({
             cwd: input.cwd,
@@ -932,6 +990,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               : {}),
             log,
           });
+    if (noMcp) {
+      log.warn("spawn with no MCP (session/new recovery path)", {
+        sessionKey: input.sessionKey,
+      });
+    }
     const prior = sessionStore
       ? await sessionStore.load(input.sessionKey)
       : undefined;
@@ -948,20 +1011,32 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     let loadSideMeta: unknown;
 
     // Resume path: re-spawned process + session/load when agent advertises it.
-    if (prior?.agentSessionId && supportsLoad) {
+    // Cap wait: after host restart Grok can hang on load; the ACP stdio
+    // connection is then unusable for session/new — we must kill + respawn.
+    const SESSION_LOAD_TIMEOUT_MS = 45_000;
+    if (prior?.agentSessionId && supportsLoad && !skipLoad) {
       try {
         log.info("session/load attempt", {
           sessionKey: input.sessionKey,
           agentSessionId: prior.agentSessionId,
+          timeoutMs: SESSION_LOAD_TIMEOUT_MS,
         });
-        const loadResp = await connection.agent.request(
-          acp.methods.agent.session.load,
-          {
+        const loadResp = await Promise.race([
+          connection.agent.request(acp.methods.agent.session.load, {
             sessionId: prior.agentSessionId,
             cwd: input.cwd,
             mcpServers: mcpList,
-          },
-        );
+          }),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new Error(
+                  `session/load timed out after ${SESSION_LOAD_TIMEOUT_MS}ms`,
+                ),
+              );
+            }, SESSION_LOAD_TIMEOUT_MS);
+          }),
+        ]);
         const loadRec =
           loadResp && typeof loadResp === "object"
             ? (loadResp as Record<string, unknown>)
@@ -1012,23 +1087,59 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           hasConfigOptions: Array.isArray(loadRec.configOptions),
         });
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
         log.warn("session/load failed; falling back to session/new", {
           sessionKey: input.sessionKey,
           agentSessionId: prior.agentSessionId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMsg,
+          killAndRespawn: true,
         });
+        // Load failure/timeout leaves Grok stdio unusable; never session/new
+        // on the same process — kill and spawn clean without load.
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* */
+        }
+        return spawnSession(input, { skipLoad: true, noMcp });
       }
     }
 
     if (!resumed) {
       // Never set yoloMode — host bypass auto-allows tool permissions; yoloMode
       // makes Grok skip client permission for exit_plan_mode (plan approval).
-      session = await connection.agent
-        .buildSession({
-          cwd: input.cwd,
-          mcpServers: mcpList,
-        })
-        .start();
+      // Cap wait: Grok can hang forever on session/new while starting MCP.
+      const SESSION_NEW_TIMEOUT_MS = 45_000;
+      try {
+        session = await raceTimeout(
+          connection.agent
+            .buildSession({
+              cwd: input.cwd,
+              mcpServers: mcpList,
+            })
+            .start(),
+          SESSION_NEW_TIMEOUT_MS,
+          "session/new",
+        );
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn("session/new failed", {
+          sessionKey: input.sessionKey,
+          error: errMsg,
+          mcpCount: mcpList.length,
+          noMcp,
+        });
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* */
+        }
+        // Retry once without MCP so the topic is usable again.
+        if (!noMcp && /timed out/i.test(errMsg)) {
+          return spawnSession(input, { skipLoad: true, noMcp: true });
+        }
+        throw err instanceof Error ? err : new Error(errMsg);
+      }
       log.info("session/new ok", {
         sessionKey: input.sessionKey,
         agentSessionId: session.sessionId,
@@ -1036,6 +1147,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         hadPrior: Boolean(prior),
         permissionMode: input.permissionMode ?? "ask",
         yoloMode: false,
+        noMcp,
       });
     }
 

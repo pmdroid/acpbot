@@ -869,11 +869,22 @@ export function createDaemon(
     });
   }
 
+  /**
+   * Assigned after sendInTopic is defined (sendInTopic auto-bumps the ⏳
+   * bubble so permanent mid-turn messages do not bury status).
+   */
+  let working!: ReturnType<typeof createWorkingStatus>;
+
   async function sendInTopic(
     session: PersistedSession,
     text: string,
     replyMarkup?: unknown,
-    opts?: { html?: boolean; alreadyHtml?: boolean },
+    opts?: {
+      html?: boolean;
+      alreadyHtml?: boolean;
+      /** When true, this send *is* the working bubble — do not bump after. */
+      workingBubble?: boolean;
+    },
   ): Promise<{ message_id: number }> {
     if (
       session.messageThreadId === undefined ||
@@ -935,10 +946,22 @@ export function createDaemon(
         });
       }
     }
+    // Keep ⏳ as the latest message after permanent mid-turn content.
+    // No-op when cleared (final reply) or when this send *is* the bubble.
+    if (!opts?.workingBubble && working) {
+      try {
+        await working.bump(session);
+      } catch (err) {
+        log.debug("working bump after outbound failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     return last;
   }
 
-  const working = createWorkingStatus({
+  working = createWorkingStatus({
     telegram: env.telegram,
     sendInTopic,
     log,
@@ -2035,6 +2058,7 @@ export function createDaemon(
           filename: filename ?? "photo.jpg",
           ...(caption?.trim() ? { caption: caption.trim() } : {}),
         });
+        await working.bump(session).catch(() => {});
         log.info("worker-api photo", {
           sessionKey,
           path,
@@ -2063,6 +2087,7 @@ export function createDaemon(
           filename: filename ?? "file",
           ...(caption?.trim() ? { caption: caption.trim() } : {}),
         });
+        await working.bump(session).catch(() => {});
         log.info("worker-api document", {
           sessionKey,
           path,
@@ -2083,6 +2108,7 @@ export function createDaemon(
         if (!ok) {
           throw new Error("TTS unavailable or empty text");
         }
+        await working.bump(session).catch(() => {});
         return {
           message: `Sent Telegram voice note (${text.length} chars).`,
         };
@@ -4006,7 +4032,7 @@ export function createDaemon(
       await sendInTopic(
         session,
         "No agent CLIs found on PATH.\n\n" +
-          "Install `grok`, `claude`, `codex`, and/or `opencode`, then retry `/agent`.\n" +
+          "Install `grok`, `claude`, `codex`, `opencode`, and/or `cursor-agent`, then retry `/agent`.\n" +
           "Or set `TACP_AGENTS_ALL=1` to list the full registry regardless of PATH.",
       );
       return;
@@ -5025,9 +5051,10 @@ export function createDaemon(
       skillId,
     });
     // One “⏳ Working…” bubble in this topic; MCP update edits it; final clears it.
-    await working.ensure(session, "Working…");
+    await working.ensure(session, "Starting agent…");
     try {
       const handle = await ensureSessionWithPerms(session);
+      await working.set(session, "Working…").catch(() => {});
       const ac = new AbortController();
       turnAbort.set(session.sessionKey, ac);
 
@@ -5060,9 +5087,27 @@ export function createDaemon(
       await working.clear(session);
       drainTasks.delete(session.sessionKey);
       turnAbort.delete(session.sessionKey);
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error("start turn failed", {
+        sessionKey: session.sessionKey,
+        error: msg,
+      });
+      try {
+        await setSessionStatus(session, "failed");
+        await sendInTopic(
+          session,
+          `**Could not start turn**\n\n\`${msg}\`\n\n` +
+            `Try again, or \`/fresh\` if the agent is stuck after a restart.`,
+          undefined,
+          { html: true },
+        );
+      } catch {
+        /* ignore notify failure */
+      }
       // Still try to run queued work after a failed start.
       maybePumpAfterTurn(session.sessionKey);
-      throw err;
+      // Don't rethrow — handleUpdate already finished; rethrow only left a log line
+      // and a vanishing ⏳ with no operator-visible error.
     }
   }
 

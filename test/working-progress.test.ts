@@ -73,6 +73,84 @@ describe("formatElapsedWorking", () => {
   });
 });
 
+describe("turn runner progressive text", () => {
+  test("flushes agent text mid-turn before tools, remainder at end", async () => {
+    const paints: string[] = [];
+    const sent: string[] = [];
+    const session: PersistedSession = {
+      sessionKey: "demo/s",
+      identity: { repo: "demo", name: "s", agent: "echo" },
+      messageThreadId: 1,
+      chatId: 1,
+      status: "running",
+      cwd: "/tmp",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+
+    const events: AcpTurnEvent[] = [
+      { type: "turn_started" },
+      {
+        type: "agent_message_chunk",
+        text: "Protocol negotiation is landing on the wrong year.\n\n",
+      },
+      {
+        type: "agent_message_chunk",
+        text: "Updating probe helpers next.\n\n",
+      },
+      {
+        type: "tool_call",
+        toolCallId: "t1",
+        title: "Write `lib/mcp/request.ts`",
+      },
+      {
+        type: "agent_message_chunk",
+        text: "Done — re-run the scan.",
+      },
+      { type: "turn_ended", stopReason: "end_turn" },
+    ];
+
+    const runner = createTurnRunner({
+      env: {
+        config: { operatorUserId: 1 },
+        telegram: {} as Environment["telegram"],
+        agents: {} as Environment["agents"],
+        clock: { now: () => 0 },
+        store: {} as Environment["store"],
+      },
+      working: {
+        ensure: async () => {},
+        set: async (_s, text) => {
+          paints.push(text);
+        },
+        clear: async () => {},
+        bump: async () => {},
+        messageId: () => undefined,
+      },
+      sendInTopic: async (_s, text) => {
+        sent.push(text);
+        return { message_id: sent.length };
+      },
+      setSessionStatus: async () => {},
+      log: createLogger({ level: "silent", name: "test" }),
+    });
+
+    await runner.drainTurn(session, (async function* () {
+      for (const e of events) yield e;
+    })());
+
+    // Mid-turn: narrative before tool should already have been posted.
+    expect(sent.length).toBeGreaterThanOrEqual(2);
+    expect(sent[0]).toContain("Protocol negotiation");
+    expect(sent.some((s) => s.includes("Updating probe"))).toBe(true);
+    // End remainder
+    expect(sent[sent.length - 1]).toContain("re-run the scan");
+    // No full-turn duplicate of the early paragraphs
+    const joined = sent.join("\n---\n");
+    expect(joined.match(/Protocol negotiation/g)?.length).toBe(1);
+  });
+});
+
 describe("turn runner paints tool progress", () => {
   test("tool_call updates working bubble without blocking stream", async () => {
     const paints: string[] = [];
@@ -128,6 +206,7 @@ describe("turn runner paints tool progress", () => {
           paints.push(text);
         },
         clear: async () => {},
+        bump: async () => {},
         messageId: () => undefined,
       },
       sendInTopic: async () => ({ message_id: 1 }),
@@ -196,5 +275,94 @@ describe("createWorkingStatus edits in place", () => {
     expect(edits.length).toBeGreaterThanOrEqual(1);
     // last successful edit is the wait label
     expect(edits[edits.length - 1]).toContain("background tasks");
+  });
+
+  test("bump deletes and re-posts so bubble can be last again", async () => {
+    const { createWorkingStatus } = await import("../src/core/working-status");
+    const { silentLogger } = await import("../src/env/logger");
+    const sends: string[] = [];
+    const deleted: number[] = [];
+    let mid = 0;
+    const ws = createWorkingStatus({
+      log: silentLogger(),
+      sendInTopic: async (_s, text, _r, opts) => {
+        expect(opts?.workingBubble).toBe(true);
+        sends.push(text);
+        mid += 1;
+        return { message_id: mid };
+      },
+      telegram: {
+        editMessageText: async () => {},
+        deleteMessage: async (p) => {
+          deleted.push(p.messageId);
+        },
+      } as Environment["telegram"],
+    });
+    const session: PersistedSession = {
+      sessionKey: "a/b",
+      identity: { repo: "a", name: "b", agent: "echo" },
+      messageThreadId: 1,
+      chatId: 9,
+      status: "running",
+      cwd: "/tmp",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    await ws.ensure(session, "Working…");
+    expect(ws.messageId(session.sessionKey)).toBe(1);
+    await ws.set(session, "Running a command…");
+    // still same message (edit in place)
+    expect(ws.messageId(session.sessionKey)).toBe(1);
+    expect(sends).toHaveLength(1);
+
+    await ws.bump(session);
+    expect(deleted).toEqual([1]);
+    expect(sends).toHaveLength(2);
+    expect(sends[1]).toContain("Running a command");
+    expect(ws.messageId(session.sessionKey)).toBe(2);
+
+    // bump with no bubble is a no-op
+    await ws.clear(session);
+    expect(ws.messageId(session.sessionKey)).toBeUndefined();
+    await ws.bump(session);
+    expect(sends).toHaveLength(2);
+  });
+
+  test("edit failure deletes old bubble before repost", async () => {
+    const { createWorkingStatus } = await import("../src/core/working-status");
+    const { silentLogger } = await import("../src/env/logger");
+    const deleted: number[] = [];
+    let mid = 0;
+    let edits = 0;
+    const ws = createWorkingStatus({
+      log: silentLogger(),
+      sendInTopic: async () => {
+        mid += 1;
+        return { message_id: mid };
+      },
+      telegram: {
+        editMessageText: async () => {
+          edits += 1;
+          if (edits === 1) throw new Error("message to edit not found");
+        },
+        deleteMessage: async (p) => {
+          deleted.push(p.messageId);
+        },
+      } as Environment["telegram"],
+    });
+    const session: PersistedSession = {
+      sessionKey: "a/b",
+      identity: { repo: "a", name: "b", agent: "echo" },
+      messageThreadId: 1,
+      chatId: 9,
+      status: "running",
+      cwd: "/tmp",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    await ws.ensure(session, "Working…");
+    await ws.set(session, "Next step…");
+    expect(deleted).toContain(1);
+    expect(ws.messageId(session.sessionKey)).toBe(2);
   });
 });

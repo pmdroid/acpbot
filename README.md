@@ -10,7 +10,7 @@
 Each agent session is a **forum topic** in your private chat with the bot. Talk to Grok, Claude, Codex, or OpenCode from Telegram — permissions, media, MCP tools, and schedules on **your** machine.
 
 ```text
-You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / codex / opencode
+You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / codex / opencode / cursor
 ```
 
 ---
@@ -49,7 +49,7 @@ No Bun or source checkout required for normal use.
 
 ### 1. Bot (once)
 
-In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, or `opencode`).
+In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, `opencode`, or `cursor-agent`).
 
 ### 2. Download the binary
 

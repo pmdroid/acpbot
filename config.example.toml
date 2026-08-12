@@ -24,7 +24,7 @@ bot_token = "123456:REPLACE_ME"          # from @BotFather
 # store_path = "~/.local/share/acpbot/store.json"
 # state_dir  = "~/.local/share/acpbot/state"
 
-default_agent = "grok-build"             # grok-build | claude | codex | opencode
+default_agent = "grok-build"             # grok-build | claude | codex | opencode | cursor-agent
 log_level = "info"                       # debug | info | warn | error | silent
 
 # ── Repos for /new picker + schedule scan ──────────────────────────────────

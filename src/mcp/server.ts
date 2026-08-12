@@ -507,7 +507,9 @@ server.tool(
         .string()
         .min(1)
         .optional()
-        .describe("Agent id: grok-build | claude | codex | opencode"),
+        .describe(
+          "Agent id: grok-build | claude | codex | opencode | cursor-agent",
+        ),
       role: z.string().min(1).optional().describe("Optional role label"),
       prompt: z
         .string()

@@ -20,7 +20,7 @@
  * Skip a binary with PATH missing; skip launch failures for adapter agents
  * (claude/codex npx/auth). Disable all live probes: ACPBOT_SKIP_LIVE_ACP=1.
  *
- * Supported agents: grok-build, claude, codex, opencode.
+ * Supported agents: grok-build, claude, codex, opencode, cursor-agent.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -56,6 +56,7 @@ const SUPPORTED_AGENTS = [
   "claude",
   "codex",
   "opencode",
+  "cursor-agent",
 ] as const;
 type SupportedAgent = (typeof SUPPORTED_AGENTS)[number];
 
@@ -97,6 +98,12 @@ const EXPECT: Record<SupportedAgent, AgentCapExpect> = {
     mustModes: true,
     modeMustInclude: ["build", "plan"],
     mustLoad: true,
+  },
+  "cursor-agent": {
+    softLaunch: true, // needs cursor-agent login / CURSOR_API_KEY
+    // Modes match CLI: agent / plan / ask (session/set_mode).
+    mustModes: true,
+    modeMustInclude: ["agent", "plan", "ask"],
   },
 };
 

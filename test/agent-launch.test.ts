@@ -85,11 +85,21 @@ describe("agent-launch", () => {
     expect(launch).toEqual({ command: "opencode", args: ["acp"] });
   });
 
+  test("cursor-agent uses native acp subcommand", () => {
+    expect(normalizeAgentName("cursor")).toBe("cursor-agent");
+    expect(normalizeAgentName("cursor-cli")).toBe("cursor-agent");
+    const launch = resolveAgentLaunch("cursor-agent");
+    expect(launch).toEqual({ command: "cursor-agent", args: ["acp"] });
+    expect(resolveAgentLaunch("cursor")).toEqual(launch);
+  });
+
   test("display names are human-friendly", () => {
     expect(agentDisplayName("grok-build")).toBe("grok");
     expect(agentDisplayName("grok")).toBe("grok");
     expect(agentDisplayName("opencode-ai")).toBe("opencode");
     expect(agentDisplayName("claude-code")).toBe("claude");
+    expect(agentDisplayName("cursor")).toBe("cursor");
+    expect(agentDisplayName("cursor-agent")).toBe("cursor");
   });
 });
 
@@ -100,15 +110,22 @@ describe("listRegisteredAgents availability", () => {
   test("known registry has unique canonical ids", () => {
     const ids = listKnownAgentIds({});
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+    expect(ids).toEqual([
+      "grok-build",
+      "claude",
+      "codex",
+      "opencode",
+      "cursor-agent",
+    ]);
     expect(ids.filter((id) => id.includes("opencode"))).toEqual(["opencode"]);
   });
 
   test("only lists agents whose required bins exist", () => {
     const ids = listRegisteredAgents({ env: {}, which });
-    // codex missing from present set
+    // codex + cursor-agent missing from present set
     expect(ids).toEqual(["grok-build", "claude", "opencode"]);
     expect(ids).not.toContain("codex");
+    expect(ids).not.toContain("cursor-agent");
   });
 
   test("empty PATH yields empty picker list", () => {
@@ -124,7 +141,13 @@ describe("listRegisteredAgents availability", () => {
       env: { ACPBOT_AGENTS_ALL: "1" },
       which: () => null,
     });
-    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+    expect(ids).toEqual([
+      "grok-build",
+      "claude",
+      "codex",
+      "opencode",
+      "cursor-agent",
+    ]);
   });
 
   test("availableOnly false lists full registry", () => {
@@ -133,7 +156,13 @@ describe("listRegisteredAgents availability", () => {
       which: () => null,
       availableOnly: false,
     });
-    expect(ids).toEqual(["grok-build", "claude", "codex", "opencode"]);
+    expect(ids).toEqual([
+      "grok-build",
+      "claude",
+      "codex",
+      "opencode",
+      "cursor-agent",
+    ]);
   });
 
   test("allowlist intersects installed agents", () => {
@@ -184,8 +213,10 @@ describe("listRegisteredAgents availability", () => {
   test("isAgentAvailable + requiredBins", () => {
     expect(requiredBinsForAgent("grok-build")).toEqual(["grok"]);
     expect(requiredBinsForAgent("claude")).toEqual(["npx", "claude"]);
+    expect(requiredBinsForAgent("cursor-agent")).toEqual(["cursor-agent"]);
     expect(isAgentAvailable("opencode", { which })).toBe(true);
     expect(isAgentAvailable("codex", { which })).toBe(false);
+    expect(isAgentAvailable("cursor-agent", { which })).toBe(false);
   });
 
   test("agentSelectOptions only lists PATH-available agents", () => {
