@@ -30,6 +30,7 @@ Commands are registered in `src/core/commands.ts`.
 | `/model` | LLM picker buttons, or `/model <value>` |
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
+| `/review` | Dual-agent closeout review: `/review [local\|branch] [a] [b] [panel\|adversarial]` — see [Review](/docs/review) |
 | `/mode` | Session mode picker (plan/build/ask), or `/mode <id>` / toggle |
 | `/permissions` | Tool policy picker (**Ask** / **Bypass** buttons). Topic sets this session; lobby sets default + config.toml. Also `/permissions ask\|bypass` or `default ask\|bypass`. |
 

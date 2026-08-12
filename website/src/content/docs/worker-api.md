@@ -32,6 +32,7 @@ All bodies are JSON. Responses are JSON `{ ok: true, … }` or `{ ok: false, err
 | `POST /v1/telegram/photo` | `sessionKey`, `path`, optional `caption`, `filename` | `sendPhoto` |
 | `POST /v1/telegram/document` | `sessionKey`, `path`, optional `caption`, `filename` | `sendDocument` |
 | `POST /v1/telegram/speak` | `sessionKey`, `text` | TTS + `sendVoice` |
+| `POST /v1/review/run` | `sessionKey`, optional `mode`, `protocol`, `agent_a`, `agent_b`, `base`, `max_priority` | Dual-agent closeout review — [Review](/docs/review) |
 | `GET /v1/health` | — | Liveness |
 
 Exact path strings are defined in `src/mcp/worker-api.ts` / the server; MCP tool wrappers hide them from agents.

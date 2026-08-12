@@ -26,6 +26,7 @@ The name `acpbot` is reserved.
 | `schedule_cancel` | Disable a job |
 | `schedule_run_now` | Mark due so the host fires on the next tick |
 | `agent_spawn` / `list` / `send` / `wait` / `kill` | Multi-agent children (worktrees + A2A) — [Multi-agent](/docs/multi-agent) |
+| `review_run` | Dual-agent closeout review (frozen bundle) — [Review](/docs/review) |
 | `linear_get_binding` / `linear_bind_project` / `linear_unbind_project` | Topic ↔ Linear project binding — [Linear](/docs/linear) |
 
 ### Working bubble vs permanent messages
