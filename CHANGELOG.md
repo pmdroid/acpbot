@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.0] — 2026-08-12
+
+### Added
+
+- **Cursor Agent** — built-in `cursor-agent` registry entry (`cursor-agent acp`), aliases (`cursor`, `cursor-cli`), docs; ACP `authenticate` when agents advertise `authMethods` (e.g. `cursor_login`)
+- **Dual-agent closeout review** — `/review` and MCP `review_run` freeze a git bundle (local dirty or branch), run two ACP reviewers in **panel** or **adversarial** mode, merge structured findings; skill `autoreview`; docs [Review](https://acpbot.app/docs/review)
+- Artifacts under `$state_dir/reviews/<id>/` (`bundle.diff`, `result.json` / `result.md`)
+
+### Fixed / hardened
+
+- Session **ensure** coalescing per slot, bounded ensure RPC timeout, hung `session/load` / `session/new` recovery
+- Working-status bubble re-post so progress stays last; progressive mid-turn paragraph flushes
+
+### Install
+
+- Binaries: [v0.2.0](https://github.com/pmdroid/acpbot/releases/tag/v0.2.0) (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`)
+- Docker: `ghcr.io/pmdroid/acpbot:v0.2.0` (`:0.2.0`, `:latest`)
+
 ## [0.1.0] — 2026-08-07
 
 First public release as **acpbot**.
