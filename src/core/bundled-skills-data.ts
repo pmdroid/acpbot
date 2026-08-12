@@ -101,10 +101,6 @@ Include:
 - tests/proof run if you fixed anything
 
 Do not re-run review solely to polish wording after a clean result.
-
-## Credits
-
-Structured closeout review, priority-gated findings, and multi-reviewer panel ideas draw from the [OpenClaw autoreview skill](https://github.com/openclaw/agent-skills/tree/main/skills/autoreview). acpbot’s implementation is ACP-native (\`/review\`, \`review_run\`).
 `,
   },
   "eve": {
