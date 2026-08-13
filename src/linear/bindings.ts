@@ -325,7 +325,7 @@ export const TELEGRAM_TOPIC_NAME_MAX = 128;
 
 /**
  * Topic title when bound: base session name + project label (truncated).
- * Base is typically `topicName(repo, name)` e.g. `⏸ demo/auth`.
+ * Base is typically `topicName(repo, name)` e.g. `demo/auth`.
  */
 export function formatLinearTopicTitle(
   baseTopicName: string,

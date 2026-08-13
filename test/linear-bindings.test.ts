@@ -226,12 +226,12 @@ describe("phase 2 sticky context + labels + env", () => {
     );
     expect(formatLinearSessionListLabel(undefined)).toBeUndefined();
 
-    const title = formatLinearTopicTitle("⏸ demo/auth", binding);
+    const title = formatLinearTopicTitle("demo/auth", binding);
     expect(title).toContain("Auth rewrite");
-    expect(title.startsWith("⏸ demo/auth")).toBe(true);
+    expect(title.startsWith("demo/auth")).toBe(true);
     expect(title.length).toBeLessThanOrEqual(128);
 
-    const longBase = "⏸ " + "x".repeat(200);
+    const longBase = "x".repeat(200);
     expect(formatLinearTopicTitle(longBase, binding).length).toBeLessThanOrEqual(
       128,
     );

@@ -166,7 +166,7 @@ On startup acpbot **wipes** stale `setMyCommands` scopes and registers the slash
 | `/mcp` | Per-repo remote MCP registry + OAuth |
 | `/cancel` | Stop current turn **and clear the queue** (session kept) |
 
-While a turn runs you will see a single **`⏳`** (or **`❓`**) status bubble in the topic. It updates in place as tools run. The final reply appears after the bubble is removed. Forum topic titles stay fixed (`⏸ repo/name`).
+While a turn runs you will see a single **`⏳`** (or **`❓`**) status bubble in the topic. It updates in place as tools run. The final reply appears after the bubble is removed. Forum topic titles stay fixed (`repo/name`).
 
 **Busy-turn UX:** free-text is queued (non-interrupt) with a **Remove** button on the ack; `/steer …` interrupts. Telegram does not notify message deletes — use Remove or `/unqueue`.
 

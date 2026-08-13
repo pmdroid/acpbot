@@ -148,7 +148,7 @@ Default `state_dir` is `~/.local/share/acpbot/state` (absolute after load). Work
 
 ## Session model
 
-1. Lobby `/new` → pick repo (+ name) → create forum topic (stable title `⏸ repo/name`)
+1. Lobby `/new` → pick repo (+ name) → create forum topic (stable title `repo/name`)
 2. Topic messages become ACP `prompt` turns (with optional media prep)
 3. Permissions / questions → inline keyboards; answers complete the RPC
 4. `/agent` may respawn a different process for the same topic

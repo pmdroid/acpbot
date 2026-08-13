@@ -44,7 +44,7 @@ export function reduceStatus(
  * status (work / wait live in the in-topic “⏳/❓” bubble instead).
  */
 export function topicName(repo: string, name: string): string {
-  return `⏸ ${repo}/${name}`;
+  return `${repo}/${name}`;
 }
 
 /** Bare session identity for createForumTopic. */
