@@ -2,10 +2,21 @@
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-08-13
+
+### Added
+
+- **EVE `host.ask` / `/eve answer`** — park a run as `waiting_user` and collect an operator decision (Telegram buttons + `/eve answer <runId> <n>`)
+
 ### Fixed / hardened
 
-- **EVE blocked ≠ complete** — a directive that returns `blocked` (or any leaf `status: "blocked"`) no longer gets `🌱 EVE complete`. The host parks the run as `waiting_user` and asks the operator (Telegram buttons + `/eve answer`). Scripts can `await host.ask({ question, options })` mid-run so a stuck review cannot die quietly.
+- **EVE blocked ≠ complete** — a directive that returns `blocked` (or any leaf `status: "blocked"`) no longer gets `🌱 EVE complete`. The host parks the run as `waiting_user` and asks the operator. Scripts can `await host.ask({ question, options })` mid-run so a stuck review cannot die quietly.
 - **EVE / review: Cursor is first-class** — Eve recipes tell leaves to honor a requested reviewer (`agent: "cursor-agent"` or helper `--engine cursor`). Unset helper `--engine` still defaults to Codex; do not fall through when the operator asked for Composer.
+
+### Install
+
+- Binaries: [v0.2.1](https://github.com/pmdroid/acpbot/releases/tag/v0.2.1) (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`)
+- Docker: `ghcr.io/pmdroid/acpbot:v0.2.1` (`:0.2.1`, `:latest`)
 
 ## [0.2.0] — 2026-08-12
 
