@@ -43,6 +43,29 @@ export type EveNodeState = {
   phase?: string;
 };
 
+/** One choice in host.ask / the auto-ask when a run returns blocked. */
+export type EveAskOption = {
+  id: string;
+  label: string;
+  description?: string;
+};
+
+export type EveAskAnswer = {
+  id: string;
+  label: string;
+  index: number;
+};
+
+/** Parked operator question. Run status is waiting_user until answered. */
+export type EvePendingAsk = {
+  key: string;
+  question: string;
+  options: EveAskOption[];
+  createdAt: number;
+  reason?: "script" | "blocked_return";
+  answered?: EveAskAnswer;
+};
+
 export type EveBudgetState = {
   agentsMax: number;
   agentsUsed: number;
@@ -70,6 +93,10 @@ export type EveRun = {
   error?: string;
   /** When require_approval was skipped or already approved. */
   approvedAt?: number;
+  /** Active host.ask / blocked-return question (if status is waiting_user). */
+  pendingAsk?: EvePendingAsk;
+  /** Prior ask answers keyed by question+options hash (resume-safe). */
+  askCache?: Record<string, EveAskAnswer>;
 };
 
 export type EveMeta = {

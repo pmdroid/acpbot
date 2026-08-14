@@ -56,6 +56,7 @@ To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.tx
 | `/skills` | Pick a skill, then send a prompt |
 | `/mcp` | Remote MCP registry + OAuth (see below) |
 | `/linear` | Linear OAuth MCP + topic↔project bind / export / next / work / fanout — [Linear](/docs/linear) |
+| `/eve` | Background directives: run / approve / status / answer a parked question — [EVE](/docs/eve) |
 | `/help` | Topic help (includes queue vs steer notes) |
 
 ### Plan ready → approve

@@ -152,6 +152,13 @@ export type WorkerToHost =
       name: string;
       source: string;
       scope?: "project" | "user";
+    }
+  | {
+      type: "eve_answer";
+      reqId: string;
+      runId: string;
+      sessionKey: string;
+      answer: string;
     };
 
 export type HostToWorker =
@@ -272,6 +279,8 @@ export type HostToWorker =
       sessionKey: string;
       text: string;
       runId?: string;
+      /** When set, worker posts an inline keyboard for /eve answer. */
+      ask?: Array<{ id: string; label: string }>;
     };
 
 export function defaultAcpHostSock(

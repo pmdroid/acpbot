@@ -18,11 +18,25 @@ import {
 import { runEveScript } from "./sandbox";
 import type {
   EveAgentOptions,
+  EveAskAnswer,
+  EveAskOption,
   EveConfig,
   EveNodeState,
+  EvePendingAsk,
   EveRun,
 } from "./types";
 import { DEFAULT_EVE_CONFIG } from "./types";
+import {
+  askCacheKey,
+  attachOperatorDecision,
+  DEFAULT_BLOCKED_ASK_OPTIONS,
+  formatEveCompletionNotify,
+  formatEveStuckMessage,
+  hasOperatorDecision,
+  inspectEveOutcome,
+  matchEveAskAnswer,
+  normalizeEveAskInput,
+} from "./outcome";
 
 export type EveRuntimeDeps = {
   stateDir: string;
@@ -41,8 +55,12 @@ export type EveRuntimeDeps = {
     role?: string;
     timeoutSec: number;
   }) => Promise<{ summary: string; childSessionKey?: string; status: string }>;
-  /** Notify operator (Telegram). */
-  notify?: (sessionKey: string, text: string) => Promise<void>;
+  /** Notify operator (Telegram). Optional ask buttons become an inline keyboard. */
+  notify?: (
+    sessionKey: string,
+    text: string,
+    extra?: { ask?: EveAskOption[]; runId?: string },
+  ) => Promise<void>;
   /** Optional host helpers exposed as `host` in scripts. */
   hostHelpers?: Record<string, (...args: unknown[]) => Promise<unknown> | unknown>;
   /** Nested workflow runner (phase 6). */
@@ -63,6 +81,63 @@ function cacheKey(
   h.update("\0");
   h.update(JSON.stringify(options ?? {}));
   return h.digest("hex").slice(0, 24);
+}
+
+type AskWaiter = {
+  resolve: (answer: EveAskAnswer) => void;
+  reject: (err: Error) => void;
+};
+
+/** In-process waiters for host.ask / blocked-return auto-ask. */
+const askWaiters = new Map<string, AskWaiter>();
+
+export function hasEveAskWaiter(runId: string): boolean {
+  return askWaiters.has(runId);
+}
+
+export async function answerEveAsk(
+  stateDir: string,
+  runId: string,
+  raw: string,
+): Promise<
+  | { ok: true; answer: EveAskAnswer; waiterAlive: boolean; run: EveRun }
+  | { ok: false; error: string; run?: EveRun }
+> {
+  const run = await loadEveRun(stateDir, runId);
+  if (!run) return { ok: false, error: `EVE run not found: ${runId}` };
+  const pending = run.pendingAsk;
+  if (!pending) {
+    return { ok: false, error: "no pending operator question", run };
+  }
+  if (pending.answered) {
+    return { ok: true, answer: pending.answered, waiterAlive: false, run };
+  }
+  const answer = matchEveAskAnswer(pending.options, raw);
+  if (!answer) {
+    const opts = pending.options
+      .map((o, i) => `${i + 1}) ${o.label}`)
+      .join(" · ");
+    return {
+      ok: false,
+      error: `unrecognized answer ${JSON.stringify(raw)}. Options: ${opts}`,
+      run,
+    };
+  }
+  const next: EveRun = appendEveLog(
+    {
+      ...run,
+      pendingAsk: { ...pending, answered: answer },
+      askCache: { ...(run.askCache ?? {}), [pending.key]: answer },
+    },
+    `operator answered: ${answer.label}`,
+  );
+  await saveEveRun(stateDir, next);
+  const waiter = askWaiters.get(runId);
+  if (waiter) {
+    askWaiters.delete(runId);
+    waiter.resolve(answer);
+  }
+  return { ok: true, answer, waiterAlive: Boolean(waiter), run: next };
 }
 
 function slugFromLabel(label: string | undefined, seq: number): string {
@@ -435,12 +510,106 @@ export async function executeEveRun(
     })();
   };
 
+  const waitForAsk = async (input: {
+    question: string;
+    options: EveAskOption[];
+    reason: "script" | "blocked_return";
+  }): Promise<EveAskAnswer> => {
+    const key = askCacheKey(input.question, input.options);
+    const cached = run.askCache?.[key];
+    if (cached) return cached;
+    if (run.pendingAsk?.key === key && run.pendingAsk.answered) {
+      return run.pendingAsk.answered;
+    }
+
+    const pending: EvePendingAsk = {
+      key,
+      question: input.question,
+      options: input.options,
+      createdAt: Date.now(),
+      reason: input.reason,
+    };
+    run = await persist(
+      appendEveLog(
+        { ...run, status: "waiting_user", pendingAsk: pending },
+        `waiting on operator: ${input.question.slice(0, 120)}`,
+      ),
+    );
+
+    if (deps.notify) {
+      const text =
+        input.reason === "blocked_return"
+          ? input.question
+          : [
+              `❓ EVE needs a decision · **${run.name}**`,
+              "",
+              input.question,
+              "",
+              ...input.options.map((o, i) => `${i + 1}) ${o.label}`),
+              "",
+              `Tap a button or \`/eve answer ${run.runId.slice(0, 8)} 1\``,
+            ].join("\n");
+      await deps
+        .notify(run.sessionKey, text, {
+          ask: input.options,
+          runId: run.runId,
+        })
+        .catch(() => {});
+    }
+
+    const answer = await new Promise<EveAskAnswer>((resolve, reject) => {
+      const prev = askWaiters.get(run.runId);
+      if (prev) {
+        prev.reject(new Error("superseded by a newer operator question"));
+      }
+
+      const poll = setInterval(() => {
+        void (async () => {
+          try {
+            await checkAbort();
+          } catch (err) {
+            clearInterval(poll);
+            askWaiters.delete(run.runId);
+            reject(err instanceof Error ? err : new Error(String(err)));
+          }
+        })();
+      }, 1000);
+
+      askWaiters.set(run.runId, {
+        resolve: (a) => {
+          clearInterval(poll);
+          resolve(a);
+        },
+        reject: (e) => {
+          clearInterval(poll);
+          reject(e);
+        },
+      });
+    });
+
+    run = await persist({
+      ...run,
+      status: "running",
+      pendingAsk: undefined,
+      askCache: { ...(run.askCache ?? {}), [key]: answer },
+    });
+    return answer;
+  };
+
   const host: Record<string, unknown> = {
     sessionKey: run.sessionKey,
     repoKey: run.repoKey,
     repoRoot: run.repoRoot,
     runId: run.runId,
     ...(deps.hostHelpers ?? {}),
+    ask: async (raw: unknown) => {
+      const parsed = normalizeEveAskInput(raw);
+      return waitForAsk({
+        question: parsed.question,
+        options: parsed.options,
+        reason: "script",
+      });
+    },
   };
 
   const source = await Bun.file(run.scriptPath).text().catch(async () => {
@@ -450,7 +619,7 @@ export async function executeEveRun(
   });
 
   try {
-    const result = await runEveScript(source, {
+    let result = await runEveScript(source, {
       agent: agentFn,
       parallel: parallelFn,
       pipeline: pipelineFn,
@@ -467,11 +636,33 @@ export async function executeEveRun(
         : undefined,
     });
 
+    const outcome = inspectEveOutcome(result, run.nodes);
+    if (outcome.kind === "blocked" && !hasOperatorDecision(result)) {
+      const question = formatEveStuckMessage({
+        name: run.name,
+        runId: run.runId,
+        outcome,
+      });
+      const decision = await waitForAsk({
+        question,
+        options: DEFAULT_BLOCKED_ASK_OPTIONS,
+        reason: "blocked_return",
+      });
+      result = attachOperatorDecision(result, decision);
+    }
+
+    const finalOutcome = inspectEveOutcome(result, run.nodes);
+    const decision =
+      result && typeof result === "object" && !Array.isArray(result)
+        ? ((result as { operatorDecision?: EveAskAnswer }).operatorDecision)
+        : undefined;
+
     // mark remaining active phases done
     run = await persist({
       ...run,
       status: "completed",
       finalResult: result ?? null,
+      pendingAsk: undefined,
       budget: { ...run.budget, agentsUsed },
       phases: run.phases.map((p) =>
         p.status === "active" || p.status === "pending"
@@ -479,12 +670,28 @@ export async function executeEveRun(
           : p,
       ),
     });
-    run = await persist(appendEveLog(run, "EVE directive completed"));
+    run = await persist(
+      appendEveLog(
+        run,
+        finalOutcome.kind === "clean"
+          ? "EVE directive completed"
+          : `EVE directive finished (${finalOutcome.kind}` +
+              (decision ? `; operator: ${decision.label}` : "") +
+              ")",
+      ),
+    );
     if (deps.notify) {
-      await deps.notify(
-        run.sessionKey,
-        `🌱 EVE complete · **${run.name}** · agents ${agentsUsed}`,
-      ).catch(() => {});
+      await deps
+        .notify(
+          run.sessionKey,
+          formatEveCompletionNotify({
+            name: run.name,
+            agentsUsed,
+            outcome: finalOutcome,
+            decision,
+          }),
+        )
+        .catch(() => {});
     }
     return run;
   } catch (err) {

@@ -15,6 +15,12 @@ import {
 import { validateJsonSchema, parseAgentStructuredResult } from "../src/eve/schema";
 import { runEveScript } from "../src/eve/sandbox";
 import { createEveService } from "../src/eve/runner";
+import {
+  inspectEveOutcome,
+  matchEveAskAnswer,
+  formatEveCompletionNotify,
+  DEFAULT_BLOCKED_ASK_OPTIONS,
+} from "../src/eve/outcome";
 
 describe("EVE meta + body", () => {
   test("extracts nested phases meta", () => {
@@ -208,5 +214,206 @@ return r;
       await rm(stateDir, { recursive: true, force: true });
       await rm(repoRoot, { recursive: true, force: true });
     }
+  });
+
+  test("blocked return parks as waiting_user and does not plant-complete", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-block-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-block-"));
+    try {
+      const notes: string[] = [];
+      const svc = createEveService({
+        stateDir,
+        config: {
+          enabled: true,
+          requireApproval: false,
+          maxAgentsPerRun: 5,
+          maxConcurrent: 1,
+          schemaRetries: 0,
+        },
+      });
+
+      await writeEveScript({
+        repoRoot,
+        stateDir,
+        name: "wave1",
+        source: `
+export const meta = {
+  name: "wave1",
+  description: "stack",
+};
+return {
+  blocked: 1,
+  stopOnBlocked: true,
+  results: [{
+    status: "blocked",
+    identifier: "PAS-45",
+    summary: "review not clean after 3 rounds",
+  }],
+};
+`,
+      });
+
+      const exec = svc.run(
+        {
+          sessionKey: "demo/topic",
+          repoKey: "demo",
+          repoRoot,
+          name: "wave1",
+          skipApproval: true,
+        },
+        {
+          runAgent: async () => ({ summary: "{}", status: "idle" }),
+          notify: async (_session, text) => {
+            notes.push(text);
+          },
+        },
+      );
+
+      let runId: string | undefined;
+      for (let i = 0; i < 80; i++) {
+        const runs = await svc.listRuns("demo/topic");
+        const waiting = runs.find((r) => r.status === "waiting_user");
+        if (waiting) {
+          runId = waiting.runId;
+          break;
+        }
+        await Bun.sleep(25);
+      }
+      expect(runId).toBeTruthy();
+      expect(notes.some((n) => n.includes("🌱 EVE complete"))).toBe(false);
+      expect(notes.some((n) => /EVE stuck|PAS-45/i.test(n))).toBe(true);
+
+      const ans = await svc.answer(runId!, "stop");
+      expect(ans.ok).toBe(true);
+      if (ans.ok) expect(ans.answer.id).toBe("stop");
+
+      const finished = await exec;
+      expect(finished.status).toBe("completed");
+      expect(finished.finalResult).toMatchObject({
+        blocked: 1,
+        operatorDecision: { id: "stop" },
+      });
+      expect(notes.some((n) => n.includes("🌱 EVE complete"))).toBe(false);
+      expect(notes.some((n) => /finished blocked|you chose/i.test(n))).toBe(
+        true,
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("host.ask parks mid-script and returns the operator choice", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-ask-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-ask-"));
+    try {
+      const svc = createEveService({
+        stateDir,
+        config: {
+          enabled: true,
+          requireApproval: false,
+          maxAgentsPerRun: 5,
+          maxConcurrent: 1,
+          schemaRetries: 0,
+        },
+      });
+
+      await writeEveScript({
+        repoRoot,
+        stateDir,
+        name: "ask-me",
+        source: `
+export const meta = { name: "ask-me", description: "ask" };
+const d = await host.ask({
+  question: "Continue the stack?",
+  options: [
+    { id: "yes", label: "Yes, continue" },
+    { id: "no", label: "No, stop" },
+  ],
+});
+return { asked: true, decision: d };
+`,
+      });
+
+      const exec = svc.run(
+        {
+          sessionKey: "demo/topic",
+          repoKey: "demo",
+          repoRoot,
+          name: "ask-me",
+          skipApproval: true,
+        },
+        {
+          runAgent: async () => ({ summary: "{}", status: "idle" }),
+        },
+      );
+
+      let runId: string | undefined;
+      for (let i = 0; i < 80; i++) {
+        const runs = await svc.listRuns("demo/topic");
+        const waiting = runs.find((r) => r.status === "waiting_user");
+        if (waiting) {
+          runId = waiting.runId;
+          break;
+        }
+        await Bun.sleep(25);
+      }
+      expect(runId).toBeTruthy();
+
+      const ans = await svc.answer(runId!, "yes");
+      expect(ans.ok).toBe(true);
+
+      const finished = await exec;
+      expect(finished.status).toBe("completed");
+      expect(finished.finalResult).toMatchObject({
+        asked: true,
+        decision: { id: "yes", label: "Yes, continue" },
+      });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("EVE outcome", () => {
+  test("classifies blocked results and never calls that clean", () => {
+    const out = inspectEveOutcome(
+      {
+        blocked: 1,
+        stopOnBlocked: true,
+        results: [
+          {
+            status: "blocked",
+            identifier: "PAS-45",
+            summary: "review not clean",
+          },
+          { status: "done", identifier: "PAS-97" },
+        ],
+      },
+      {},
+    );
+    expect(out.kind).toBe("blocked");
+    expect(out.blocked).toBeGreaterThanOrEqual(1);
+    expect(out.items.some((i) => i.label === "PAS-45")).toBe(true);
+  });
+
+  test("clean result stays a plant", () => {
+    const notify = formatEveCompletionNotify({
+      name: "tiny",
+      agentsUsed: 2,
+      outcome: inspectEveOutcome({ summary: "ok" }, {}),
+    });
+    expect(notify).toContain("🌱 EVE complete");
+    expect(inspectEveOutcome({ done: 2, blocked: 0 }, {}).kind).toBe("clean");
+  });
+
+  test("matches /eve answer by number, id, or label prefix", () => {
+    const opts = DEFAULT_BLOCKED_ASK_OPTIONS;
+    expect(matchEveAskAnswer(opts, "1")?.id).toBe("retry");
+    expect(matchEveAskAnswer(opts, "stop")?.id).toBe("stop");
+    expect(matchEveAskAnswer(opts, "continue")?.id).toBe("continue");
+    expect(matchEveAskAnswer(opts, "Keep fixing")?.id).toBe("retry");
+    expect(matchEveAskAnswer(opts, "nope")).toBeNull();
   });
 });

@@ -118,6 +118,11 @@ export type WorkerApiHandlers = {
     source: string;
     scope?: "project" | "user";
   }): Promise<{ message?: string; path?: string; meta?: unknown }>;
+  eveAnswer?(input: {
+    sessionKey: string;
+    runId: string;
+    answer: string;
+  }): Promise<{ message?: string; run?: unknown }>;
   /** Dual-agent closeout review (optional). */
   reviewRun?(input: {
     sessionKey: string;
@@ -499,6 +504,25 @@ export function createWorkerApiServer(options: {
           return;
         }
         const out = await options.handlers.eveKill({ sessionKey, runId });
+        sendJson(res, 200, { ok: true, ...out });
+        return;
+      }
+      if (pathname === "/v1/eve/answer") {
+        if (!options.handlers.eveAnswer) {
+          sendJson(res, 501, { ok: false, error: "EVE not enabled" });
+          return;
+        }
+        const runId = typeof body.runId === "string" ? body.runId : "";
+        const answer = typeof body.answer === "string" ? body.answer : "";
+        if (!runId || !answer.trim()) {
+          sendJson(res, 400, { ok: false, error: "runId and answer required" });
+          return;
+        }
+        const out = await options.handlers.eveAnswer({
+          sessionKey,
+          runId,
+          answer,
+        });
         sendJson(res, 200, { ok: true, ...out });
         return;
       }

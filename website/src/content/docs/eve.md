@@ -44,6 +44,7 @@ Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/ma
 | `/eve status [runId]` | Progress + log |
 | `/eve list` | Scripts + runs |
 | `/eve pause` / `resume` / `kill` | Control |
+| `/eve answer <runId> <n>` | Answer a parked `waiting_user` question (or tap the Telegram buttons) |
 | `/directive` | Alias for `/eve` |
 | `/linear drain` | Agent turn: write + start an EVE drain for the bound project |
 
@@ -86,8 +87,21 @@ const audits = await pipeline(found.files, (file) =>
 return (audits || []).filter(Boolean)
 ```
 
-Injected: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, `host`, `workflow`.
+Injected: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, `host` (including **`host.ask`**), `workflow`.
 See the **eve** skill for full API, recipes (Linear drain, audit, plan→impl→verify), and rules.
+
+### Blocked is not complete
+
+A directive that returns `{ blocked: 1 }` (or any leaf `status: "blocked"`) is **not**
+a successful plant. The host:
+
+1. Parks the run as **`waiting_user`**
+2. Asks you on Telegram (buttons + `/eve answer`) — keep fixing / continue / stop
+3. Only then marks the run finished, with your decision on `finalResult.operatorDecision`
+
+Scripts should **`await host.ask({ question, options })`** *before* returning so they
+can continue the stack after you answer. The auto-ask is a safety net so a
+`stopOnBlocked` graph cannot die quietly behind `🌱 EVE complete`.
 
 ## Leaf handoff (schema + digests)
 

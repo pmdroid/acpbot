@@ -38,6 +38,7 @@ export type AcpHostClientOptions = {
     sessionKey: string;
     text: string;
     runId?: string;
+    ask?: Array<{ id: string; label: string }>;
   }) => void;
 };
 
@@ -85,6 +86,11 @@ export type AcpHostClientApi = SessionHost & {
     name: string;
     source: string;
     scope?: "project" | "user";
+  }): Promise<EveHostResult>;
+  eveAnswer(input: {
+    sessionKey: string;
+    runId: string;
+    answer: string;
   }): Promise<EveHostResult>;
 };
 
@@ -309,6 +315,7 @@ export function createAcpHostClient(
           sessionKey: msg.sessionKey,
           text: msg.text,
           ...(msg.runId ? { runId: msg.runId } : {}),
+          ...(msg.ask ? { ask: msg.ask } : {}),
         });
       } catch {
         /* */
@@ -1036,6 +1043,22 @@ export function createAcpHostClient(
         path: msg.path,
         meta: msg.meta,
       };
+    },
+    async eveAnswer(input) {
+      await connect();
+      const msg = await request({
+        type: "eve_answer",
+        reqId: randomUUID(),
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+        answer: input.answer,
+      });
+      if (msg.type !== "eve_ok") {
+        throw new Error(
+          msg.type === "err" ? msg.error : `unexpected ${msg.type}`,
+        );
+      }
+      return { message: msg.message, runId: msg.runId, run: msg.run };
     },
   };
   return api;

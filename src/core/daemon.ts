@@ -28,6 +28,7 @@ import {
   encodeEffortCallback,
   encodeModeCallback,
   encodeModelCallback,
+  encodeEveAskCallback,
   encodeNewRepoCallback,
   encodePermissionModeCallback,
   encodeQueueRemoveCallback,
@@ -36,6 +37,7 @@ import {
   parseAgentCallback,
   parseAskQuestionCallback,
   parseEffortCallback,
+  parseEveAskCallback,
   parseElicitationCallback,
   parseModeCallback,
   parseModelCallback,
@@ -2009,16 +2011,31 @@ export function createDaemon(
   const eveHost = createAcpHostClient({
     sockPath: resolveAcpHostSockPath(stateDir),
     log,
-    onEveNotify: ({ sessionKey, text }) => {
+    onEveNotify: ({ sessionKey, text, runId, ask }) => {
       const s = sessionIndex.byKey[sessionKey];
-      if (s) {
-        void sendInTopic(s, text).catch((err) => {
-          log.warn("eve_notify telegram failed", {
-            sessionKey,
+      if (!s) return;
+      let keyboard: unknown;
+      if (runId && ask && ask.length > 0) {
+        try {
+          keyboard = keyboardFromButtons(
+            ask.map((o, i) => ({
+              text: `${i + 1}. ${o.label}`.slice(0, 40),
+              callback_data: encodeEveAskCallback(runId, i),
+            })),
+          );
+        } catch (err) {
+          log.warn("eve ask keyboard encode failed", {
+            runId,
             error: err instanceof Error ? err.message : String(err),
           });
-        });
+        }
       }
+      void sendInTopic(s, text, keyboard).catch((err) => {
+        log.warn("eve_notify telegram failed", {
+          sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     },
   });
 
@@ -2603,6 +2620,11 @@ export function createDaemon(
         const out = await eveHost.eveKill(runId);
         return { message: out.message ?? `killed ${runId}`, run: out.run };
       },
+      async eveAnswer({ sessionKey, runId, answer }) {
+        requireSession(sessionKey);
+        const out = await eveHost.eveAnswer({ sessionKey, runId, answer });
+        return { message: out.message ?? `answered ${runId}`, run: out.run };
+      },
       async eveWrite({ sessionKey, name, source, scope }) {
         const session = requireSession(sessionKey);
         const out = await eveHost.eveWrite({
@@ -2660,7 +2682,7 @@ export function createDaemon(
           "_Orchestration on **acp-host** (survives worker restart)._",
           "",
           "`/eve run <name>` · `/eve approve <id>` · `/eve status [id]`",
-          "`/eve pause|resume|kill <id>` · `/eve list`",
+          "`/eve pause|resume|kill <id>` · `/eve answer <id> <n>` · `/eve list`",
           "No shipped directives — agent **writes** scripts (`.acpbot/eve/`) then runs them.",
           "",
           `Scripts (${scripts.length}):`,
@@ -2750,6 +2772,47 @@ export function createDaemon(
         return;
       }
 
+      if (sub === "answer") {
+        const runs = ((
+          await eveHost.eveList({
+            sessionKey: session.sessionKey,
+            repoRoot: session.cwd,
+          })
+        ).runs ?? []) as { runId: string; status: string }[];
+        let runId = args[1];
+        let choice = args.slice(2).join(" ").trim();
+        if (runId && !choice && !/^[a-f0-9]{6,}$/i.test(runId)) {
+          // `/eve answer 2` against the latest waiting run
+          choice = runId;
+          runId = undefined;
+        }
+        if (!runId) {
+          const waiting = runs.find((r) => r.status === "waiting_user");
+          runId = waiting?.runId;
+        } else {
+          const exact = runs.find((r) => r.runId === runId);
+          const prefix = runs.filter((r) => r.runId.startsWith(runId!));
+          runId = exact?.runId ?? (prefix.length === 1 ? prefix[0]!.runId : runId);
+        }
+        if (!runId || !choice) {
+          await sendInTopic(
+            session,
+            "Usage: `/eve answer <runId> <n|id>` — or `/eve answer 1` for the parked run",
+          );
+          return;
+        }
+        const out = await eveHost.eveAnswer({
+          sessionKey: session.sessionKey,
+          runId,
+          answer: choice,
+        });
+        await sendInTopic(
+          session,
+          out.message ?? `EVE recorded your answer · \`${runId}\``,
+        );
+        return;
+      }
+
       if (sub === "pause" || sub === "resume" || sub === "kill") {
         const runId = args[1];
         if (!runId) {
@@ -2778,7 +2841,7 @@ export function createDaemon(
 
       await sendInTopic(
         session,
-        "EVE commands: run · approve · status · list · pause · resume · kill",
+        "EVE commands: run · approve · status · list · pause · resume · kill · answer",
       );
     } catch (err) {
       log.warn("eve command failed", {
@@ -5689,6 +5752,53 @@ export function createDaemon(
     });
   }
 
+  async function handleEveAskCallback(
+    runId: string,
+    optionIndex: number,
+    callbackQueryId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    try {
+      const threadId = message?.message_thread_id;
+      const sessionKey =
+        (threadId != null
+          ? sessionIndex.byThread[String(threadId)]
+          : undefined) ??
+        Object.keys(sessionIndex.byKey)[0] ??
+        "";
+      const out = await eveHost.eveAnswer({
+        sessionKey,
+        runId,
+        answer: String(optionIndex + 1),
+      });
+      await env.telegram.answerCallbackQuery({
+        callbackQueryId,
+        text: out.message ?? "Recorded",
+      });
+      if (message && out.message) {
+        try {
+          await env.telegram.editMessageText({
+            chatId: message.chat.id,
+            messageId: message.message_id,
+            text: `${message.text ?? "EVE question"}\n\n→ ${out.message}`,
+            replyMarkup: { inline_keyboard: [] },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch (err) {
+      try {
+        await env.telegram.answerCallbackQuery({
+          callbackQueryId,
+          text: err instanceof Error ? err.message.slice(0, 180) : "failed",
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   async function handleCallbackQuery(
     update: TelegramUpdate,
   ): Promise<void> {
@@ -5754,6 +5864,12 @@ export function createDaemon(
     const queueToken = parseQueueRemoveCallback(cq.data);
     if (queueToken) {
       await handleQueueRemoveCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const eveAsk = parseEveAskCallback(cq.data);
+    if (eveAsk) {
+      await handleEveAskCallback(eveAsk.runId, eveAsk.optionIndex, cq.id, cq.message);
       return;
     }
 

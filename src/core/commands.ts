@@ -128,7 +128,7 @@ export const COMMANDS: readonly CommandDef[] = [
     name: "/eve",
     scope: "topic",
     summary:
-      "EVE directives: run|approve|status|list|pause|resume|kill (background multi-agent)",
+      "EVE directives: run|approve|status|list|pause|resume|kill|answer (background multi-agent)",
     aliases: ["/directive"],
   },
   {
