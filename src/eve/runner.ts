@@ -16,9 +16,10 @@ import {
   writeEveScript,
   extractEveMeta,
 } from "./script-load";
-import { executeEveRun, type EveRuntimeDeps } from "./runtime";
-import type { EveConfig, EveRun } from "./types";
+import { answerEveAsk, executeEveRun, type EveRuntimeDeps } from "./runtime";
+import type { EveAskAnswer, EveConfig, EveRun } from "./types";
 import { DEFAULT_EVE_CONFIG, EVE_BRAND, EVE_TAGLINE } from "./types";
+import { inspectEveOutcome } from "./outcome";
 
 export { EVE_BRAND, EVE_TAGLINE, EVE_FULL_NAME } from "./types";
 export type { EveRun, EveConfig } from "./types";
@@ -64,6 +65,14 @@ export type EveService = {
     deps: Pick<EveRuntimeDeps, "runAgent" | "notify" | "hostHelpers" | "runNested" | "shouldAbort">,
   ) => Promise<EveRun>;
   kill: (runId: string) => Promise<EveRun>;
+  /** Resolve a waiting_user question (`/eve answer`). */
+  answer: (
+    runId: string,
+    raw: string,
+  ) => Promise<
+    | { ok: true; answer: EveAskAnswer; waiterAlive: boolean; run: EveRun }
+    | { ok: false; error: string; run?: EveRun }
+  >;
   status: (runId: string) => Promise<EveRun | null>;
   listRuns: (sessionKey?: string) => Promise<EveRun[]>;
   listScripts: (repoRoot: string) => Promise<
@@ -189,7 +198,7 @@ export function createEveService(input: {
       const run = await loadEveRun(stateDir, runId);
       if (!run) throw new Error(`EVE run not found: ${runId}`);
       if (run.status !== "paused" && run.status !== "failed") {
-        // allow re-run of incomplete
+        // allow re-run of incomplete / continue a parked ask
       }
       const next = appendEveLog(
         { ...run, status: "running", error: undefined },
@@ -208,6 +217,9 @@ export function createEveService(input: {
         },
         runId,
       );
+    },
+    async answer(runId, raw) {
+      return answerEveAsk(stateDir, runId, raw);
     },
     async kill(runId) {
       const run = await loadEveRun(stateDir, runId);
@@ -236,6 +248,19 @@ export function createEveService(input: {
         `🛰 **EVE** · \`${run.name}\` · \`${run.runId.slice(0, 8)}\``,
         `Status: **${run.status}** · agents ${run.budget.agentsUsed}/${run.budget.agentsMax}`,
       ];
+      if (run.status === "waiting_user" && run.pendingAsk) {
+        lines.push("", `❓ ${run.pendingAsk.question.split("\n")[0]}`);
+        for (const [i, o] of run.pendingAsk.options.entries()) {
+          lines.push(`  ${i + 1}) ${o.label}`);
+        }
+        lines.push(`Answer: \`/eve answer ${run.runId.slice(0, 8)} 1\``);
+      }
+      const outcome = inspectEveOutcome(run.finalResult, run.nodes);
+      if (run.status === "completed" && outcome.kind !== "clean") {
+        lines.push(
+          `Outcome: **${outcome.kind}** · ${outcome.blocked} blocked · ${outcome.failed} failed`,
+        );
+      }
       if (run.phases.length) {
         lines.push(
           "Phases: " +
@@ -273,7 +298,12 @@ export function createEveService(input: {
 
 /** Re-export helpers for tests. */
 export { extractEveMeta, resolveEveScript, writeEveScript } from "./script-load";
-export { executeEveRun } from "./runtime";
+export { executeEveRun, answerEveAsk, hasEveAskWaiter } from "./runtime";
+export {
+  inspectEveOutcome,
+  formatEveCompletionNotify,
+  formatEveStuckMessage,
+} from "./outcome";
 export {
   validateJsonSchema,
   parseAgentStructuredResult,

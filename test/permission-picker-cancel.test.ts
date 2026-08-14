@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  encodeEveAskCallback,
   encodeNewRepoCallback,
   encodePermissionCallback,
+  parseEveAskCallback,
   parseNewRepoCallback,
   parsePermissionCallback,
 } from "../src/core/callbacks";
@@ -88,6 +90,12 @@ describe("callback_data encoding (64-byte safe)", () => {
     });
     const n = encodeNewRepoCallback(2);
     expect(parseNewRepoCallback(n)).toBe(2);
+    const eve = encodeEveAskCallback("abcd1234ef567890", 2);
+    expect(new TextEncoder().encode(eve).length).toBeLessThanOrEqual(64);
+    expect(parseEveAskCallback(eve)).toEqual({
+      runId: "abcd1234ef567890",
+      optionIndex: 2,
+    });
   });
 
   test("extract options never hardcodes only allow/deny names", () => {

@@ -811,13 +811,14 @@ export async function startAcpHostServer(
           eveConfig: baseConfig.eve,
           defaultAgent:
             baseConfig.eve?.defaultAgent || defaultAgent || "grok-build",
-          notify: (sessionKey, text) => {
+          notify: (sessionKey, text, extra) => {
             if (!sock.destroyed) {
               send(sock, {
                 type: "eve_notify",
                 sessionKey,
                 text,
-                runId,
+                runId: extra?.runId ?? runId,
+                ...(extra?.ask ? { ask: extra.ask } : {}),
               });
             }
           },
@@ -1100,6 +1101,42 @@ export async function startAcpHostServer(
       }
       return true;
     }
+    if (msg.type === "eve_answer") {
+      try {
+        const out = await eveService.answer(msg.runId, msg.answer);
+        if (!out.ok) {
+          send(sock, {
+            type: "err",
+            reqId: msg.reqId,
+            error: out.error,
+          });
+          return true;
+        }
+        send(sock, {
+          type: "eve_ok",
+          reqId: msg.reqId,
+          message: `answered ${msg.runId}: ${out.answer.label}`,
+          runId: msg.runId,
+          run: out.run,
+        });
+        // Host restart (or notify-only wait) — no in-process waiter.
+        // Resume so the script / auto-ask can pick up the cached answer.
+        if (!out.waiterAlive) {
+          const st = await eveService.status(msg.runId);
+          if (st && (st.status === "waiting_user" || st.status === "paused")) {
+            eveOwners.set(msg.runId, sock);
+            startHostEveExecution(msg.runId, sock, true);
+          }
+        }
+      } catch (err) {
+        send(sock, {
+          type: "err",
+          reqId: msg.reqId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return true;
+    }
     if (msg.type === "eve_write") {
       try {
         const out = await eveService.writeScript({
@@ -1176,6 +1213,7 @@ export async function startAcpHostServer(
       case "eve_status":
       case "eve_list":
       case "eve_write":
+      case "eve_answer":
         await handleEveMsg(sock, msg);
         return;
       case "cancel": {

@@ -29,6 +29,8 @@ export const CALLBACK = {
    * modeIndex 0=ask, 1=bypass, -1=cancel. Distinct from p: (in-flight tool allow).
    */
   permissionModePrefix: "R:",
+  /** EVE operator ask: v:<runId>:<optionIndex> */
+  eveAskPrefix: "v:",
 } as const;
 
 export function encodeQueueRemoveCallback(token: string): string {
@@ -270,6 +272,32 @@ export function parsePermissionModeCallback(
   const modeIndex = Number(rest.slice(colon + 1));
   if (!token || !Number.isInteger(modeIndex)) return undefined;
   return { token, modeIndex };
+}
+
+export function encodeEveAskCallback(
+  runId: string,
+  optionIndex: number,
+): string {
+  const data = `${CALLBACK.eveAskPrefix}${runId}:${optionIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseEveAskCallback(
+  data: string,
+): { runId: string; optionIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.eveAskPrefix)) return undefined;
+  const rest = data.slice(CALLBACK.eveAskPrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const runId = rest.slice(0, colon).trim();
+  const optionIndex = Number(rest.slice(colon + 1));
+  if (!runId || !Number.isInteger(optionIndex) || optionIndex < 0) {
+    return undefined;
+  }
+  return { runId, optionIndex };
 }
 
 export function newToken(bytes = 6): string {

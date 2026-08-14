@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed / hardened
+
+- **EVE blocked ≠ complete** — a directive that returns `blocked` (or any leaf `status: "blocked"`) no longer gets `🌱 EVE complete`. The host parks the run as `waiting_user` and asks the operator (Telegram buttons + `/eve answer`). Scripts can `await host.ask({ question, options })` mid-run so a stuck review cannot die quietly.
+
 ## [0.2.0] — 2026-08-12
 
 ### Added

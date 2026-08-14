@@ -165,7 +165,8 @@ export function linearDrainPrompt(
       ? "   - Operator asked for **sequential** work (`--sequential`): loop with `await agent(...)` per issue, not parallel pipeline fan-out."
       : "   - Prefer `pipeline` for concurrent ready issues (host caps concurrency).",
     "   - Close: `host.linearApplyResults(results)` if available, else one final agent to",
-    "     comment + set Done/blocked on Linear.",
+    "     comment + set Done/blocked on Linear. If any leaf is blocked, `await host.ask`",
+    "     (retry / continue / stop) before returning — never treat blocked as success.",
     "3. `eve_write({ name: \"linear-drain\", source: <full script with export const meta> })`",
     "   (reuse/update the project script if it already exists).",
     "4. `eve_run({ name: \"linear-drain\", args: {",

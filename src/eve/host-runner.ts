@@ -31,7 +31,11 @@ export type HostEveContext = {
   stateDir: string;
   eveConfig?: EveConfig;
   defaultAgent: string;
-  notify: (sessionKey: string, text: string) => void;
+  notify: (
+    sessionKey: string,
+    text: string,
+    extra?: { ask?: Array<{ id: string; label: string }>; runId?: string },
+  ) => void;
   leaf: HostEveLeafFns;
 };
 
@@ -57,8 +61,8 @@ export function bindHostEveRuntimeDeps(input: {
   const { service, ctx, parentSessionKey, repoRoot, repoKey, owner } = input;
 
   return {
-    notify: async (sessionKey, text) => {
-      ctx.notify(sessionKey, text);
+    notify: async (sessionKey, text, extra) => {
+      ctx.notify(sessionKey, text, extra);
     },
     shouldAbort: async (runId) => isEveAborted(runId),
     hostHelpers: {

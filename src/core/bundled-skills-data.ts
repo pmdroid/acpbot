@@ -225,8 +225,20 @@ const results = await pipeline(items, (item) =>
 
 phase('Close')
 const ok = (results || []).filter(Boolean)
-log(\`done=\${ok.filter((r) => r.status === 'done').length} blocked=\${ok.filter((r) => r.status === 'blocked').length}\`)
-return { results: ok }
+const blocked = ok.filter((r) => r.status === 'blocked')
+log(\`done=\${ok.filter((r) => r.status === 'done').length} blocked=\${blocked.length}\`)
+if (blocked.length) {
+  const decision = await host.ask({
+    question: \`\${blocked.length} ticket(s) blocked (\${blocked.map((r) => r.identifier || r.summary).join(', ')}). What next?\`,
+    options: [
+      { id: 'retry', label: 'Keep fixing blocked work' },
+      { id: 'continue', label: 'Continue past blocked' },
+      { id: 'stop', label: 'Stop here' },
+    ],
+  })
+  return { results: ok, blocked: blocked.length, operatorDecision: decision }
+}
+return { results: ok, blocked: 0 }
 \`\`\`
 
 Save + run:
@@ -250,8 +262,33 @@ Paths: project \`.acpbot/eve/<name>.js\`, or user \`$state_dir/eve/directives/\`
 | \`log(msg)\` | Append to run log (operator-visible digests) |
 | \`args\` | Object from \`eve_run({ args })\` |
 | \`budget\` | \`{ agentsMax, agentsUsed(), remainingAgents(), ok(), deadlineAt? }\` |
-| \`host\` | Host helpers (see below) |
+| \`host\` | Host helpers — **\`host.ask({ question, options })\` parks the run** until the operator answers |
 | \`workflow(name, args?)\` | Nested named directive (project/user scripts only) |
+
+### \`host.ask({ question, options? })\`
+
+Parks the run as **\`waiting_user\`** and asks the operator on Telegram (buttons +
+\`/eve answer <runId> <n>\`). **Does not complete the run.** Returns
+\`{ id, label, index }\`.
+
+Use this **before** returning whenever a stack cannot continue (review not
+clean, missing secret, ambiguous product call). Do not \`return { blocked: 1 }\`
+and treat that as success — the host will still auto-ask, but the script
+cannot continue unless **you** awaited \`host.ask\` first.
+
+\`\`\`js
+const decision = await host.ask({
+  question: 'PAS-45 review not clean after 3 rounds. What next?',
+  options: [
+    { id: 'retry', label: 'Keep fixing until review is clean' },
+    { id: 'continue', label: 'Open a draft PR and continue the stack' },
+    { id: 'stop', label: 'Stop here' },
+  ],
+})
+if (decision.id === 'retry') {
+  // spawn another fix+review leaf, then continue
+}
+\`\`\`
 
 ### \`agent(prompt, options?)\`
 
@@ -293,6 +330,11 @@ Telegram digests: ✅ valid · ⚠️ soft partial · 🚫 failed.
 6. **Idempotent labels** — same \`label\`+\`phase\` can resume from cache after pause; labels like \`pas-134\` help soft \`issueId\`
 7. Prefer **\`pipeline\`** for “map over list”; **\`parallel\`** for fixed independent stages
 8. Keep prompts **self-contained** — leaf sees only its prompt, not chat history
+9. **Blocked is not success.** If any leaf is \`blocked\` / review is not clean / the
+   stack cannot continue, **\`await host.ask(...)\`** before returning. Never
+   treat \`🌱 EVE complete\` as “the job finished” when tickets are still open.
+   The host auto-asks on a blocked return so the operator is never ghosted;
+   a well-written script asks *earlier* so it can keep going after the answer.
 
 ## Recipe patterns (build these yourself)
 
@@ -311,7 +353,9 @@ project”, “work open issues in background”):
      label: identifier, schema: { status: done|blocked, summary, prUrl? },
      timeout_sec: 1200 }))\`
    - **Close:** either call \`host.linearApplyResults(results)\` if present, or
-     one final \`agent()\` that comments + sets Done/blocked from the JSON
+     one final \`agent()\` that comments + sets Done/blocked from the JSON.
+     If any result is \`blocked\`, **\`await host.ask\`** (retry / continue / stop)
+     before returning — do not silently end the drain.
 3. \`eve_run({ name: "linear-drain", args: { maxIssues?, sequential? } })\`
 4. Tell operator: approve if pending; watch \`/eve status\`
 
@@ -344,6 +388,8 @@ return { plan, impl, review }
 - Default: runs start as **\`pending_approval\`** until \`/eve approve <runId>\` or \`eve_approve\`
 - Config: \`[eve] require_approval = false\` skips that gate
 - Orchestration runs on **acp-host** (survives worker restart); digests hit Telegram via the worker
+- A **blocked** or \`host.ask\` parks as **\`waiting_user\`**. Operator taps a button or
+  \`/eve answer <runId> 1\`. That is **not** \`🌱 EVE complete\`.
 
 ## Config (operator TOML)
 
