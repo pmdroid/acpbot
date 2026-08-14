@@ -40,7 +40,7 @@ Defaults:
 - **protocol** \`panel\` — independent dual review, then agreement merge
 - **protocol** \`adversarial\` — A finds, B accepts/rejects each finding
 - **max priority** \`P0\` (blockers only)
-- Reviewers auto-pick \`codex\`+\`claude\` when both installed
+- Reviewers auto-pick \`codex\`+\`claude\` when both installed; \`cursor-agent\` is a valid reviewer (\`/review branch cursor-agent claude\`)
 
 ## Contract
 
@@ -73,6 +73,7 @@ Operator:
 \`\`\`text
 /review
 /review branch codex claude
+/review branch cursor-agent claude
 /review local codex claude adversarial
 \`\`\`
 
@@ -335,6 +336,9 @@ Telegram digests: ✅ valid · ⚠️ soft partial · 🚫 failed.
    treat \`🌱 EVE complete\` as “the job finished” when tickets are still open.
    The host auto-asks on a blocked return so the operator is never ghosted;
    a well-written script asks *earlier* so it can keep going after the answer.
+10. **Honor the requested reviewer.** If the operator asked for Composer / cursor-agent,
+    pass \`agent: "cursor-agent"\` or helper \`--engine cursor\`. Never call the
+    autoreview helper without \`--engine\` in that case (unset defaults to Codex).
 
 ## Recipe patterns (build these yourself)
 
@@ -369,6 +373,13 @@ Use tight schemas (\`issues: [{ title, severity, detail }]\`). Cap list size.
 
 ### C. Plan → implement → verify diamond
 
+When the operator names a reviewer (Composer 2.5, cursor-agent, Codex, …),
+**use that engine**. Do not fall through to the helper’s Codex default.
+
+Prefer an EVE leaf with \`agent: "cursor-agent"\` (ACP). If a leaf shells out to
+\`~/.agents/skills/autoreview/scripts/autoreview\`, pass \`--engine cursor\`
+(aliases: \`cursor-agent\`, \`composer\`). Cursor defaults to \`--model composer-2.5\`.
+
 \`\`\`js
 phase('Plan')
 const plan = await agent('…', { label: 'plan', schema: PlanSchema })
@@ -377,9 +388,19 @@ const impl = await agent(\`Implement:\\n\${JSON.stringify(plan)}\`, {
   label: 'impl', role: 'implementer', schema: ImplSchema, timeout_sec: 1800,
 })
 phase('Verify')
-const review = await agent(\`Review this work:\\n\${JSON.stringify(impl)}\`, {
-  label: 'review', role: 'reviewer', schema: ReviewSchema,
-})
+const review = await agent(
+  \`Review this work with cursor-agent / Composer 2.5 only.\\n\` +
+    \`If you use the autoreview helper, run:\\n\` +
+    \`~/.agents/skills/autoreview/scripts/autoreview --mode branch --base origin/main --engine cursor\\n\` +
+    \`Never omit --engine (unset defaults to Codex).\\n\` +
+    \`\${JSON.stringify(impl)}\`,
+  {
+    label: 'review',
+    role: 'reviewer',
+    agent: 'cursor-agent',
+    schema: ReviewSchema,
+  },
+)
 return { plan, impl, review }
 \`\`\`
 

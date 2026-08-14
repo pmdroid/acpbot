@@ -36,7 +36,7 @@ Requires **two** agent CLIs on `PATH` (e.g. `codex` + `claude`). Defaults prefer
 | Arg | Values | Default |
 |---|---|---|
 | Target mode | `local` · `branch` | `local` |
-| Agent A | registry id (`codex`, `claude`, `grok-build`, …) | auto (prefer codex) |
+| Agent A | registry id (`codex`, `claude`, `cursor-agent`, `grok-build`, …) | auto (prefer codex) |
 | Agent B | registry id (must differ from A) | auto (prefer claude) |
 | Protocol | `panel` · `adversarial` | `panel` |
 

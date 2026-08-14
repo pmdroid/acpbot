@@ -31,7 +31,7 @@ Defaults:
 - **protocol** `panel` — independent dual review, then agreement merge
 - **protocol** `adversarial` — A finds, B accepts/rejects each finding
 - **max priority** `P0` (blockers only)
-- Reviewers auto-pick `codex`+`claude` when both installed
+- Reviewers auto-pick `codex`+`claude` when both installed; `cursor-agent` is a valid reviewer (`/review branch cursor-agent claude`)
 
 ## Contract
 
@@ -64,6 +64,7 @@ Operator:
 ```text
 /review
 /review branch codex claude
+/review branch cursor-agent claude
 /review local codex claude adversarial
 ```
 
