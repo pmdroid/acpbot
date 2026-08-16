@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **EVE quieter Telegram** — the topic stays silent except when the run is **done** (`🌱` / failed / killed) or **help is needed** (approve, `host.ask`, blocked). No started/approved/progress/digest lines. `/eve status` is a short glance. Set `[eve].digest_interval_sec = 0` only if you want the old per-line chatter.
+
 ## [0.2.1] — 2026-08-13
 
 ### Added

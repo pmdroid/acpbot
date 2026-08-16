@@ -37,6 +37,7 @@ import {
   matchEveAskAnswer,
   normalizeEveAskInput,
 } from "./outcome";
+import { formatEveProgressLine, type EveDigestItem } from "./digest";
 
 export type EveRuntimeDeps = {
   stateDir: string;
@@ -173,6 +174,24 @@ export async function executeEveRun(
   let concurrent = 0;
   const maxConcurrent = Math.max(1, cfg.maxConcurrent);
   const waitQueue: Array<() => void> = [];
+  // Topic stays silent except done / help-needed. `digest_interval_sec = 0`
+  // is the debug escape hatch that still posts every log/leaf line.
+  const loudProgress = cfg.digestIntervalSec === 0;
+
+  const emitProgress = async (item: EveDigestItem): Promise<void> => {
+    if (!loudProgress || !deps.notify) return;
+    await deps
+      .notify(run.sessionKey, formatEveProgressLine(item))
+      .catch(() => {});
+  };
+
+  const notifyImmediate = async (
+    text: string,
+    extra?: { ask?: EveAskOption[]; runId?: string },
+  ): Promise<void> => {
+    if (!deps.notify) return;
+    await deps.notify(run.sessionKey, text, extra).catch(() => {});
+  };
 
   const acquireSlot = async (): Promise<void> => {
     if (concurrent < maxConcurrent) {
@@ -431,12 +450,13 @@ export async function executeEveRun(
         },
       });
 
-      if (deps.notify && options?.label) {
-        const icon = failed ? "🚫" : softNote ? "⚠️" : "✅";
-        await deps.notify(
-          run.sessionKey,
-          `${icon} EVE · ${options.label}${failed ? " failed" : ` done${softNote}`}`,
-        ).catch(() => {});
+      if (options?.label) {
+        await emitProgress({
+          kind: "leaf",
+          label: options.label,
+          ok: !failed,
+          ...(softNote ? { soft: true } : {}),
+        });
       }
 
       return failed ? null : parsed;
@@ -502,12 +522,10 @@ export async function executeEveRun(
   };
 
   const logFn = (message: string): void => {
-    void (async () => {
-      run = await persist(appendEveLog(run, message));
-      if (deps.notify) {
-        await deps.notify(run.sessionKey, `🛰 EVE · ${message}`).catch(() => {});
-      }
-    })();
+    void persist(appendEveLog(run, message)).then((next) => {
+      run = next;
+    });
+    void emitProgress({ kind: "log", message });
   };
 
   const waitForAsk = async (input: {
@@ -536,26 +554,22 @@ export async function executeEveRun(
       ),
     );
 
-    if (deps.notify) {
-      const text =
-        input.reason === "blocked_return"
-          ? input.question
-          : [
-              `❓ EVE needs a decision · **${run.name}**`,
-              "",
-              input.question,
-              "",
-              ...input.options.map((o, i) => `${i + 1}) ${o.label}`),
-              "",
-              `Tap a button or \`/eve answer ${run.runId.slice(0, 8)} 1\``,
-            ].join("\n");
-      await deps
-        .notify(run.sessionKey, text, {
-          ask: input.options,
-          runId: run.runId,
-        })
-        .catch(() => {});
-    }
+    const text =
+      input.reason === "blocked_return"
+        ? input.question
+        : [
+            `❓ EVE needs a decision · **${run.name}**`,
+            "",
+            input.question,
+            "",
+            ...input.options.map((o, i) => `${i + 1}) ${o.label}`),
+            "",
+            `Tap a button or \`/eve answer ${run.runId.slice(0, 8)} 1\``,
+          ].join("\n");
+    await notifyImmediate(text, {
+      ask: input.options,
+      runId: run.runId,
+    });
 
     const answer = await new Promise<EveAskAnswer>((resolve, reject) => {
       const prev = askWaiters.get(run.runId);
@@ -680,19 +694,14 @@ export async function executeEveRun(
               ")",
       ),
     );
-    if (deps.notify) {
-      await deps
-        .notify(
-          run.sessionKey,
-          formatEveCompletionNotify({
-            name: run.name,
-            agentsUsed,
-            outcome: finalOutcome,
-            decision,
-          }),
-        )
-        .catch(() => {});
-    }
+    await notifyImmediate(
+      formatEveCompletionNotify({
+        name: run.name,
+        agentsUsed,
+        outcome: finalOutcome,
+        decision,
+      }),
+    );
     return run;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -705,11 +714,10 @@ export async function executeEveRun(
       budget: { ...run.budget, agentsUsed },
     });
     run = await persist(appendEveLog(run, `EVE stopped: ${message}`));
-    if (deps.notify && !paused) {
-      await deps.notify(
-        run.sessionKey,
+    if (!paused) {
+      await notifyImmediate(
         `⚠️ EVE ${run.status} · **${run.name}** · ${message.slice(0, 200)}`,
-      ).catch(() => {});
+      );
     }
     return run;
   }

@@ -10,3 +10,4 @@ export * from "./sandbox";
 export * from "./runtime";
 export * from "./runner";
 export * from "./outcome";
+export * from "./digest";

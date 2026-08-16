@@ -898,17 +898,11 @@ export async function startAcpHostServer(
         owner: sock.destroyed ? null : sock,
       });
       try {
-        const finished = resume
-          ? await eveService.resume(runId, deps)
-          : await eveService.approveAndStart(runId, deps);
-        if (!sock.destroyed) {
-          send(sock, {
-            type: "eve_notify",
-            sessionKey: finished.sessionKey,
-            text: eveService.formatStatus(finished),
-            runId,
-          });
-        }
+        await (resume
+          ? eveService.resume(runId, deps)
+          : eveService.approveAndStart(runId, deps));
+        // Completion / ask / fail already notified from the runtime.
+        // Do not dump formatStatus (result JSON + logs) onto the topic.
       } catch (err) {
         log.warn("EVE host run failed", {
           runId,
