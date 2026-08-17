@@ -68,7 +68,6 @@ export type ComputerFrameEvent = {
 export type ComputerStatusEvent = {
   sessionKey: string;
   text: string;
-  /** Host auto-pause: worker persists this so /status does not rebind watch on. */
   watch?: boolean;
 };
 
