@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   decisionToPermissionResponse,
   isPlanExitPermission,
+  isComputerUsePermission,
+  shouldForceAskPermission,
 } from "../src/acp/permission-map";
 
 describe("decisionToPermissionResponse", () => {
@@ -73,5 +75,18 @@ describe("isPlanExitPermission", () => {
         toolCall: { title: "run_terminal_command", kind: "execute" },
       }),
     ).toBe(false);
+  });
+});
+
+describe("isComputerUsePermission", () => {
+  test("detects computer_screenshot", () => {
+    expect(
+      isComputerUsePermission({
+        toolCall: { title: "computer_screenshot" },
+      }),
+    ).toBe(true);
+    expect(shouldForceAskPermission({ toolCall: { title: "computer_click" } })).toBe(
+      true,
+    );
   });
 });

@@ -399,6 +399,9 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           permissionMode,
           ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
           ...(opts?.forceNewSession ? { forceNewSession: true } : {}),
+          ...(opts?.computerAllowed !== undefined
+            ? { computerAllowed: opts.computerAllowed === true }
+            : {}),
         });
         if (options.forceReadOnly) {
           const modes = await hostFor(key).getAvailableModes(key);

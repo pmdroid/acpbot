@@ -114,6 +114,44 @@ tick_ms = 15000
     expect(cfg.defaultAgent).toBe("codex");
   });
 
+  test("[computer] parses and ACPBOT_COMPUTER=0 forces off", () => {
+    const on = loadConfig({
+      skipFile: true,
+      requireTelegram: false,
+      file: {
+        computer: {
+          enabled: true,
+          display: "browser",
+          publish_frames: "on_action",
+          jpeg_quality: 70,
+          max_edge_px: 800,
+          browser_headless: false,
+        },
+      },
+    });
+    expect(on.computer?.enabled).toBe(true);
+    expect(on.computer?.display).toBe("browser");
+    expect(on.computer?.publishFrames).toBe("on_action");
+    expect(on.computer?.jpegQuality).toBe(70);
+    expect(on.computer?.maxEdgePx).toBe(800);
+    expect(on.computer?.browserHeadless).toBe(false);
+
+    const off = loadConfig({
+      skipFile: true,
+      requireTelegram: false,
+      env: { HOME: "/tmp/x", ACPBOT_COMPUTER: "0" },
+      file: { computer: { enabled: true } },
+    });
+    expect(off.computer?.enabled).toBe(false);
+
+    const missing = loadConfig({
+      skipFile: true,
+      requireTelegram: false,
+      env: { HOME: "/tmp/x" },
+    });
+    expect(missing.computer?.enabled).toBeFalsy();
+  });
+
   test("host role does not require bot token", () => {
     const cfg = loadConfig({
       requireTelegram: false,

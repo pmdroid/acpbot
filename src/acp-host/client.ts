@@ -678,6 +678,9 @@ export function createAcpHostClient(
           : {}),
         ...(input.forceRespawn ? { forceRespawn: true } : {}),
         ...(input.forceNewSession ? { forceNewSession: true } : {}),
+        ...(input.computerAllowed !== undefined
+          ? { computerAllowed: input.computerAllowed === true }
+          : {}),
       };
       // Load+new recovery is bounded (~45s + 45s + 45s); don't wait 10 minutes.
       const msg = await request(
@@ -779,6 +782,7 @@ export function createAcpHostClient(
             slotKey: input.sessionKey,
             text: input.text,
             ...(input.attachments ? { attachments: input.attachments } : {}),
+            ...(input.source ? { source: input.source } : {}),
           });
         })
         .catch((e) => {

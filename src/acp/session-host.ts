@@ -21,6 +21,8 @@ import { resolveAgentLaunchForSpawn } from "./agent-launch";
 import {
   decisionToPermissionResponse,
   isPlanExitPermission,
+  isComputerUsePermission,
+  shouldForceAskPermission,
 } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { AcpbotConfig } from "../env/types";
@@ -45,6 +47,19 @@ import {
   type HostSessionRecord,
   type HostSessionStore,
 } from "./session-store";
+
+/** Site 1 (session-host): bypass never auto-allows plan-exit or computer-use. */
+export function sessionHostAutoAllowsPermission(
+  permissionMode: "ask" | "bypass" | undefined,
+  raw: unknown,
+): boolean {
+  return permissionMode === "bypass" && !shouldForceAskPermission(raw);
+}
+
+/** `allow_always` on computer-use must not flip the session to bypass. */
+export function sessionHostPromotesBypass(raw: unknown): boolean {
+  return !isComputerUsePermission(raw);
+}
 
 export type SessionHostHooks = {
   onPermissionRequest?: (
@@ -153,12 +168,21 @@ export type SessionHost = {
      * Used by topic `/fresh` (Grok-style new session).
      */
     forceNewSession?: boolean;
+    /**
+     * Operator topics only. Forwarded on the ensure wire; host Slot applies it.
+     */
+    computerAllowed?: boolean;
+    /**
+     * Host-only MCP env (host-api token/sock). Worker must not send this.
+     */
+    mcpEnv?: Array<{ name: string; value: string }>;
   }): Promise<HostSession>;
   startTurn(input: {
     sessionKey: string;
     text: string;
     attachments?: Array<{ mediaType: string; data: string }>;
     signal?: AbortSignal;
+    source?: "operator" | "schedule" | "eve";
   }): HostTurn;
   cancel(sessionKey: string, reason?: string): Promise<void>;
   setMode(sessionKey: string, modeId: string): Promise<HostModeState>;
@@ -422,11 +446,8 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
     const work = (async () => {
       const liveEntry = live.get(input.sessionKey);
-      // Plan-exit must always reach the operator even when tools are bypassed.
-      if (
-        liveEntry?.permissionMode === "bypass" &&
-        !isPlanExitPermission(input.raw)
-      ) {
+      // Plan-exit / computer-use must always reach the operator.
+      if (sessionHostAutoAllowsPermission(liveEntry?.permissionMode, input.raw)) {
         return { outcome: "allow_always" as const };
       }
       const decision = await hooks.onPermissionRequest!(
@@ -443,7 +464,11 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       ) {
         markRecentlyAllowed(input.fingerprint);
       }
-      if (decision?.outcome === "allow_always" && liveEntry) {
+      if (
+        decision?.outcome === "allow_always" &&
+        liveEntry &&
+        sessionHostPromotesBypass(input.raw)
+      ) {
         liveEntry.permissionMode = "bypass";
         log.info("permission allow_always → session bypass", {
           sessionKey: input.sessionKey,
@@ -537,8 +562,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const toolCallId = params.toolCall?.toolCallId ?? "unknown";
     const entry = live.get(sessionKey);
     const planExit = isPlanExitPermission(params);
-    // Auto-bypass tools, but never auto-leave plan mode without a human click.
-    if (entry?.permissionMode === "bypass" && !planExit) {
+    const computerUse = isComputerUsePermission(params);
+    // Auto-bypass tools, but never auto-leave plan or auto-allow computer use.
+    if (sessionHostAutoAllowsPermission(entry?.permissionMode, params)) {
       return decisionToPermissionResponse(params.options as never, {
         outcome: "allow_always",
       }) as acp.RequestPermissionResponse;
@@ -556,17 +582,25 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
           : toolCallId;
       const kind =
         typeof params.toolCall?.kind === "string" ? params.toolCall.kind : "";
-      // Do not coalesce plan-exit with other grants — unique fingerprint.
-      const fp = planExit
-        ? `plan-exit:${sessionKey}:${toolCallId}`
-        : permissionFingerprint(sessionKey, kind, title);
-      if (planExit) {
-        log.info("plan-exit permission forced to operator", {
-          sessionKey,
-          toolCallId,
-          title: title.slice(0, 80),
-          sessionBypass: entry?.permissionMode === "bypass",
-        });
+      // Unique fingerprint per computer/plan-exit confirm so recent-allow
+      // cannot auto-approve a second attempt.
+      const fp = computerUse
+        ? `computer:${sessionKey}:${toolCallId}`
+        : planExit
+          ? `plan-exit:${sessionKey}:${toolCallId}`
+          : permissionFingerprint(sessionKey, kind, title);
+      if (planExit || computerUse) {
+        log.info(
+          computerUse
+            ? "computer-use permission forced to operator"
+            : "plan-exit permission forced to operator",
+          {
+            sessionKey,
+            toolCallId,
+            title: title.slice(0, 80),
+            sessionBypass: entry?.permissionMode === "bypass",
+          },
+        );
       }
       const decision = await askSharedPermission({
         sessionKey,
@@ -781,6 +815,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
       agent: string;
       cwd: string;
       permissionMode?: "ask" | "bypass";
+      mcpEnv?: Array<{ name: string; value: string }>;
     },
     /**
      * After a timed-out session/load the ACP stdio channel is often wedged.
@@ -988,6 +1023,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
             ...(options.stateDir !== undefined
               ? { stateDir: options.stateDir, oauthStateDir: options.stateDir }
               : {}),
+            ...(input.mcpEnv ? { env: input.mcpEnv } : {}),
             log,
           });
     if (noMcp) {

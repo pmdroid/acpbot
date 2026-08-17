@@ -17,10 +17,15 @@ import type { HostSessionStore } from "../acp/session-store";
 import {
   type HostToWorker,
   type WorkerToHost,
-  type ComputerGrantWire,
-  STUB_COMPUTER_PROBE,
   defaultAcpHostSock,
 } from "./protocol";
+import { createFakeComputerBackend } from "../computer/fake";
+import { createComputerSupervisor } from "../computer/supervisor";
+import {
+  createHostApiServer,
+  hostApiSockPath,
+  mintHostApiToken,
+} from "./host-api";
 import {
   parseReposFromEnv,
   scheduleTickMs,
@@ -33,8 +38,20 @@ import {
   bindHostEveRuntimeDeps,
   markEveAbort,
 } from "../eve/host-runner";
-import { isPlanExitPermission } from "../acp/permission-map";
+import {
+  isPlanExitPermission,
+  isComputerUsePermission,
+  shouldForceAskPermission,
+} from "../acp/permission-map";
 
+
+/** Site 2 (acp-host hooks): bypass never auto-allows plan-exit or computer-use. */
+export function acpHostAutoAllowsPermission(
+  permissionMode: "ask" | "bypass" | undefined,
+  raw: unknown,
+): boolean {
+  return permissionMode === "bypass" && !shouldForceAskPermission(raw);
+}
 
 type QueuedHostPrompt = {
   sock: HostConn;
@@ -62,6 +79,10 @@ type Slot = {
     (d: import("../env/types").ElicitationDecision | undefined) => void
   >;
   askResolvers: Map<string, (r: Record<string, unknown>) => void>;
+  computerAllowed?: boolean;
+  hostApiToken?: string;
+  turnSource?: "operator" | "schedule" | "eve";
+  turnAbort?: AbortController;
 };
 
 export type AcpHostServerOptions = {
@@ -81,6 +102,8 @@ export type AcpHostServerOptions = {
   scheduleTickMs?: number;
   /** Disable schedule loop (tests that only need the socket). */
   enableScheduler?: boolean;
+  /** Test seam: skip agent spawn (supervisor / schedule-source tests). */
+  testSessionHost?: SessionHost;
   /**
    * Optional remote WebSocket listen (authenticated). When set, host accepts
    * WSS/WS workers in addition to the Unix socket. Token is required.
@@ -127,6 +150,30 @@ export async function startAcpHostServer(
   scheduleTickNow?: () => Promise<import("./scheduler").TickResult>;
   /** Mutable repos catalog (scheduler + hot-reload). */
   repos?: Record<string, string>;
+  remotePort?: number;
+  hostApiSockPath?: string;
+  config?: AcpbotConfig;
+  fireScheduledPrompt: (args: {
+    sessionKey: string;
+    repoRoot: string;
+    text: string;
+  }) => Promise<FireJobResult>;
+  computerAct: (
+    sessionKey: string,
+    action: import("../computer/supervisor").ComputerAction,
+  ) => Promise<import("../computer/supervisor").ComputerActionResult>;
+  onComputerConfigReloaded: () => void;
+  /** Test seam: attach a dummy slot without spawning an agent. */
+  attachTestSlot: (slot: {
+    slotKey: string;
+    computerAllowed?: boolean;
+    hostApiToken?: string;
+    owner?: HostConn | null;
+  }) => void;
+  setTurnSource: (
+    slotKey: string,
+    source: Slot["turnSource"],
+  ) => void;
 }> {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
@@ -155,31 +202,69 @@ export async function startAcpHostServer(
 
   const slots = new Map<string, Slot>();
   let scheduler: SchedulerLoopHandle | null = null;
-  /** Conn-bound grants. hostId is worker routing only; do not compare it here. */
-  const computerGrantsByConn = new WeakMap<
-    HostConn,
-    Map<string, ComputerGrantWire>
-  >();
+  const hostApiPath = hostApiSockPath(stateDir);
 
-  function setConnComputerGrant(
-    conn: HostConn,
-    slotKey: string,
-    grant: ComputerGrantWire,
+  const computer = createComputerSupervisor({
+    backend: createFakeComputerBackend(),
+    getConfig: () => baseConfig.computer,
+    getSlot: (slotKey) => {
+      const s = slots.get(slotKey);
+      if (!s) return undefined;
+      return {
+        slotKey,
+        owner: s.owner,
+        computerAllowed: s.computerAllowed,
+        turnSource: s.turnSource,
+        turnAbort: s.turnAbort?.signal,
+      };
+    },
+    publishFrame: (frame) => {
+      const slot = slots.get(frame.sessionKey);
+      if (slot?.owner && !slot.owner.destroyed) {
+        send(slot.owner, { type: "computer_frame", ...frame });
+      }
+    },
+    log,
+    stateDir,
+  });
+
+  const hostApi = createHostApiServer({
+    supervisor: computer,
+    auth: {
+      tokenFor: (sessionKey) => slots.get(sessionKey)?.hostApiToken,
+    },
+    sockPath: hostApiPath,
+    stateDir,
+    log,
+  });
+
+  function hostApiMcpEnv(token: string): Array<{ name: string; value: string }> {
+    return [
+      { name: "ACPBOT_HOST_API_TOKEN", value: token },
+      { name: "ACPBOT_HOST_API_SOCK", value: hostApiPath },
+    ];
+  }
+
+  function applyComputerAllowed(
+    slot: Slot,
+    config: { computerAllowed?: boolean },
   ): void {
-    let m = computerGrantsByConn.get(conn);
-    if (!m) {
-      m = new Map();
-      computerGrantsByConn.set(conn, m);
+    if ("computerAllowed" in config && config.computerAllowed !== undefined) {
+      slot.computerAllowed = config.computerAllowed === true;
     }
-    m.set(slotKey, grant);
   }
 
-  function dropConnComputerGrant(conn: HostConn, slotKey: string): void {
-    computerGrantsByConn.get(conn)?.delete(slotKey);
-  }
-
-  function dropAllConnComputerGrants(conn: HostConn): void {
-    computerGrantsByConn.delete(conn);
+  function newSessionHost(slotKey: string): SessionHost {
+    if (options.testSessionHost) return options.testSessionHost;
+    return createSessionHost({
+      config: {
+        ...baseConfig,
+      },
+      stateDir,
+      ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),
+      log,
+      hooks: makeHooks(slotKey),
+    });
   }
 
   function makeHooks(slotKey: string): SessionHostHooks {
@@ -187,22 +272,24 @@ export async function startAcpHostServer(
       onPermissionRequest: async (req, ctx) => {
         const slot = slots.get(slotKey);
         // Never auto-approve leaving plan mode — operator must click.
-        if (
-          slot?.permissionMode === "bypass" &&
-          !isPlanExitPermission(req.raw)
-        ) {
+        if (acpHostAutoAllowsPermission(slot?.permissionMode, req.raw)) {
           log.info("permission auto-approved (bypass)", {
             slotKey,
             toolCallId: req.toolCallId,
           });
           return { outcome: "allow_always" };
         }
-        if (isPlanExitPermission(req.raw)) {
-          log.info("plan-exit permission → worker (forced ask)", {
-            slotKey,
-            toolCallId: req.toolCallId,
-            sessionBypass: slot?.permissionMode === "bypass",
-          });
+        if (isPlanExitPermission(req.raw) || isComputerUsePermission(req.raw)) {
+          log.info(
+            isComputerUsePermission(req.raw)
+              ? "computer-use permission → worker (forced ask)"
+              : "plan-exit permission → worker (forced ask)",
+            {
+              slotKey,
+              toolCallId: req.toolCallId,
+              sessionBypass: slot?.permissionMode === "bypass",
+            },
+          );
         }
         if (!slot?.owner || slot.owner.destroyed) {
           log.warn("permission fail-closed (no worker)", { slotKey });
@@ -390,6 +477,7 @@ export async function startAcpHostServer(
         (slot.permissionMode ?? "ask") === (config.permissionMode ?? "ask");
       if (same) {
         slot.owner = sock;
+        applyComputerAllowed(slot, config);
         try {
           const hs = await slot.host.ensureSession({
             sessionKey: slotKey,
@@ -444,18 +532,21 @@ export async function startAcpHostServer(
       }
     }
 
-    const host = createSessionHost({
-      config: {
-        ...baseConfig,
-        ...(config.mcpEnabled !== undefined
-          ? { mcpEnabled: config.mcpEnabled }
-          : {}),
-      },
-      stateDir,
-      ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),
-      log,
-      hooks: makeHooks(slotKey),
-    });
+    const host = options.testSessionHost
+      ? options.testSessionHost
+      : createSessionHost({
+          config: {
+            ...baseConfig,
+            ...(config.mcpEnabled !== undefined
+              ? { mcpEnabled: config.mcpEnabled }
+              : {}),
+          },
+          stateDir,
+          ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),
+          log,
+          hooks: makeHooks(slotKey),
+        });
+    const hostApiToken = mintHostApiToken();
 
     try {
       // Resume via durable store is inside createSessionHost using sessionKey
@@ -468,6 +559,7 @@ export async function startAcpHostServer(
           ? { permissionMode: config.permissionMode }
           : {}),
         ...(config.forceNewSession ? { forceNewSession: true } : {}),
+        mcpEnv: hostApiMcpEnv(hostApiToken),
       });
       const mode = await host.getModeState(slotKey);
       slots.set(slotKey, {
@@ -485,6 +577,8 @@ export async function startAcpHostServer(
         permissionResolvers: new Map(),
         elicitationResolvers: new Map(),
         askResolvers: new Map(),
+        hostApiToken,
+        computerAllowed: config.computerAllowed === true,
       });
       send(sock, {
         type: "ensure_ok",
@@ -548,11 +642,15 @@ export async function startAcpHostServer(
   ): Promise<void> {
     slot.owner = sock;
     slot.busy = true;
+    slot.turnSource = msg.source ?? "operator";
+    slot.turnAbort = new AbortController();
+    computer.onTurnStart(slot.slotKey);
     try {
       const turn = slot.host.startTurn({
         sessionKey: msg.slotKey,
         text: msg.text,
         ...(msg.attachments ? { attachments: msg.attachments } : {}),
+        ...(msg.source ? { source: msg.source } : {}),
       });
       for await (const event of turn.events) {
         if (slot.owner && !slot.owner.destroyed) {
@@ -585,6 +683,8 @@ export async function startAcpHostServer(
       }
     } finally {
       slot.busy = false;
+      slot.turnSource = undefined;
+      slot.turnAbort = undefined;
       // Drain next queued prompt (if any) for this slot.
       const next = slot.promptQueue.shift();
       if (next) {
@@ -660,15 +760,8 @@ export async function startAcpHostServer(
       }
     }
 
-    const host = createSessionHost({
-      config: {
-        ...baseConfig,
-      },
-      stateDir,
-      ...(options.sessionStore ? { sessionStore: options.sessionStore } : {}),
-      log,
-      hooks: makeHooks(slotKey),
-    });
+    const host = newSessionHost(slotKey);
+    const hostApiToken = mintHostApiToken();
 
     try {
       const hs = await host.ensureSession({
@@ -676,6 +769,7 @@ export async function startAcpHostServer(
         agent,
         cwd,
         permissionMode,
+        mcpEnv: hostApiMcpEnv(hostApiToken),
       });
       const created: Slot = {
         slotKey,
@@ -690,6 +784,8 @@ export async function startAcpHostServer(
         permissionResolvers: new Map(),
         elicitationResolvers: new Map(),
         askResolvers: new Map(),
+        hostApiToken,
+        // omit computerAllowed — new schedule/EVE slots stay false
       };
       slots.set(slotKey, created);
       log.info("schedule ensure new/load", {
@@ -754,6 +850,9 @@ export async function startAcpHostServer(
     }
 
     slot.busy = true;
+    slot.turnSource = "schedule";
+    slot.turnAbort = new AbortController();
+    computer.onTurnStart(slot.slotKey);
     const reqId = `sched-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
       const turn = slot.host.startTurn({
@@ -807,6 +906,8 @@ export async function startAcpHostServer(
       };
     } finally {
       slot.busy = false;
+      slot.turnSource = undefined;
+      slot.turnAbort = undefined;
     }
   }
 
@@ -870,6 +971,9 @@ export async function startAcpHostServer(
                 return { summary: "slot busy timeout", status: "failed" };
               }
               slot.busy = true;
+              slot.turnSource = "eve";
+              slot.turnAbort = new AbortController();
+              computer.onTurnStart(slot.slotKey);
               let summary = "";
               const reqId = `eve-leaf-${Date.now()}`;
               try {
@@ -910,6 +1014,8 @@ export async function startAcpHostServer(
                 };
               } finally {
                 slot.busy = false;
+                slot.turnSource = undefined;
+                slot.turnAbort = undefined;
                 try {
                   await slot.host.dispose();
                 } catch {
@@ -1259,6 +1365,7 @@ export async function startAcpHostServer(
               });
             }
           }
+          slot.turnAbort?.abort();
           await slot.host.cancel(msg.slotKey);
         }
         send(sock, {
@@ -1409,23 +1516,18 @@ export async function startAcpHostServer(
           });
           return;
         }
-        setConnComputerGrant(sock, msg.slotKey, g);
-        log.info("computer grant applied", {
-          sessionKey: msg.slotKey,
-          hostId: g.hostId,
-          watch: g.watch,
-          expiresAt: g.expiresAt,
-        });
+        computer.applyGrant(msg.slotKey, sock, g);
+        const probe = await computer.probe();
         send(sock, {
           type: "computer_grant_ok",
           reqId: msg.reqId,
           slotKey: msg.slotKey,
-          probe: STUB_COMPUTER_PROBE,
+          probe,
         });
         return;
       }
       case "computer_abort": {
-        dropConnComputerGrant(sock, msg.slotKey);
+        computer.abort(msg.slotKey);
         send(sock, {
           type: "computer_abort_ok",
           reqId: msg.reqId,
@@ -1434,6 +1536,7 @@ export async function startAcpHostServer(
         return;
       }
       case "computer_frame_ack":
+        computer.ackFrame(msg.slotKey, msg.frameId);
         return;
       case "permission_result": {
         const slot = slots.get(msg.slotKey);
@@ -1544,7 +1647,7 @@ export async function startAcpHostServer(
       for (const slot of slots.values()) {
         if (slot.owner === conn) slot.owner = null;
       }
-      dropAllConnComputerGrants(conn);
+      computer.onOwnerDisconnect(conn);
     });
     sock.on("error", (e) => {
       log.warn("worker socket error", { error: e.message });
@@ -1677,7 +1780,7 @@ export async function startAcpHostServer(
           for (const slot of slots.values()) {
             if (slot.owner === conn) slot.owner = null;
           }
-          if (conn) dropAllConnComputerGrants(conn);
+          if (conn) computer.onOwnerDisconnect(conn);
         },
       },
     });
@@ -1694,6 +1797,15 @@ export async function startAcpHostServer(
     });
   }
 
+  await hostApi.listen();
+
+  const onComputerConfigReloaded = () => {
+    if (baseConfig.computer?.enabled !== true) {
+      computer.abortAll();
+      log.info("computer disabled via reload — grants aborted");
+    }
+  };
+
   const close = async () => {
     if (scheduler) {
       scheduler.stop();
@@ -1707,6 +1819,12 @@ export async function startAcpHostServer(
       }
       remoteServer = undefined;
     }
+    computer.abortAll();
+    try {
+      await hostApi.close();
+    } catch {
+      /* */
+    }
     log.info("shutting down — disposing all agent slots");
     for (const [key, slot] of slots) {
       try {
@@ -1716,7 +1834,13 @@ export async function startAcpHostServer(
       }
       slots.delete(key);
     }
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 1000);
+      server.close(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
     try {
       unlinkSync(sockPath);
     } catch {
@@ -1731,6 +1855,70 @@ export async function startAcpHostServer(
     /** Shared mutable repo catalog (hot-reload mutates in place). */
     repos,
     remotePort: remoteServer?.port,
+    hostApiSockPath: hostApiPath,
+    config: baseConfig,
+    fireScheduledPrompt,
+    computerAct: (sessionKey, action) => computer.act(sessionKey, action),
+    onComputerConfigReloaded,
+    attachTestSlot: (input) => {
+      const existing = slots.get(input.slotKey);
+      if (existing) {
+        if (input.computerAllowed !== undefined) {
+          existing.computerAllowed = input.computerAllowed;
+        }
+        if (input.hostApiToken) existing.hostApiToken = input.hostApiToken;
+        if (input.owner !== undefined) existing.owner = input.owner;
+        return;
+      }
+      const dummy: SessionHost =
+        options.testSessionHost ??
+        ({
+          ensureSession: async () => ({
+            sessionKey: input.slotKey,
+            agentSessionId: "test",
+            cwd: "/",
+            agent: "test",
+          }),
+          startTurn: () => ({
+            events: (async function* () {
+              yield { type: "done" as const, stopReason: "end_turn" };
+            })(),
+            result: Promise.resolve({ status: "ok" }),
+            cancel: async () => {},
+          }),
+          cancel: async () => {},
+          setMode: async () => ({ currentModeId: undefined, availableModeIds: [] }),
+          getModeState: async () => ({
+            currentModeId: undefined,
+            availableModeIds: [],
+          }),
+          getAvailableModes: async () => [],
+          getConfigOptions: async () => [],
+          setConfigOption: async () => [],
+          disposeSession: async () => {},
+          setHooks: () => {},
+          dispose: async () => {},
+        } satisfies SessionHost);
+      slots.set(input.slotKey, {
+        slotKey: input.slotKey,
+        agent: "test",
+        cwd: "/",
+        host: dummy,
+        agentSessionId: "test",
+        owner: input.owner ?? null,
+        busy: false,
+        promptQueue: [],
+        permissionResolvers: new Map(),
+        elicitationResolvers: new Map(),
+        askResolvers: new Map(),
+        computerAllowed: input.computerAllowed === true,
+        hostApiToken: input.hostApiToken ?? mintHostApiToken(),
+      });
+    },
+    setTurnSource: (slotKey, source) => {
+      const s = slots.get(slotKey);
+      if (s) s.turnSource = source;
+    },
     ...(scheduler
       ? { scheduleTickNow: () => scheduler!.tickNow() }
       : {}),
