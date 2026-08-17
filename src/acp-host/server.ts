@@ -20,7 +20,9 @@ import {
   defaultAcpHostSock,
 } from "./protocol";
 import { createFakeComputerBackend } from "../computer/fake";
+import { createPlaywrightComputerBackend } from "../computer/playwright";
 import { createComputerSupervisor } from "../computer/supervisor";
+import type { ComputerUseBackend } from "../computer/backend";
 import {
   createHostApiServer,
   hostApiSockPath,
@@ -104,6 +106,8 @@ export type AcpHostServerOptions = {
   enableScheduler?: boolean;
   /** Test seam: skip agent spawn (supervisor / schedule-source tests). */
   testSessionHost?: SessionHost;
+  /** Test seam: inject fake backend. Production uses Playwright (fail closed). */
+  computerBackend?: ComputerUseBackend;
   /**
    * Optional remote WebSocket listen (authenticated). When set, host accepts
    * WSS/WS workers in addition to the Unix socket. Token is required.
@@ -116,6 +120,9 @@ export type AcpHostServerOptions = {
     tls?: { cert: string | Buffer; key: string | Buffer };
   };
 };
+
+/** Inbound worker commands are small. Drop a runaway buffer before parse. */
+const HOST_WS_INBOUND_MAX = 256 * 1024;
 
 /** Line-oriented endpoint (Unix socket or WebSocket adapter). */
 export type HostConn = {
@@ -213,8 +220,20 @@ export async function startAcpHostServer(
   let scheduler: SchedulerLoopHandle | null = null;
   const hostApiPath = hostApiSockPath(stateDir);
 
+  // Tests keep the fake (injected, or implied by testSessionHost). Production
+  // always uses Playwright so a missing browser fails closed instead of a fixture.
+  const computerBackend: ComputerUseBackend =
+    options.computerBackend ??
+    (options.testSessionHost
+      ? createFakeComputerBackend()
+      : createPlaywrightComputerBackend({
+          stateDir,
+          getConfig: () => baseConfig.computer,
+          log,
+        }));
+
   const computer = createComputerSupervisor({
-    backend: createFakeComputerBackend(),
+    backend: computerBackend,
     getConfig: () => baseConfig.computer,
     getSlot: (slotKey) => {
       const s = slots.get(slotKey);
@@ -1761,6 +1780,16 @@ export async function startAcpHostServer(
               ? message
               : new TextDecoder().decode(message as ArrayBuffer);
           ws.data.buf += text;
+          if (ws.data.buf.length > HOST_WS_INBOUND_MAX) {
+            log.warn("ws inbound buffer exceeded — closing");
+            ws.data.buf = "";
+            try {
+              ws.close();
+            } catch {
+              /* */
+            }
+            return;
+          }
           // Accept either newline-delimited or one JSON object per message
           if (!ws.data.buf.includes("\n")) {
             const line = ws.data.buf.trim();

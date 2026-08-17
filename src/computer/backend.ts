@@ -36,16 +36,20 @@ export class ComputerBackendError extends Error {
   }
 }
 
-/** Host-owned capture / input. Fake backend; input methods throw `input_not_enabled`. */
+/** Host-owned capture / input. Fake throws `input_not_enabled`; Playwright drives an isolated browser. */
 export type ComputerUseBackend = {
   screenshot(opts: {
+    slotKey?: string;
     display?: number;
     region?: ScreenshotRegion;
     fullPage?: boolean;
   }): Promise<ScreenshotResult>;
-  pointer(action: PointerAction): Promise<void>;
-  key(action: KeyAction): Promise<void>;
-  typeText(text: string): Promise<void>;
-  navigate(opts: { url: string }): Promise<void>;
+  pointer(action: PointerAction, slotKey?: string): Promise<void>;
+  key(action: KeyAction, slotKey?: string): Promise<void>;
+  typeText(text: string, slotKey?: string): Promise<void>;
+  navigate(opts: { url: string; slotKey?: string }): Promise<void>;
   probe(): Promise<ComputerProbe>;
+  /** Destroy the isolated profile for this slot (revoke / disconnect / TTL). */
+  closeSlot?(slotKey: string): Promise<void>;
+  closeAll?(): Promise<void>;
 };

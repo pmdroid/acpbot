@@ -13,6 +13,7 @@ import {
   type ComputerUseBackend,
   type ScreenshotRegion,
 } from "./backend";
+import { annotateCrosshair } from "./annotate";
 
 export type ComputerTurnSource = "operator" | "schedule" | "eve";
 
@@ -142,6 +143,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
 
   function dropGrant(slotKey: string): void {
     grants.delete(slotKey);
+    void options.backend.closeSlot?.(slotKey);
   }
 
   function applyGrant(
@@ -174,7 +176,10 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
   }
 
   function abortAll(): void {
+    const keys = [...grants.keys()];
     grants.clear();
+    for (const key of keys) void options.backend.closeSlot?.(key);
+    void options.backend.closeAll?.();
   }
 
   function onOwnerDisconnect(conn: ComputerOwnerConn): void {
@@ -259,6 +264,48 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     return randomBytes(8).toString("hex");
   }
 
+  function jpegQuality(): number {
+    return options.getConfig()?.jpegQuality ?? 60;
+  }
+
+  function publishShot(
+    slotKey: string,
+    bound: BoundGrant,
+    shot: { jpeg: Uint8Array; width: number; height: number },
+    actionName: string,
+    annotateAt?: { x: number; y: number },
+  ): string {
+    const frameId = newFrameId();
+    bound.lastFrameId = frameId;
+    bound.lastJpeg = shot.jpeg;
+    bound.lastWidth = shot.width;
+    bound.lastHeight = shot.height;
+    const forTelegram =
+      annotateAt != null
+        ? annotateCrosshair(shot.jpeg, annotateAt.x, annotateAt.y, {
+            quality: jpegQuality(),
+          })
+        : shot.jpeg;
+    const caption = `🖥 ${actionName} · ${bound.grant.hostId} · ${bound.actionsThisTurn}/${maxActions()}`;
+    options.publishFrame({
+      sessionKey: slotKey,
+      jpegBase64: Buffer.from(forTelegram).toString("base64"),
+      caption,
+      width: shot.width,
+      height: shot.height,
+      action: actionName,
+      frameId,
+      hostId: bound.grant.hostId,
+    });
+    log?.info("computer frame published", {
+      sessionKey: slotKey,
+      frameId,
+      bytes: forTelegram.byteLength,
+      captionLen: caption.length,
+    });
+    return frameId;
+  }
+
   async function act(
     slotKey: string,
     action: ComputerAction,
@@ -286,40 +333,19 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     try {
       if (action.type === "screenshot") {
         const shot = await options.backend.screenshot({
+          slotKey,
           ...(action.display != null ? { display: action.display } : {}),
           ...(action.region ? { region: action.region } : {}),
         });
-        const frameId = newFrameId();
         bound.actionsThisTurn += 1;
         bound.lastActionAt = now();
-        bound.lastFrameId = frameId;
-        bound.lastJpeg = shot.jpeg;
-        bound.lastWidth = shot.width;
-        bound.lastHeight = shot.height;
-
-        const caption = `🖥 screenshot · ${bound.grant.hostId} · ${bound.actionsThisTurn}/${maxActions()}`;
-        options.publishFrame({
-          sessionKey: slotKey,
-          jpegBase64: Buffer.from(shot.jpeg).toString("base64"),
-          caption,
-          width: shot.width,
-          height: shot.height,
-          action: "screenshot",
-          frameId,
-          hostId: bound.grant.hostId,
-        });
+        const frameId = publishShot(slotKey, bound, shot, "screenshot");
         log?.info("computer action", {
           sessionKey: slotKey,
           action: "screenshot",
           frameId,
           ms: now() - t0,
           source: slot.turnSource,
-        });
-        log?.info("computer frame published", {
-          sessionKey: slotKey,
-          frameId,
-          bytes: shot.jpeg.byteLength,
-          captionLen: caption.length,
         });
         await writeAudit({
           ts: now(),
@@ -340,49 +366,81 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
         };
       }
 
-      // Input / navigate — fake backend throws input_not_enabled.
+      // Input / navigate — fake throws input_not_enabled; Playwright drives the viewport.
       if (action.type === "navigate") {
-        await options.backend.navigate({ url: action.url });
+        await options.backend.navigate({ url: action.url, slotKey });
       } else if (action.type === "click") {
-        await options.backend.pointer({
-          kind: "click",
-          x: action.x,
-          y: action.y,
-          ...(action.button ? { button: action.button } : {}),
-        });
+        await options.backend.pointer(
+          {
+            kind: "click",
+            x: action.x,
+            y: action.y,
+            ...(action.button ? { button: action.button } : {}),
+          },
+          slotKey,
+        );
       } else if (action.type === "move") {
-        await options.backend.pointer({
-          kind: "move",
-          x: action.x,
-          y: action.y,
-        });
+        await options.backend.pointer(
+          { kind: "move", x: action.x, y: action.y },
+          slotKey,
+        );
       } else if (action.type === "drag") {
-        await options.backend.pointer({
-          kind: "drag",
-          x1: action.x1,
-          y1: action.y1,
-          x2: action.x2,
-          y2: action.y2,
-        });
+        await options.backend.pointer(
+          {
+            kind: "drag",
+            x1: action.x1,
+            y1: action.y1,
+            x2: action.x2,
+            y2: action.y2,
+          },
+          slotKey,
+        );
       } else if (action.type === "scroll") {
-        await options.backend.pointer({
-          kind: "scroll",
-          x: action.x,
-          y: action.y,
-          ...(action.dx != null ? { dx: action.dx } : {}),
-          ...(action.dy != null ? { dy: action.dy } : {}),
-        });
+        await options.backend.pointer(
+          {
+            kind: "scroll",
+            x: action.x,
+            y: action.y,
+            ...(action.dx != null ? { dx: action.dx } : {}),
+            ...(action.dy != null ? { dy: action.dy } : {}),
+          },
+          slotKey,
+        );
       } else if (action.type === "type") {
-        await options.backend.typeText(action.text);
+        await options.backend.typeText(action.text, slotKey);
       } else if (action.type === "key") {
-        await options.backend.key({
-          key: action.key,
-          ...(action.modifiers ? { modifiers: action.modifiers } : {}),
-        });
+        await options.backend.key(
+          {
+            key: action.key,
+            ...(action.modifiers ? { modifiers: action.modifiers } : {}),
+          },
+          slotKey,
+        );
       }
 
       bound.actionsThisTurn += 1;
       bound.lastActionAt = now();
+
+      const clickPoint =
+        action.type === "click"
+          ? { x: action.x, y: action.y }
+          : action.type === "drag"
+            ? { x: action.x2, y: action.y2 }
+            : undefined;
+      let frameId = bound.lastFrameId ?? undefined;
+      try {
+        const shot = await options.backend.screenshot({ slotKey });
+        frameId = publishShot(
+          slotKey,
+          bound,
+          shot,
+          action.type,
+          clickPoint,
+        );
+      } catch {
+        /* action already applied; frame is best-effort */
+      }
+
       void writeAudit({
         ts: now(),
         sessionKey: slotKey,
@@ -395,11 +453,15 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
           : {}),
         ...(action.type === "key" ? { key: action.key } : {}),
         ...(action.type === "type" ? { textLen: action.text.length } : {}),
-        frameId: bound.lastFrameId,
+        frameId,
         ok: true,
         source: slot.turnSource,
       });
-      return { ok: true, action: action.type };
+      return {
+        ok: true,
+        action: action.type,
+        ...(frameId ? { frameId } : {}),
+      };
     } catch (err) {
       const code =
         err instanceof ComputerBackendError
@@ -411,6 +473,16 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
               : String(err);
       const reason = code === INPUT_NOT_ENABLED ? INPUT_NOT_ENABLED : code;
       log?.warn("computer deny", { sessionKey: slotKey, reason });
+      if (reason === "stale_frame") {
+        try {
+          const shot = await options.backend.screenshot({ slotKey });
+          bound.actionsThisTurn += 1;
+          bound.lastActionAt = now();
+          publishShot(slotKey, bound, shot, "screenshot");
+        } catch {
+          /* recapture is best-effort */
+        }
+      }
       void writeAudit({
         ts: now(),
         sessionKey: slotKey,

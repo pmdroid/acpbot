@@ -552,7 +552,7 @@ export function formatComputerExpiry(expiresAt: number, now: number): string {
 }
 
 export const COMPUTER_GRANT_COPY =
-  "granted; this topic's isolated browser starts when this host supports Playwright. Desktop is never captured. Clicks are not enabled yet.";
+  "granted; the agent can drive this topic's isolated browser (navigate, click, type). Desktop is never captured.";
 
 export function formatComputerGrantBanner(input: {
   grant: ComputerGrant;

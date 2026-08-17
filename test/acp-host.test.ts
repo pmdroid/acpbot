@@ -111,7 +111,7 @@ describe("acp-host server", () => {
 });
 
 describe("acp-host computer protocol", () => {
-  test("grant/abort + stub probe; frame_ack has no reqId and does not hang", async () => {
+  test("grant/abort + playwright probe; frame_ack has no reqId and does not hang", async () => {
     const dir = await mkdtemp(join(tmpdir(), "acpbot-host-comp-"));
     const sockPath = join(dir, "h.sock");
     const { close } = await startAcpHostServer({
@@ -141,9 +141,15 @@ describe("acp-host computer protocol", () => {
           hostId: "local",
         },
       });
-      expect(ok.probe.backend).toBe("fake");
-      expect(ok.probe.inputEnabled).toBe(false);
-      expect(ok.probe.ok).toBe(true);
+      expect(ok.probe.backend).toBe("playwright");
+      expect(ok.probe.display.id).toBe("browser");
+      if (ok.probe.ok) {
+        expect(ok.probe.inputEnabled).toBe(true);
+        expect(ok.probe.missing).toEqual([]);
+      } else {
+        expect(ok.probe.missing).toContain("chromium");
+        expect(ok.probe.inputEnabled).toBe(false);
+      }
 
       const t0 = Date.now();
       client.computerFrameAck("demo/box", "frame-1");

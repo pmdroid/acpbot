@@ -45,6 +45,8 @@ import {
   listKnownAgentIds,
   normalizeAgentName as normalizeAgentId,
 } from "../acp/agent-launch";
+import { probePlaywrightBrowser } from "../computer/playwright";
+import type { ComputerConfig } from "../env/types";
 
 export type GuidedSetupResult = {
   configPath: string;
@@ -1365,11 +1367,59 @@ export async function runGuidedSetupTui(
   });
   if (cancelled(logLevel)) abort();
 
+  // ── Computer use (isolated Playwright browser) ───────────────────────
+  p.log.step("Computer use");
+  p.note(
+    "Optional. Agents drive an isolated Playwright browser on this host.\n" +
+      "The desktop is never captured or clicked. Each topic still needs `/computer on`.",
+    "Isolated browser",
+  );
+  const enableComputer = await p.confirm({
+    message: "Enable isolated-browser computer use on this host?",
+    initialValue: existing?.computer?.enabled === true,
+  });
+  if (cancelled(enableComputer)) abort();
+
+  let computerEnabled = Boolean(enableComputer);
+  if (computerEnabled && hostListen) {
+    const remoteOk = await p.confirm({
+      message:
+        "Remote workers will be able to request this host's isolated browser. Continue?",
+      initialValue: false,
+    });
+    if (cancelled(remoteOk)) abort();
+    if (!remoteOk) computerEnabled = false;
+  }
+
+  let computerConfig: ComputerConfig | undefined;
+  if (computerEnabled) {
+    const probe = probePlaywrightBrowser(existing?.computer?.browserChannel);
+    if (probe.ok) {
+      p.log.success(`Browser available (${probe.label ?? "chromium"}).`);
+    } else {
+      p.log.warn(
+        "No Chrome/Chromium found. Install Google Chrome or run:\n" +
+          "  npx playwright install chromium\n" +
+          "Computer-use tools fail closed until a browser is available.",
+      );
+    }
+    computerConfig = {
+      ...(existing?.computer ?? {}),
+      enabled: true,
+      display: "browser",
+    };
+  } else if (existing?.computer) {
+    computerConfig = { ...existing.computer, enabled: false };
+  }
+
   // ── Write config ──────────────────────────────────────────────────────
   const s = p.spinner();
   s.start(reconfigure ? "Updating config.toml" : "Writing config.toml");
   // When TLS was resolved for this callback, write paths; when HTTP, drop prior TLS.
-  const preserve = preserveFromExisting(existing);
+  const preserve = preserveFromExisting(existing) ?? {};
+  if (computerConfig) {
+    preserve.computer = computerConfig;
+  }
   if (oauthCallbackBase && !oauthTlsCert) {
     // Explicit clear of TLS when switching to HTTP or certs missing
     if (preserve) {
