@@ -13,7 +13,7 @@ import {
 } from "../src/acp/session-mode";
 import { COMPUTER_GRANT_TTL_MS } from "../src/acp-host/protocol";
 import type { HostsCatalog } from "../src/acp-host/hosts";
-import type { TelegramUpdate } from "../src/env/types";
+import { TelegramApiError, type TelegramUpdate } from "../src/env/types";
 import { memoryStore } from "../src/env/store";
 
 const OPERATOR = 42;
@@ -468,5 +468,38 @@ describe("/computer commands", () => {
     expect(env.agents.computerFrameAckCalls).toEqual([
       { sessionKey: session.sessionKey, frameId: "f1" },
     ]);
+  });
+
+  test("sendPhoto 429 auto-pauses watch and surfaces a status line", async () => {
+    const { env, daemon, session } = await openTopic();
+    await daemon.handleUpdate(
+      topic(session.messageThreadId, "/computer watch", 2),
+    );
+    expect((await daemon.listSessions())[0]?.computerGrant?.watch).toBe(true);
+    const grantsBefore = env.agents.computerGrantCalls.length;
+    env.telegram.setSendPhotoError(
+      new TelegramApiError(429, "Too Many Requests"),
+    );
+    env.agents.raiseComputerFrame({
+      sessionKey: session.sessionKey,
+      jpegBase64: Buffer.from([0xff, 0xd8, 0xff, 0x00]).toString("base64"),
+      caption: "🖥 watch · local",
+      width: 10,
+      height: 10,
+      frameId: "w1",
+      hostId: "local",
+    });
+    await Bun.sleep(30);
+    const after = (await daemon.listSessions())[0]!;
+    expect(after.computerGrant?.enabled).toBe(true);
+    expect(after.computerGrant?.watch).toBe(false);
+    expect(env.agents.computerFrameAckCalls).toHaveLength(0);
+    expect(env.agents.computerGrantCalls.length).toBe(grantsBefore + 1);
+    expect(env.agents.computerGrantCalls.at(-1)?.grant.watch).toBe(false);
+    expect(
+      topicTexts(env, session.messageThreadId).some((t) =>
+        /Watch paused.*429/i.test(t),
+      ),
+    ).toBe(true);
   });
 });

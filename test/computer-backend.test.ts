@@ -442,6 +442,170 @@ describe("computer supervisor", () => {
   });
 });
 
+describe("computer supervisor watch", () => {
+  async function setupWatch(opts?: {
+    watch?: boolean;
+    turnSource?: ComputerSlotView["turnSource"];
+    enabled?: boolean;
+    coalesceMs?: number;
+  }) {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-watch-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      ...(opts && "turnSource" in opts
+        ? { turnSource: opts.turnSource }
+        : { turnSource: "operator" }),
+    };
+    const frames: Array<{ frameId: string; action?: string }> = [];
+    const statuses: string[] = [];
+    const ticks: Array<() => void> = [];
+    const supervisor = createComputerSupervisor({
+      backend: createFakeComputerBackend(),
+      getConfig: () => ({
+        enabled: opts?.enabled ?? true,
+        watchIntervalMs: 10,
+        frameCoalesceMs: opts?.coalesceMs ?? 0,
+        minActionIntervalMs: 0,
+      }),
+      getSlot: () => slot,
+      publishFrame: (f) => {
+        frames.push({ frameId: f.frameId, action: f.action });
+      },
+      publishStatus: (s) => {
+        statuses.push(s.text);
+      },
+      stateDir: dir,
+      scheduleWatch: (tick) => {
+        ticks.push(tick);
+        return () => {
+          const i = ticks.indexOf(tick);
+          if (i >= 0) ticks.splice(i, 1);
+        };
+      },
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: opts?.watch ?? true,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    return { dir, slot, supervisor, frames, statuses, ticks, owner };
+  }
+
+  test("watch fires screenshot N times and stops on abort", async () => {
+    const { supervisor, frames, ticks, dir } = await setupWatch();
+    expect(ticks.length).toBe(1);
+    for (let i = 0; i < 3; i++) {
+      await ticks[0]!();
+      supervisor.ackFrame("demo/box", frames[i]!.frameId);
+    }
+    expect(frames.length).toBe(3);
+    expect(frames.every((f) => f.action === "watch")).toBe(true);
+    supervisor.abort("demo/box");
+    expect(ticks.length).toBe(0);
+    expect(frames.length).toBe(3);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("watch does not fire when turn is not operator-running", async () => {
+    const { frames, ticks, dir } = await setupWatch({ turnSource: "schedule" });
+    await ticks[0]!();
+    expect(frames).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("watch does not fire when enabled is off", async () => {
+    const { frames, ticks, dir } = await setupWatch({ enabled: false });
+    await ticks[0]!();
+    expect(frames).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("watch does not start without grant.watch", async () => {
+    const { ticks, dir } = await setupWatch({ watch: false });
+    expect(ticks).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("owner disconnect stops watch", async () => {
+    const { supervisor, owner, ticks, frames, dir } = await setupWatch();
+    await ticks[0]!();
+    expect(frames).toHaveLength(1);
+    supervisor.onOwnerDisconnect(owner);
+    expect(ticks).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("missing ACK auto-pauses watch and publishes a status line", async () => {
+    const { supervisor, frames, statuses, ticks, dir } = await setupWatch();
+    await ticks[0]!();
+    expect(frames).toHaveLength(1);
+    await ticks[0]!();
+    expect(frames).toHaveLength(1);
+    expect(statuses.some((t) => /Watch paused/i.test(t))).toBe(true);
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(false);
+    expect(ticks).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("ACK lets watch continue", async () => {
+    const { supervisor, frames, ticks, dir } = await setupWatch();
+    await ticks[0]!();
+    supervisor.ackFrame("demo/box", frames[0]!.frameId);
+    await ticks[0]!();
+    supervisor.ackFrame("demo/box", frames[1]!.frameId);
+    expect(frames).toHaveLength(2);
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(true);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("watch does not consume the action budget", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-watch-bud-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      turnSource: "operator",
+    };
+    const ticks: Array<() => void> = [];
+    const supervisor = createComputerSupervisor({
+      backend: createFakeComputerBackend(),
+      getConfig: () => ({
+        enabled: true,
+        maxActionsPerTurn: 1,
+        minActionIntervalMs: 0,
+        frameCoalesceMs: 0,
+      }),
+      getSlot: () => slot,
+      publishFrame: () => {},
+      stateDir: dir,
+      scheduleWatch: (tick) => {
+        ticks.push(tick);
+        return () => {};
+      },
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: true,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    await ticks[0]!();
+    await ticks[0]!();
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).ok).toBe(
+      true,
+    );
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).error).toBe(
+      "budget",
+    );
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
 function pixel(
   img: { width: number; data: Uint8Array },
   x: number,
