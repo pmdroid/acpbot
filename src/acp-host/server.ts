@@ -20,7 +20,10 @@ import {
   defaultAcpHostSock,
 } from "./protocol";
 import { createFakeComputerBackend } from "../computer/fake";
-import { createPlaywrightComputerBackend } from "../computer/playwright";
+import {
+  createPlaywrightComputerBackend,
+  sweepStaleBrowserProfiles,
+} from "../computer/playwright";
 import { createComputerSupervisor } from "../computer/supervisor";
 import type { ComputerUseBackend } from "../computer/backend";
 import {
@@ -222,6 +225,12 @@ export async function startAcpHostServer(
 
   // Tests keep the fake (injected, or implied by testSessionHost). Production
   // always uses Playwright so a missing browser fails closed instead of a fixture.
+  const usePlaywright =
+    !options.computerBackend && !options.testSessionHost;
+  if (usePlaywright) {
+    // Grants are memory-only; leftover dirs would reuse a crashed grant's cookies.
+    await sweepStaleBrowserProfiles(stateDir);
+  }
   const computerBackend: ComputerUseBackend =
     options.computerBackend ??
     (options.testSessionHost

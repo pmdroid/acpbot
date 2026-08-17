@@ -1,20 +1,11 @@
 /**
  * In-process JPEG annotate / downsample. Pure JS so the host binary
  * needs no native image addon and no sips/screencapture.
+ *
+ * Static import so `bun build --compile` traces jpeg-js (a createRequire
+ * would be invisible to the bundler and drop click annotations in release).
  */
-import { createRequire } from "node:module";
-
-const require = createRequire(import.meta.url);
-const jpeg = require("jpeg-js") as {
-  decode: (
-    data: Uint8Array | Buffer,
-    opts?: { useTArray?: boolean; formatAsRGBA?: boolean },
-  ) => { width: number; height: number; data: Uint8Array };
-  encode: (
-    img: { data: Uint8Array | Buffer; width: number; height: number },
-    quality?: number,
-  ) => { data: Buffer };
-};
+import jpeg from "jpeg-js";
 
 export type RgbaImage = {
   width: number;

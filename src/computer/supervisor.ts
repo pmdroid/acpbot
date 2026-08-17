@@ -128,6 +128,29 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
   const log = options.log;
   const now = options.now ?? (() => Date.now());
   const grants = new Map<string, BoundGrant>();
+  const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearExpiry(slotKey: string): void {
+    const t = expiryTimers.get(slotKey);
+    if (!t) return;
+    clearTimeout(t);
+    expiryTimers.delete(slotKey);
+  }
+
+  function scheduleExpiry(slotKey: string, expiresAt: number): void {
+    clearExpiry(slotKey);
+    if (!(expiresAt > 0)) return;
+    const delay = expiresAt - now();
+    // Already expired: leave the grant so gate() can return `expired`.
+    if (delay <= 0) return;
+    const handle = setTimeout(() => {
+      expiryTimers.delete(slotKey);
+      dropGrant(slotKey);
+      log?.info("computer grant expired (ttl)", { sessionKey: slotKey });
+    }, delay);
+    handle.unref?.();
+    expiryTimers.set(slotKey, handle);
+  }
 
   function computerEnabled(): boolean {
     return options.getConfig()?.enabled === true;
@@ -142,6 +165,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
   }
 
   function dropGrant(slotKey: string): void {
+    clearExpiry(slotKey);
     grants.delete(slotKey);
     void options.backend.closeSlot?.(slotKey);
   }
@@ -169,6 +193,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
       watch: grant.watch,
       expiresAt: grant.expiresAt,
     });
+    scheduleExpiry(slotKey, grant.expiresAt);
   }
 
   function abort(slotKey: string): void {
@@ -177,8 +202,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
 
   function abortAll(): void {
     const keys = [...grants.keys()];
-    grants.clear();
-    for (const key of keys) void options.backend.closeSlot?.(key);
+    for (const key of keys) dropGrant(key);
     void options.backend.closeAll?.();
   }
 
@@ -493,6 +517,12 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
         source: slot.turnSource,
       });
       return { ok: false, error: reason };
+    } finally {
+      // /cancel during the action: generation already bumped; close again
+      // so a launch that finished after dropGrant cannot leak Chromium.
+      if (!grants.has(slotKey)) {
+        void options.backend.closeSlot?.(slotKey);
+      }
     }
   }
 
