@@ -545,9 +545,33 @@ describe("computer supervisor watch", () => {
     expect(frames).toHaveLength(1);
     await ticks[0]!();
     expect(frames).toHaveLength(1);
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(true);
+    await ticks[0]!();
+    expect(frames).toHaveLength(1);
     expect(statuses.some((t) => /Watch paused/i.test(t))).toBe(true);
     expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(false);
     expect(ticks).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("applyGrant watch=true after pause publishes again", async () => {
+    const { supervisor, frames, ticks, owner, dir } = await setupWatch();
+    await ticks[0]!();
+    await ticks[0]!();
+    await ticks[0]!();
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(false);
+    expect(frames).toHaveLength(1);
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: true,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(true);
+    expect(ticks).toHaveLength(1);
+    await ticks[0]!();
+    expect(frames).toHaveLength(2);
+    expect(supervisor.getGrant("demo/box")?.grant.watch).toBe(true);
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -572,6 +596,7 @@ describe("computer supervisor watch", () => {
       turnSource: "operator",
     };
     const ticks: Array<() => void> = [];
+    const frames: string[] = [];
     const supervisor = createComputerSupervisor({
       backend: createFakeComputerBackend(),
       getConfig: () => ({
@@ -581,7 +606,9 @@ describe("computer supervisor watch", () => {
         frameCoalesceMs: 0,
       }),
       getSlot: () => slot,
-      publishFrame: () => {},
+      publishFrame: (f) => {
+        frames.push(f.frameId);
+      },
       stateDir: dir,
       scheduleWatch: (tick) => {
         ticks.push(tick);
@@ -595,7 +622,9 @@ describe("computer supervisor watch", () => {
       hostId: "local",
     });
     await ticks[0]!();
+    supervisor.ackFrame("demo/box", frames[0]!);
     await ticks[0]!();
+    expect(frames).toHaveLength(2);
     expect((await supervisor.act("demo/box", { type: "screenshot" })).ok).toBe(
       true,
     );

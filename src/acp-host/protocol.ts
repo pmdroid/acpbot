@@ -65,6 +65,13 @@ export type ComputerFrameEvent = {
   hostId: string;
 };
 
+export type ComputerStatusEvent = {
+  sessionKey: string;
+  text: string;
+  /** Host auto-pause: worker persists this so /status does not rebind watch on. */
+  watch?: boolean;
+};
+
 export type HostAgentConfig = {
   /** acpbot agent name, e.g. grok-build */
   agent: string;
@@ -373,7 +380,7 @@ export type HostToWorker =
       frameId: string;
       hostId: string;
     }
-  | { type: "computer_status"; sessionKey: string; text: string };
+  | ({ type: "computer_status" } & ComputerStatusEvent);
 
 export function defaultAcpHostSock(
   stateDir = process.env.ACPBOT_STATE_DIR?.trim() || "./data/acpbot-state",

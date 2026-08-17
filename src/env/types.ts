@@ -628,7 +628,9 @@ export interface AgentsPort {
   ): void;
 
   setComputerStatusHandler?(
-    handler: (status: { sessionKey: string; text: string }) => void,
+    handler: (
+      status: import("../acp-host/protocol").ComputerStatusEvent,
+    ) => void,
   ): void;
 }
 

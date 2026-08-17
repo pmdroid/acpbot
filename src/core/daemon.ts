@@ -1199,9 +1199,16 @@ export function createDaemon(
   async function handleComputerStatus(status: {
     sessionKey: string;
     text: string;
+    watch?: boolean;
   }): Promise<void> {
     const session = sessionIndex.byKey[status.sessionKey];
     if (!session || !status.text.trim()) return;
+    if (status.watch === false && session.computerGrant?.watch) {
+      session.computerGrant.watch = false;
+      session.updatedAt = env.clock.now();
+      sessionIndex.byKey[session.sessionKey] = session;
+      await persistIndex();
+    }
     await sendInTopic(session, status.text).catch((err) => {
       log.warn("computer status telegram failed", {
         sessionKey: status.sessionKey,
@@ -2230,7 +2237,6 @@ export function createDaemon(
     return /\b429\b|too many requests/i.test(msg);
   }
 
-  /** Stop watch (keep grant) after Telegram 429 / sendPhoto failure. */
   async function pauseWatchOnSendFailure(
     session: PersistedSession,
     err: unknown,

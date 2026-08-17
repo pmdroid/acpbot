@@ -10,7 +10,7 @@ import {
   resolveAcpHostSockPath,
   type AcpHostClientApi,
 } from "./client";
-import type { ComputerFrameEvent } from "./protocol";
+import type { ComputerFrameEvent, ComputerStatusEvent } from "./protocol";
 import {
   getHostEndpoint,
   type HostsCatalog,
@@ -23,7 +23,7 @@ export type HostRouterOptions = {
   log?: Logger;
   hooks?: SessionHostHooks;
   onComputerFrame?: (msg: ComputerFrameEvent) => void;
-  onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+  onComputerStatus?: (msg: ComputerStatusEvent) => void;
 };
 
 export type HostRouter = {
@@ -33,7 +33,7 @@ export type HostRouter = {
   setHooks(hooks: SessionHostHooks): void;
   setComputerHandlers(handlers: {
     onComputerFrame?: (msg: ComputerFrameEvent) => void;
-    onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+    onComputerStatus?: (msg: ComputerStatusEvent) => void;
   }): void;
   catalog: HostsCatalog;
 };
@@ -48,7 +48,7 @@ export function createHostRouter(options: HostRouterOptions): HostRouter {
   function buildClient(ep: HostEndpointConfig): AcpHostClientApi {
     const computer = {
       onComputerFrame: (msg: ComputerFrameEvent) => onComputerFrame?.(msg),
-      onComputerStatus: (msg: { sessionKey: string; text: string }) =>
+      onComputerStatus: (msg: ComputerStatusEvent) =>
         onComputerStatus?.(msg),
     };
     if (ep.kind === "wss") {

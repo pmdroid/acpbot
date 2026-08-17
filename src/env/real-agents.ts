@@ -24,7 +24,10 @@ import {
 } from "../acp-host/client";
 import { createHostRouter } from "../acp-host/router";
 import { resolveHostId } from "../acp-host/hosts";
-import type { ComputerFrameEvent } from "../acp-host/protocol";
+import type {
+  ComputerFrameEvent,
+  ComputerStatusEvent,
+} from "../acp-host/protocol";
 import {
   isAutoApproveAgentMode,
   pickModeForPermissionPolicy,
@@ -86,7 +89,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     | ((frame: ComputerFrameEvent) => void)
     | undefined;
   let computerStatusHandler:
-    | ((status: { sessionKey: string; text: string }) => void)
+    | ((status: ComputerStatusEvent) => void)
     | undefined;
 
   const hooks = {

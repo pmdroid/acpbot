@@ -268,6 +268,7 @@ export async function startAcpHostServer(
           type: "computer_status",
           sessionKey: status.sessionKey,
           text: status.text,
+          ...(status.watch !== undefined ? { watch: status.watch } : {}),
         });
       }
     },
