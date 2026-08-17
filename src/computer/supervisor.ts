@@ -340,7 +340,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
         };
       }
 
-      // Input / navigate — fake backend throws input_not_enabled (PR 3).
+      // Input / navigate — fake backend throws input_not_enabled.
       if (action.type === "navigate") {
         await options.backend.navigate({ url: action.url });
       } else if (action.type === "click") {

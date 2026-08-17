@@ -89,4 +89,16 @@ describe("isComputerUsePermission", () => {
       true,
     );
   });
+
+  test("description-only title mentioning [computer] is computer-use", () => {
+    expect(
+      isComputerUsePermission({
+        toolCallId: "uuid",
+        toolCall: {
+          title:
+            "Capture the isolated browser viewport. Requires [computer].enabled.",
+        },
+      }),
+    ).toBe(true);
+  });
 });

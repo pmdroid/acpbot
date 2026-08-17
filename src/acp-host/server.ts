@@ -174,6 +174,15 @@ export async function startAcpHostServer(
     slotKey: string,
     source: Slot["turnSource"],
   ) => void;
+  inspectSlot: (slotKey: string) =>
+    | {
+        computerAllowed: boolean;
+        hostApiToken?: string;
+        permissionMode?: "ask" | "bypass";
+        agent: string;
+        cwd: string;
+      }
+    | undefined;
 }> {
   const log = (options.log ?? silentLogger()).child("acp-host");
   const stateDir =
@@ -721,20 +730,20 @@ export async function startAcpHostServer(
     let slot = slots.get(slotKey);
 
     if (slot) {
-      const same =
-        slot.agent === agent &&
-        slot.cwd === cwd &&
-        (slot.permissionMode ?? "ask") === permissionMode;
+      const same = slot.agent === agent && slot.cwd === cwd;
       if (same) {
         try {
           const hs = await slot.host.ensureSession({
             sessionKey: slotKey,
             agent,
             cwd,
-            permissionMode,
+            // Keep the live slot's policy so a cron tick does not respawn
+            // a bypass operator topic as ask (or remint the host-api token).
+            ...(slot.permissionMode
+              ? { permissionMode: slot.permissionMode }
+              : {}),
           });
           slot.agentSessionId = hs.agentSessionId;
-          slot.permissionMode = permissionMode;
           return slot;
         } catch (err) {
           log.warn("schedule ensure reattach failed; recreating", {
@@ -1918,6 +1927,17 @@ export async function startAcpHostServer(
     setTurnSource: (slotKey, source) => {
       const s = slots.get(slotKey);
       if (s) s.turnSource = source;
+    },
+    inspectSlot: (slotKey) => {
+      const s = slots.get(slotKey);
+      if (!s) return undefined;
+      return {
+        computerAllowed: s.computerAllowed === true,
+        ...(s.hostApiToken ? { hostApiToken: s.hostApiToken } : {}),
+        ...(s.permissionMode ? { permissionMode: s.permissionMode } : {}),
+        agent: s.agent,
+        cwd: s.cwd,
+      };
     },
     ...(scheduler
       ? { scheduleTickNow: () => scheduler!.tickNow() }

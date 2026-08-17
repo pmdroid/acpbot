@@ -497,4 +497,227 @@ describe("acp-host computer protocol", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 15_000);
+
+  test("bypass operator slot + cron keeps computerAllowed, grant, token", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-bypass-"));
+    const sockPath = join(dir, "h.sock");
+    let releaseSchedule: (() => void) | undefined;
+    const scheduleHold = new Promise<void>((r) => {
+      releaseSchedule = r;
+    });
+    let ensureCalls = 0;
+    const fakeHost: SessionHost = {
+      ensureSession: async (input) => {
+        ensureCalls += 1;
+        return {
+          sessionKey: input.sessionKey,
+          agentSessionId: "s1",
+          cwd: input.cwd,
+          agent: input.agent,
+        };
+      },
+      startTurn: () => ({
+        events: (async function* () {
+          await scheduleHold;
+          yield { type: "done" as const, stopReason: "end_turn" };
+        })(),
+        result: scheduleHold.then(() => ({ status: "ok" })),
+        cancel: async () => {},
+      }),
+      cancel: async () => {},
+      setMode: async () => ({ currentModeId: undefined, availableModeIds: [] }),
+      getModeState: async () => ({
+        currentModeId: undefined,
+        availableModeIds: [],
+      }),
+      getAvailableModes: async () => [],
+      getConfigOptions: async () => [],
+      setConfigOption: async () => [],
+      disposeSession: async () => {},
+      setHooks: () => {},
+      dispose: async () => {},
+    };
+    const host = await startAcpHostServer({
+      sockPath,
+      stateDir: dir,
+      sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
+      testSessionHost: fakeHost,
+      config: {
+        operatorUserId: 0,
+        permissionMode: "ask",
+        computer: { enabled: true, minActionIntervalMs: 0 },
+      },
+    });
+    const client = createAcpHostClient({ sockPath });
+    try {
+      await client.ensureSession({
+        sessionKey: "demo/bypass",
+        agent: "test",
+        cwd: dir,
+        permissionMode: "bypass",
+        computerAllowed: true,
+      });
+      await client.computerGrant({
+        slotKey: "demo/bypass",
+        grant: { enabled: true, watch: false, expiresAt: 0, hostId: "local" },
+      });
+      const before = host.inspectSlot("demo/bypass");
+      expect(before?.computerAllowed).toBe(true);
+      expect(before?.permissionMode).toBe("bypass");
+      expect(before?.hostApiToken).toBeTruthy();
+      const token = before!.hostApiToken;
+
+      const fireP = host.fireScheduledPrompt({
+        sessionKey: "demo/bypass",
+        repoRoot: dir,
+        text: "cron tick",
+      });
+      await Bun.sleep(30);
+      const during = host.inspectSlot("demo/bypass");
+      expect(during?.computerAllowed).toBe(true);
+      expect(during?.permissionMode).toBe("bypass");
+      expect(during?.hostApiToken).toBe(token);
+      const scheduled = await host.computerAct("demo/bypass", {
+        type: "screenshot",
+      });
+      expect(scheduled.ok).toBe(false);
+      if (!scheduled.ok) expect(scheduled.error).toBe("bad_source");
+      releaseSchedule?.();
+      await fireP;
+
+      host.setTurnSource("demo/bypass", "operator");
+      const operator = await host.computerAct("demo/bypass", {
+        type: "screenshot",
+      });
+      expect(operator.ok).toBe(true);
+      expect(host.inspectSlot("demo/bypass")?.hostApiToken).toBe(token);
+      expect(ensureCalls).toBeGreaterThanOrEqual(2);
+    } finally {
+      await client.dispose();
+      await host.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("host-api token: Bearer required, sessionKey is not auth, reuse/rotate", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-tok-"));
+    const sockPath = join(dir, "h.sock");
+    const fakeHost: SessionHost = {
+      ensureSession: async (input) => ({
+        sessionKey: input.sessionKey,
+        agentSessionId: "s1",
+        cwd: input.cwd,
+        agent: input.agent,
+      }),
+      startTurn: () => ({
+        events: (async function* () {
+          yield { type: "done" as const, stopReason: "end_turn" };
+        })(),
+        result: Promise.resolve({ status: "ok" }),
+        cancel: async () => {},
+      }),
+      cancel: async () => {},
+      setMode: async () => ({ currentModeId: undefined, availableModeIds: [] }),
+      getModeState: async () => ({
+        currentModeId: undefined,
+        availableModeIds: [],
+      }),
+      getAvailableModes: async () => [],
+      getConfigOptions: async () => [],
+      setConfigOption: async () => [],
+      disposeSession: async () => {},
+      setHooks: () => {},
+      dispose: async () => {},
+    };
+    const host = await startAcpHostServer({
+      sockPath,
+      stateDir: dir,
+      sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
+      testSessionHost: fakeHost,
+      config: {
+        operatorUserId: 0,
+        computer: { enabled: true, minActionIntervalMs: 0 },
+      },
+    });
+    const client = createAcpHostClient({ sockPath });
+    const { hostComputerStatus, hostApiRequest } = await import(
+      "../src/mcp/host-api"
+    );
+    try {
+      await client.ensureSession({
+        sessionKey: "demo/tok",
+        agent: "test",
+        cwd: dir,
+        computerAllowed: true,
+      });
+      const minted = host.inspectSlot("demo/tok")?.hostApiToken;
+      expect(minted).toBeTruthy();
+      expect(minted).not.toBe("demo/tok");
+
+      const noBearer = await hostComputerStatus("demo/tok", {
+        sockPath: host.hostApiSockPath,
+        token: "",
+      });
+      expect(noBearer.ok).toBe(false);
+      if (!noBearer.ok) expect(noBearer.error).toMatch(/unauthorized/i);
+
+      const sessionAsSecret = await hostComputerStatus("demo/tok", {
+        sockPath: host.hostApiSockPath,
+        token: "demo/tok",
+      });
+      expect(sessionAsSecret.ok).toBe(false);
+      if (!sessionAsSecret.ok) expect(sessionAsSecret.error).toMatch(/unauthorized/i);
+
+      const ok = await hostComputerStatus("demo/tok", {
+        sockPath: host.hostApiSockPath,
+        token: minted,
+      });
+      expect(ok.ok).toBe(true);
+
+      await client.ensureSession({
+        sessionKey: "demo/tok",
+        agent: "test",
+        cwd: dir,
+        computerAllowed: true,
+      });
+      expect(host.inspectSlot("demo/tok")?.hostApiToken).toBe(minted);
+
+      await client.ensureSession({
+        sessionKey: "demo/tok",
+        agent: "test",
+        cwd: dir,
+        computerAllowed: true,
+        forceNewSession: true,
+      });
+      const rotated = host.inspectSlot("demo/tok")?.hostApiToken;
+      expect(rotated).toBeTruthy();
+      expect(rotated).not.toBe(minted);
+
+      const clientSrc = await Bun.file("src/acp-host/client.ts").text();
+      const protoSrc = await Bun.file("src/acp-host/protocol.ts").text();
+      const mcpSrc = await Bun.file("src/mcp/host-api.ts").text();
+      expect(protoSrc).not.toMatch(/hostApiToken\s*\?:/);
+      expect(clientSrc).not.toContain("hostApiToken");
+      expect(mcpSrc).toContain("authorization");
+      expect(mcpSrc).toContain("Bearer");
+      expect(mcpSrc).not.toMatch(/searchParams.*token|token=.*sessionKey|query.*TOKEN/i);
+
+      const get = await hostApiRequest(
+        `/v1/computer/status?sessionKey=demo/tok`,
+        undefined,
+        {
+          sockPath: host.hostApiSockPath,
+          token: rotated,
+          method: "GET",
+        },
+      );
+      expect(get.ok).toBe(true);
+    } finally {
+      await client.dispose();
+      await host.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
