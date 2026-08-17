@@ -372,6 +372,8 @@ export function createDaemon(
   >();
   /** Computer grant buttons: token → session. */
   const computerPicks = new Map<string, { sessionKey: string }>();
+  /** Sessions that sent computer_grant on this worker process (host grant is conn-bound). */
+  const computerBound = new Set<string>();
   /**
    * In-memory only — never persisted. Restart always exits naming mode.
    * While set, a valid one-word free-text creates a session topic; must be
@@ -588,6 +590,14 @@ export function createDaemon(
     clearPendingNew("hydrate/restart");
     wirePermissionHandler();
     wireComputerHandlers();
+    for (const session of Object.values(sessionIndex.byKey)) {
+      await syncComputerGrant(session).catch((err) => {
+        log.warn("computer grant hydrate rebind failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
   async function persistIndex(): Promise<void> {
@@ -640,6 +650,7 @@ export function createDaemon(
     if (!grant) return false;
     const hostId = grant.hostId;
     delete session.computerGrant;
+    computerBound.delete(session.sessionKey);
     session.updatedAt = env.clock.now();
     sessionIndex.byKey[session.sessionKey] = session;
     await persistIndex();
@@ -649,6 +660,14 @@ export function createDaemon(
         .catch(() => {});
     }
     return grant.enabled;
+  }
+
+  async function expireComputerGrantIfNeeded(
+    session: PersistedSession,
+  ): Promise<void> {
+    if (session.computerGrant && !liveComputerGrant(session)) {
+      await revokeComputerGrant(session);
+    }
   }
 
   async function maybeRevokeComputerGrantIfHostChanged(
@@ -666,6 +685,55 @@ export function createDaemon(
     if (hostId !== g.hostId) {
       await revokeComputerGrant(session);
     }
+  }
+
+  /**
+   * Re-send persist on this conn. Host grant dies with the previous socket;
+   * persist alone must not look granted.
+   */
+  async function rebindComputerGrantIfNeeded(
+    session: PersistedSession,
+  ): Promise<void> {
+    const g = liveComputerGrant(session);
+    if (!g || computerBound.has(session.sessionKey)) return;
+    if (!env.agents.computerGrant) {
+      await revokeComputerGrant(session);
+      return;
+    }
+    try {
+      await env.agents.computerGrant({
+        sessionKey: session.sessionKey,
+        grant: {
+          enabled: g.enabled,
+          watch: g.watch,
+          expiresAt: g.expiresAt,
+          hostId: g.hostId,
+        },
+      });
+      computerBound.add(session.sessionKey);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unknown type/i.test(msg)) {
+        await revokeComputerGrant(session);
+        await sendInTopic(session, "🖥 Computer · host too old").catch(() => {});
+        return;
+      }
+      log.warn("computer grant rebind failed", {
+        sessionKey: session.sessionKey,
+        error: msg,
+      });
+    }
+  }
+
+  async function syncComputerGrant(
+    session: PersistedSession,
+  ): Promise<PersistedSession["computerGrant"]> {
+    await maybeRevokeComputerGrantIfHostChanged(session);
+    await expireComputerGrantIfNeeded(session);
+    await rebindComputerGrantIfNeeded(session);
+    const live = liveComputerGrant(session);
+    if (!live || !computerBound.has(session.sessionKey)) return undefined;
+    return live;
   }
 
   function computerKeyboard(token: string) {
@@ -811,7 +879,7 @@ export function createDaemon(
         });
       }
     }
-    await maybeRevokeComputerGrantIfHostChanged(session);
+    await syncComputerGrant(session);
     const handle = await env.agents.ensureSession(session.identity, {
       permissionMode: effectivePermissionMode(session),
       // Child worktrees store absolute cwd on the session record
@@ -2175,6 +2243,7 @@ export function createDaemon(
       return;
     }
     session.computerGrant = { ...grant, grantedAt: now };
+    computerBound.add(session.sessionKey);
     session.updatedAt = now;
     sessionIndex.byKey[session.sessionKey] = session;
     await persistIndex();
@@ -2189,12 +2258,8 @@ export function createDaemon(
   }
 
   async function sendComputerStatus(session: PersistedSession): Promise<void> {
-    await maybeRevokeComputerGrantIfHostChanged(session);
     const now = env.clock.now();
-    const live = liveComputerGrant(session);
-    if (session.computerGrant && !live) {
-      await revokeComputerGrant(session);
-    }
+    const live = await syncComputerGrant(session);
     const token = newToken();
     computerPicks.set(token, { sessionKey: session.sessionKey });
     const line = formatComputerStatusLine({
@@ -3632,9 +3697,8 @@ export function createDaemon(
       /* ignore */
     }
 
-    await maybeRevokeComputerGrantIfHostChanged(session);
     const computerLine = formatComputerStatusLine({
-      grant: liveComputerGrant(session),
+      grant: await syncComputerGrant(session),
       now: env.clock.now(),
     });
 

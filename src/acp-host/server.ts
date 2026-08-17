@@ -155,7 +155,7 @@ export async function startAcpHostServer(
 
   const slots = new Map<string, Slot>();
   let scheduler: SchedulerLoopHandle | null = null;
-  /** Conn-bound grants. Host does not compare catalog host ids (D21). */
+  /** Conn-bound grants. hostId is worker routing only; do not compare it here. */
   const computerGrantsByConn = new WeakMap<
     HostConn,
     Map<string, ComputerGrantWire>

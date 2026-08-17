@@ -306,6 +306,65 @@ describe("/computer commands", () => {
     const loaded = (await daemon2.listSessions())[0]!;
     expect(loaded.computerGrant?.enabled).toBe(true);
     expect(loaded.computerGrant?.hostId).toBe("local");
+    expect(env2.agents.computerGrantCalls).toHaveLength(1);
+    expect(env2.agents.computerGrantCalls[0]?.sessionKey).toBe(
+      session.sessionKey,
+    );
+  });
+
+  test("restart rebind unknown type clears persist", async () => {
+    const store = memoryStore();
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: { demo: "/configured/repos/demo" },
+      },
+      store,
+    });
+    const daemon = createDaemon(env);
+    await daemon.handleUpdate(root("/new demo stale", 1));
+    const session = (await daemon.listSessions())[0]!;
+    await daemon.handleUpdate(topic(session.messageThreadId, "/computer on", 2));
+
+    const env2 = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: { demo: "/configured/repos/demo" },
+      },
+      store,
+    });
+    env2.agents.computerGrantError = "unknown type";
+    const daemon2 = createDaemon(env2);
+    await daemon2.handleUpdate(root("/ping", 3));
+    const loaded = (await daemon2.listSessions())[0]!;
+    expect(loaded.computerGrant).toBeUndefined();
+    expect(
+      topicTexts(env2, session.messageThreadId).some((t) =>
+        /host too old/.test(t),
+      ),
+    ).toBe(true);
+  });
+
+  test("/status expires persist and aborts host", async () => {
+    const { env, daemon, session } = await openTopic();
+    await daemon.handleUpdate(topic(session.messageThreadId, "/computer on", 2));
+    const live = (await daemon.listSessions())[0]!;
+    expect(live.computerGrant).toBeDefined();
+    live.computerGrant = {
+      ...live.computerGrant!,
+      expiresAt: env.clock.now() - 1,
+    };
+    await daemon.handleUpdate(topic(session.messageThreadId, "/status", 3));
+    const after = (await daemon.listSessions())[0]!;
+    expect(after.computerGrant).toBeUndefined();
+    expect(env.agents.computerAbortCalls.length).toBeGreaterThan(0);
+    expect(
+      topicTexts(env, session.messageThreadId).some((t) =>
+        /Computer · off/.test(t),
+      ),
+    ).toBe(true);
   });
 
   test("inline Enable button grants", async () => {
