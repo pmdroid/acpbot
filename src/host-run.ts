@@ -37,6 +37,15 @@ export async function runHostMain(): Promise<void> {
   const repos = { ...(cfg.repos ?? parseReposFromEnv(process.env)) };
   const tickMs = cfg.scheduleTickMs ?? scheduleTickMs(process.env);
 
+  const hostConfig = {
+    operatorUserId: 0,
+    defaultAgent: cfg.defaultAgent ?? "grok-build",
+    mcpEnabled: cfg.mcpEnabled,
+    ...(cfg.eve ? { eve: cfg.eve } : {}),
+    ...(cfg.computer ? { computer: cfg.computer } : {}),
+    ...(cfg.agentSpawn ? { agentSpawn: cfg.agentSpawn } : {}),
+    repos,
+  };
   const host = await startAcpHostServer({
     stateDir,
     sockPath: defaultAcpHostSock(stateDir),
@@ -44,15 +53,7 @@ export async function runHostMain(): Promise<void> {
     repos,
     scheduleTickMs: tickMs,
     defaultAgent: cfg.defaultAgent ?? "grok-build",
-    // Pass full config so EVE ([eve]) and MCP defaults are available on host
-    config: {
-      operatorUserId: 0,
-      defaultAgent: cfg.defaultAgent ?? "grok-build",
-      mcpEnabled: cfg.mcpEnabled,
-      ...(cfg.eve ? { eve: cfg.eve } : {}),
-      ...(cfg.agentSpawn ? { agentSpawn: cfg.agentSpawn } : {}),
-      repos,
-    },
+    config: hostConfig,
     ...(cfg.hostListenPort &&
     cfg.hostListenToken &&
     cfg.hostListenPort > 0
@@ -68,19 +69,20 @@ export async function runHostMain(): Promise<void> {
   const { sockPath, close } = host;
   // Prefer server's mutable catalog so watch + scheduler share one map
   const catalog = host.repos ?? repos;
+  hostConfig.repos = catalog;
 
   let configWatch: { close: () => void } | undefined;
   if (cfg.configPath) {
     configWatch = watchConfigFile({
       configPath: cfg.configPath,
-      live: {
-        operatorUserId: 0,
-        repos: catalog,
-        defaultAgent: cfg.defaultAgent,
-        mcpEnabled: cfg.mcpEnabled,
-      },
+      live: hostConfig,
       reposCatalog: catalog,
       log,
+      onReloaded: (changed) => {
+        if (changed.includes("computer")) {
+          host.onComputerConfigReloaded();
+        }
+      },
     });
   }
 

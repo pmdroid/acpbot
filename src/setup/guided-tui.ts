@@ -307,6 +307,8 @@ export type FullConfigTomlInput = {
     storePath?: string;
     stateDir?: string;
     verbose?: boolean;
+    /** Whole `[computer]` table — re-run must not drop it. */
+    computer?: import("../env/types").ComputerConfig;
   };
 };
 
@@ -487,6 +489,50 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
     lines.push(``);
   }
 
+  const computer = a.preserve?.computer;
+  if (computer && Object.keys(computer).length > 0) {
+    lines.push(`[computer]`);
+    if (computer.enabled !== undefined) {
+      lines.push(`enabled = ${computer.enabled ? "true" : "false"}`);
+    }
+    if (computer.display) {
+      lines.push(`display = ${tomlString(computer.display)}`);
+    }
+    if (computer.publishFrames) {
+      lines.push(`publish_frames = ${tomlString(computer.publishFrames)}`);
+    }
+    if (computer.jpegQuality != null) {
+      lines.push(`jpeg_quality = ${computer.jpegQuality}`);
+    }
+    if (computer.maxEdgePx != null) {
+      lines.push(`max_edge_px = ${computer.maxEdgePx}`);
+    }
+    if (computer.maxActionsPerTurn != null) {
+      lines.push(`max_actions_per_turn = ${computer.maxActionsPerTurn}`);
+    }
+    if (computer.minActionIntervalMs != null) {
+      lines.push(`min_action_interval_ms = ${computer.minActionIntervalMs}`);
+    }
+    if (computer.grantTtlSec != null) {
+      lines.push(`grant_ttl_sec = ${computer.grantTtlSec}`);
+    }
+    if (computer.watchIntervalMs != null) {
+      lines.push(`watch_interval_ms = ${computer.watchIntervalMs}`);
+    }
+    if (computer.frameCoalesceMs != null) {
+      lines.push(`frame_coalesce_ms = ${computer.frameCoalesceMs}`);
+    }
+    if (computer.browserChannel) {
+      lines.push(`browser_channel = ${tomlString(computer.browserChannel)}`);
+    }
+    if (computer.browserHeadless !== undefined) {
+      lines.push(
+        `browser_headless = ${computer.browserHeadless ? "true" : "false"}`,
+      );
+    }
+    lines.push(``);
+  }
+
   return lines.join("\n");
 }
 
@@ -517,6 +563,7 @@ function preserveFromExisting(
     ...(existing.claudeAcpPkg ? { claudeAcpPkg: existing.claudeAcpPkg } : {}),
     ...(existing.codexAcpPkg ? { codexAcpPkg: existing.codexAcpPkg } : {}),
     ...(existing.verbose ? { verbose: true } : {}),
+    ...(existing.computer ? { computer: { ...existing.computer } } : {}),
     // store_path / state_dir: leave to XDG defaults unless user hand-edited;
     // ProcessConfig always resolves them, so we do not re-emit them here.
   };

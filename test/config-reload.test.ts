@@ -32,6 +32,21 @@ describe("applyHotReloadableConfig", () => {
     expect(live.permissionMode).toBe("bypass");
   });
 
+  test("hot-reloads whole [computer] table", () => {
+    const live: AcpbotConfig = {
+      operatorUserId: 1,
+      computer: { enabled: true, jpegQuality: 60 },
+    };
+    const changed = applyHotReloadableConfig(live, {
+      repos: {},
+      computer: { enabled: false, jpegQuality: 40, display: "browser" },
+    });
+    expect(changed).toContain("computer");
+    expect(live.computer?.enabled).toBe(false);
+    expect(live.computer?.jpegQuality).toBe(40);
+    expect(live.computer?.display).toBe("browser");
+  });
+
   test("no-op when unchanged", () => {
     const live: AcpbotConfig = {
       operatorUserId: 1,

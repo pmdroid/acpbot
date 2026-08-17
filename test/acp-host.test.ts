@@ -141,13 +141,9 @@ describe("acp-host computer protocol", () => {
           hostId: "local",
         },
       });
-      expect(ok.probe).toEqual({
-        ok: false,
-        backend: "fake",
-        missing: ["backend"],
-        inputEnabled: false,
-        display: { id: "0", width: 0, height: 0, scale: 1 },
-      });
+      expect(ok.probe.backend).toBe("fake");
+      expect(ok.probe.inputEnabled).toBe(false);
+      expect(ok.probe.ok).toBe(true);
 
       const t0 = Date.now();
       client.computerFrameAck("demo/box", "frame-1");
@@ -338,4 +334,167 @@ describe("acp-host computer protocol", () => {
     expect(block).not.toContain("onComputerFrame");
     expect(src).toContain("setComputerFrameHandler");
   });
+
+  test("granted slot + fireScheduledPrompt → bad_source; next operator prompt works", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-src-"));
+    const sockPath = join(dir, "h.sock");
+    let releaseSchedule: (() => void) | undefined;
+    const scheduleHold = new Promise<void>((r) => {
+      releaseSchedule = r;
+    });
+    let turns = 0;
+    const fakeHost: SessionHost = {
+      ensureSession: async (input) => ({
+        sessionKey: input.sessionKey,
+        agentSessionId: "s1",
+        cwd: input.cwd,
+        agent: input.agent,
+      }),
+      startTurn: () => {
+        turns += 1;
+        const hold = turns === 1 ? scheduleHold : Promise.resolve();
+        return {
+          events: (async function* () {
+            await hold;
+            yield { type: "done" as const, stopReason: "end_turn" };
+          })(),
+          result: hold.then(() => ({ status: "ok" })),
+          cancel: async () => {},
+        };
+      },
+      cancel: async () => {},
+      setMode: async () => ({ currentModeId: undefined, availableModeIds: [] }),
+      getModeState: async () => ({
+        currentModeId: undefined,
+        availableModeIds: [],
+      }),
+      getAvailableModes: async () => [],
+      getConfigOptions: async () => [],
+      setConfigOption: async () => [],
+      disposeSession: async () => {},
+      setHooks: () => {},
+      dispose: async () => {},
+    };
+    const host = await startAcpHostServer({
+      sockPath,
+      stateDir: dir,
+      sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
+      testSessionHost: fakeHost,
+      config: {
+        operatorUserId: 0,
+        computer: { enabled: true, minActionIntervalMs: 0 },
+      },
+    });
+    const client = createAcpHostClient({ sockPath });
+    try {
+      await client.ensureSession({
+        sessionKey: "demo/box",
+        agent: "test",
+        cwd: dir,
+        computerAllowed: true,
+      });
+      await client.computerGrant({
+        slotKey: "demo/box",
+        grant: {
+          enabled: true,
+          watch: false,
+          expiresAt: 0,
+          hostId: "local",
+        },
+      });
+
+      const fireP = host.fireScheduledPrompt({
+        sessionKey: "demo/box",
+        repoRoot: dir,
+        text: "cron tick",
+      });
+      await Bun.sleep(30);
+      const scheduled = await host.computerAct("demo/box", { type: "screenshot" });
+      expect(scheduled.ok).toBe(false);
+      if (!scheduled.ok) expect(scheduled.error).toBe("bad_source");
+      releaseSchedule?.();
+      await fireP;
+
+      host.setTurnSource("demo/box", "operator");
+      const operator = await host.computerAct("demo/box", { type: "screenshot" });
+      expect(operator.ok).toBe(true);
+      if (operator.ok) {
+        expect(operator.frameId).toBeTruthy();
+        expect(operator.jpeg).toBeDefined();
+      }
+    } finally {
+      await client.dispose();
+      await host.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test("ensureSlotForSchedule does not flip computerAllowed on a live operator slot", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-host-keep-"));
+    const sockPath = join(dir, "h.sock");
+    const fakeHost: SessionHost = {
+      ensureSession: async (input) => ({
+        sessionKey: input.sessionKey,
+        agentSessionId: "s1",
+        cwd: input.cwd,
+        agent: input.agent,
+      }),
+      startTurn: () => ({
+        events: (async function* () {
+          yield { type: "done" as const, stopReason: "end_turn" };
+        })(),
+        result: Promise.resolve({ status: "ok" }),
+        cancel: async () => {},
+      }),
+      cancel: async () => {},
+      setMode: async () => ({ currentModeId: undefined, availableModeIds: [] }),
+      getModeState: async () => ({
+        currentModeId: undefined,
+        availableModeIds: [],
+      }),
+      getAvailableModes: async () => [],
+      getConfigOptions: async () => [],
+      setConfigOption: async () => [],
+      disposeSession: async () => {},
+      setHooks: () => {},
+      dispose: async () => {},
+    };
+    const host = await startAcpHostServer({
+      sockPath,
+      stateDir: dir,
+      sessionStore: createMemoryHostSessionStore(),
+      enableScheduler: false,
+      testSessionHost: fakeHost,
+      config: {
+        operatorUserId: 0,
+        computer: { enabled: true, minActionIntervalMs: 0 },
+      },
+    });
+    const client = createAcpHostClient({ sockPath });
+    try {
+      await client.ensureSession({
+        sessionKey: "demo/keep",
+        agent: "test",
+        cwd: dir,
+        computerAllowed: true,
+      });
+      await client.computerGrant({
+        slotKey: "demo/keep",
+        grant: { enabled: true, watch: false, expiresAt: 0, hostId: "local" },
+      });
+      await host.fireScheduledPrompt({
+        sessionKey: "demo/keep",
+        repoRoot: dir,
+        text: "tick",
+      });
+      host.setTurnSource("demo/keep", "operator");
+      const shot = await host.computerAct("demo/keep", { type: "screenshot" });
+      expect(shot.ok).toBe(true);
+    } finally {
+      await client.dispose();
+      await host.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

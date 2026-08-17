@@ -87,6 +87,11 @@ export type HostAgentConfig = {
    * Used by topic `/fresh`.
    */
   forceNewSession?: boolean;
+  /**
+   * Operator topics only. Host applies `=== true`; omitted does not flip
+   * an existing slot. hostApiToken is host-minted — never sent here.
+   */
+  computerAllowed?: boolean;
 };
 
 export type WorkerToHost =
@@ -109,6 +114,8 @@ export type WorkerToHost =
       slotKey: string;
       text: string;
       attachments?: Array<{ mediaType: string; data: string }>;
+      /** Worker operator turns omit this (host defaults to operator). */
+      source?: "operator" | "schedule" | "eve";
     }
   | { type: "cancel"; reqId: string; slotKey: string }
   | {

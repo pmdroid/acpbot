@@ -49,6 +49,10 @@ import {
   workerEveWrite,
   workerReviewRun,
 } from "./worker-api";
+import {
+  hostComputerAction,
+  hostComputerStatus,
+} from "./host-api";
 
 function linearStateDir(): string {
   return resolveStateDir(process.env.ACPBOT_STATE_DIR);
@@ -1120,6 +1124,307 @@ server.tool(
       );
     } catch (err) {
       return `eve_write failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+);
+
+function computerSessionKey(): { ok: true; sessionKey: string } | { ok: false; error: string } {
+  const sessionKey = process.env.ACPBOT_SESSION_KEY?.trim();
+  if (!sessionKey) {
+    return {
+      ok: false,
+      error:
+        "ACPBOT_SESSION_KEY not set on MCP server " +
+        "(acpbot must inject session key via mcpServers env).",
+    };
+  }
+  return { ok: true, sessionKey };
+}
+
+function formatComputerErr(tool: string, error: string): string {
+  return `${tool} failed: ${error}`;
+}
+
+server.tool(
+  {
+    name: "computer_screenshot",
+    description:
+      "Capture the isolated browser viewport for this topic. " +
+      "Requires [computer].enabled and `/computer on`. " +
+      "Returns an image plus { frameId, width, height }. No filesystem path.",
+    input: z.object({
+      display: z.number().optional(),
+      region: z
+        .object({
+          x: z.number(),
+          y: z.number(),
+          w: z.number(),
+          h: z.number(),
+        })
+        .optional(),
+    }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_screenshot", env.error);
+    try {
+      const ack = await hostComputerAction("screenshot", {
+        sessionKey: env.sessionKey,
+        ...(args.display != null ? { display: args.display } : {}),
+        ...(args.region ? { region: args.region } : {}),
+      });
+      if (!ack.ok) return formatComputerErr("computer_screenshot", ack.error);
+      const geometry = {
+        frameId: ack.frameId,
+        width: ack.width,
+        height: ack.height,
+        ...(ack.jpegBase64 ? {} : { image_omitted: true }),
+      };
+      if (ack.jpegBase64) {
+        return {
+          content: [
+            {
+              type: "image" as const,
+              data: ack.jpegBase64,
+              mimeType: "image/jpeg",
+            },
+            { type: "text" as const, text: JSON.stringify(geometry) },
+          ],
+        };
+      }
+      return JSON.stringify({
+        ...geometry,
+        hint: "call computer_screenshot again",
+      });
+    } catch (err) {
+      return formatComputerErr(
+        "computer_screenshot",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_status",
+    description:
+      "Computer-use grant / backend / budget for this topic. Fail-closed when disabled.",
+    input: z.object({}),
+  },
+  async () => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_status", env.error);
+    try {
+      const ack = await hostComputerStatus(env.sessionKey);
+      if (!ack.ok) return formatComputerErr("computer_status", ack.error);
+      return JSON.stringify(ack.status ?? ack);
+    } catch (err) {
+      return formatComputerErr(
+        "computer_status",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_navigate",
+    description:
+      "Navigate the isolated browser to an http(s) URL. " +
+      "Fails closed until a browser backend is available.",
+    input: z.object({
+      url: z.string().min(1).describe("http or https URL"),
+    }),
+  },
+  async ({ url }) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_navigate", env.error);
+    try {
+      const ack = await hostComputerAction("navigate", {
+        sessionKey: env.sessionKey,
+        url,
+      });
+      if (!ack.ok) return formatComputerErr("computer_navigate", ack.error);
+      return ack.message ?? "navigated";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_navigate",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_click",
+    description:
+      "Click in the isolated browser at frame coordinates. Fails closed without a browser backend.",
+    input: z.object({
+      x: z.number(),
+      y: z.number(),
+      button: z.enum(["left", "right", "middle"]).optional(),
+    }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_click", env.error);
+    try {
+      const ack = await hostComputerAction("click", {
+        sessionKey: env.sessionKey,
+        ...args,
+      });
+      if (!ack.ok) return formatComputerErr("computer_click", ack.error);
+      return ack.message ?? "clicked";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_click",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_move",
+    description: "Move the pointer in the isolated browser. Fails closed without a browser backend.",
+    input: z.object({ x: z.number(), y: z.number() }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_move", env.error);
+    try {
+      const ack = await hostComputerAction("move", {
+        sessionKey: env.sessionKey,
+        ...args,
+      });
+      if (!ack.ok) return formatComputerErr("computer_move", ack.error);
+      return ack.message ?? "moved";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_move",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_drag",
+    description: "Drag in the isolated browser. Fails closed without a browser backend.",
+    input: z.object({
+      x1: z.number(),
+      y1: z.number(),
+      x2: z.number(),
+      y2: z.number(),
+    }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_drag", env.error);
+    try {
+      const ack = await hostComputerAction("drag", {
+        sessionKey: env.sessionKey,
+        ...args,
+      });
+      if (!ack.ok) return formatComputerErr("computer_drag", ack.error);
+      return ack.message ?? "dragged";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_drag",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_scroll",
+    description: "Scroll in the isolated browser. Fails closed without a browser backend.",
+    input: z.object({
+      x: z.number(),
+      y: z.number(),
+      dx: z.number().optional(),
+      dy: z.number().optional(),
+    }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_scroll", env.error);
+    try {
+      const ack = await hostComputerAction("scroll", {
+        sessionKey: env.sessionKey,
+        ...args,
+      });
+      if (!ack.ok) return formatComputerErr("computer_scroll", ack.error);
+      return ack.message ?? "scrolled";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_scroll",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_type",
+    description:
+      "Type text into the isolated browser. Fails closed without a browser backend. Max 2 KiB.",
+    input: z.object({
+      text: z.string().max(2048),
+    }),
+  },
+  async ({ text }) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_type", env.error);
+    try {
+      const ack = await hostComputerAction("type", {
+        sessionKey: env.sessionKey,
+        text,
+      });
+      if (!ack.ok) return formatComputerErr("computer_type", ack.error);
+      return ack.message ?? "typed";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_type",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  },
+);
+
+server.tool(
+  {
+    name: "computer_key",
+    description:
+      "Press a key in the isolated browser. Fails closed without a browser backend.",
+    input: z.object({
+      key: z.string().min(1),
+      modifiers: z.array(z.string()).optional(),
+    }),
+  },
+  async (args) => {
+    const env = computerSessionKey();
+    if (!env.ok) return formatComputerErr("computer_key", env.error);
+    try {
+      const ack = await hostComputerAction("key", {
+        sessionKey: env.sessionKey,
+        ...args,
+      });
+      if (!ack.ok) return formatComputerErr("computer_key", ack.error);
+      return ack.message ?? "keyed";
+    } catch (err) {
+      return formatComputerErr(
+        "computer_key",
+        err instanceof Error ? err.message : String(err),
+      );
     }
   },
 );

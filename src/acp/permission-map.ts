@@ -134,6 +134,72 @@ export function isPlanExitPermission(raw: unknown): boolean {
   return false;
 }
 
+/**
+ * True when this permission ask is a computer-use tool
+ * (`computer_screenshot` / click / type / …). Never auto-bypass.
+ */
+export function isComputerUsePermission(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as {
+    toolCall?: {
+      title?: string;
+      kind?: string;
+      rawInput?: unknown;
+      _meta?: unknown;
+    };
+    toolCallId?: string;
+    title?: string;
+    name?: string;
+  };
+
+  const title = String(r.toolCall?.title ?? r.title ?? r.name ?? "").toLowerCase();
+  const kind = String(r.toolCall?.kind ?? "").toLowerCase();
+  const toolCallId = String(r.toolCallId ?? "").toLowerCase();
+
+  const looksComputer = (s: string) =>
+    s === "computer" ||
+    s.startsWith("computer_") ||
+    s.startsWith("computer/") ||
+    s.includes("computer_screenshot") ||
+    s.includes("computer_click") ||
+    s.includes("computer_type") ||
+    s.includes("computer_key") ||
+    s.includes("computer_navigate") ||
+    /\bcomputer[\s_-](screenshot|click|type|key|navigate|scroll|drag|move|status)\b/.test(
+      s,
+    );
+
+  if (looksComputer(title) || looksComputer(kind) || looksComputer(toolCallId)) {
+    return true;
+  }
+
+  const ri = r.toolCall?.rawInput;
+  if (ri && typeof ri === "object") {
+    const name = String(
+      (ri as { name?: string; tool?: string }).name ??
+        (ri as { tool?: string }).tool ??
+        "",
+    ).toLowerCase();
+    if (looksComputer(name)) return true;
+  }
+
+  const meta = (r.toolCall as { _meta?: Record<string, unknown> } | undefined)
+    ?._meta;
+  const xai = meta?.["x.ai/tool"] as { name?: string; kind?: string } | undefined;
+  if (xai) {
+    const n = String(xai.name ?? "").toLowerCase();
+    const k = String(xai.kind ?? "").toLowerCase();
+    if (looksComputer(n) || looksComputer(k)) return true;
+  }
+
+  return false;
+}
+
+/** Plan-exit and computer-use must always reach the operator. */
+export function shouldForceAskPermission(raw: unknown): boolean {
+  return isPlanExitPermission(raw) || isComputerUsePermission(raw);
+}
+
 export function decisionToPermissionResponse(
   options: WirePermissionOption[] | undefined,
   decision: PermissionDecision | undefined,

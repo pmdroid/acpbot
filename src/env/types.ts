@@ -80,6 +80,29 @@ export type AcpbotConfig = {
     digestIntervalSec?: number;
     defaultAgent?: string;
   };
+  /**
+   * Isolated-browser computer use ([computer]). Default off.
+   * Even when enabled, each topic still needs `/computer on`.
+   */
+  computer?: ComputerConfig;
+};
+
+/** Host-process `[computer]` table. Default is off / unset. */
+export type ComputerConfig = {
+  enabled?: boolean;
+  /** v1: isolated Playwright browser only. */
+  display?: "browser";
+  /** v1: on_action only. `off` is not accepted. */
+  publishFrames?: "on_action";
+  jpegQuality?: number;
+  maxEdgePx?: number;
+  maxActionsPerTurn?: number;
+  minActionIntervalMs?: number;
+  grantTtlSec?: number;
+  watchIntervalMs?: number;
+  frameCoalesceMs?: number;
+  browserChannel?: string;
+  browserHeadless?: boolean;
 };
 
 
@@ -460,6 +483,11 @@ export interface AgentsPort {
        * When set, used instead of config.repos[repo].
        */
       cwd?: string;
+      /**
+       * Operator topics only. Host applies `=== true`; omitted leaves an
+       * existing slot flag untouched (schedule/EVE must not flip it).
+       */
+      computerAllowed?: boolean;
     },
   ): Promise<AgentSessionHandle>;
 

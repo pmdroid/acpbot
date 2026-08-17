@@ -61,7 +61,11 @@ import {
   createPermissionBroker,
   type PermissionBroker,
 } from "./permissions";
-import { isPlanExitPermission } from "../acp/permission-map";
+import {
+  isPlanExitPermission,
+  isComputerUsePermission,
+  shouldForceAskPermission,
+} from "../acp/permission-map";
 import {
   emptySessionIndex,
   loadOperatorChatId,
@@ -268,6 +272,14 @@ type LobbyPendingName = {
   repo: string;
   chatId: number;
 };
+
+/** Site 3 (daemon UI): bypass never auto-allows plan-exit or computer-use. */
+export function daemonAutoAllowsPermission(
+  permissionMode: "ask" | "bypass" | undefined,
+  raw: unknown,
+): boolean {
+  return permissionMode === "bypass" && !shouldForceAskPermission(raw);
+}
 
 /**
  * Pure daemon core. Depends only on the injected Environment.
@@ -887,6 +899,7 @@ export function createDaemon(
       ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(forceRespawn ? { forceRespawn: true } : {}),
       ...(forceNewSession ? { forceNewSession: true } : {}),
+      computerAllowed: session.headless !== true,
     });
     try {
       await refreshAttachedMcpProxyTracking(session);
@@ -970,6 +983,7 @@ export function createDaemon(
     const permissionMode = getDefaultPermissionMode();
     const handle = await env.agents.ensureSession(identity, {
       permissionMode,
+      computerAllowed: true,
     });
     const topic = await env.telegram.createForumTopic({
       chatId: operatorChatId,
@@ -1231,20 +1245,26 @@ export function createDaemon(
     }
 
     const planExit = isPlanExitPermission(req.raw);
-    // Tools may bypass; plan-exit always needs a Telegram approve/reject.
-    if (effectivePermissionMode(session) === "bypass" && !planExit) {
+    const computerUse = isComputerUsePermission(req.raw);
+    // Tools may bypass; plan-exit / computer-use always need a Telegram click.
+    if (daemonAutoAllowsPermission(effectivePermissionMode(session), req.raw)) {
       log.info("permission auto-approved (bypass)", {
         sessionKey,
         toolCallId: req.toolCallId,
       });
       return { outcome: "allow_always" };
     }
-    if (planExit) {
-      log.info("plan-exit permission UI (forced ask)", {
-        sessionKey,
-        toolCallId: req.toolCallId,
-        sessionBypass: effectivePermissionMode(session) === "bypass",
-      });
+    if (planExit || computerUse) {
+      log.info(
+        computerUse
+          ? "computer-use permission UI (forced ask)"
+          : "plan-exit permission UI (forced ask)",
+        {
+          sessionKey,
+          toolCallId: req.toolCallId,
+          sessionBypass: effectivePermissionMode(session) === "bypass",
+        },
+      );
     }
 
     const surface = resolveOperatorSurface(session);
@@ -4735,33 +4755,16 @@ export function createDaemon(
     }
 
     const apply = async (agentId: string) => {
-      if (!env.agents.switchSessionAgent) {
-        // Fallback: update identity + ensureSession with agent change
-        session.identity = { ...session.identity, agent: agentId };
-        sessionIndex.byKey[session.sessionKey] = session;
-        await saveSessionIndex(env.store, sessionIndex);
-        if (session.status === "running") {
-          await env.agents.cancelTurn?.(
-            session.sessionKey,
-            "operator /agent switch",
-          );
-        }
-        await ensureSessionWithPerms(session);
-      } else {
-        if (session.status === "running") {
-          await env.agents.cancelTurn?.(
-            session.sessionKey,
-            "operator /agent switch",
-          );
-        }
-        const handle = await env.agents.switchSessionAgent(
-          session.identity,
-          agentId,
+      session.identity = { ...session.identity, agent: agentId };
+      sessionIndex.byKey[session.sessionKey] = session;
+      await saveSessionIndex(env.store, sessionIndex);
+      if (session.status === "running") {
+        await env.agents.cancelTurn?.(
+          session.sessionKey,
+          "operator /agent switch",
         );
-        session.identity = handle.identity;
-        sessionIndex.byKey[session.sessionKey] = session;
-        await saveSessionIndex(env.store, sessionIndex);
       }
+      await ensureSessionWithPerms(session);
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
@@ -5065,16 +5068,8 @@ export function createDaemon(
           "operator /agent switch",
         );
       }
-      if (env.agents.switchSessionAgent) {
-        const handle = await env.agents.switchSessionAgent(
-          session.identity,
-          agentId,
-        );
-        session.identity = handle.identity;
-      } else {
-        session.identity = { ...session.identity, agent: agentId };
-        await ensureSessionWithPerms(session);
-      }
+      session.identity = { ...session.identity, agent: agentId };
+      await ensureSessionWithPerms(session);
       sessionIndex.byKey[session.sessionKey] = session;
       await saveSessionIndex(env.store, sessionIndex);
       const launch = resolveAgentLaunch(agentId);

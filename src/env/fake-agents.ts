@@ -73,6 +73,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   ensureOpts: Array<{
     forceRespawn?: boolean;
     forceNewSession?: boolean;
+    computerAllowed?: boolean;
   }>;
   computerGrantCalls: Array<{ sessionKey: string; grant: ComputerGrantWire }>;
   computerAbortCalls: Array<{ sessionKey: string; hostId?: string }>;
@@ -95,6 +96,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   const ensureOpts: Array<{
     forceRespawn?: boolean;
     forceNewSession?: boolean;
+    computerAllowed?: boolean;
   }> = [];
   const abortBySession = new Map<string, AbortController>();
   let sawTimeoutMs = false;
@@ -142,6 +144,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     ensureOpts: Array<{
       forceRespawn?: boolean;
       forceNewSession?: boolean;
+      computerAllowed?: boolean;
     }>;
     computerGrantCalls: Array<{ sessionKey: string; grant: ComputerGrantWire }>;
     computerAbortCalls: Array<{ sessionKey: string; hostId?: string }>;
@@ -329,6 +332,9 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       ensureOpts.push({
         ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
         ...(opts?.forceNewSession ? { forceNewSession: true } : {}),
+        ...(opts?.computerAllowed !== undefined
+          ? { computerAllowed: opts.computerAllowed === true }
+          : {}),
       });
       const key = sessionKeyOf(identity);
       const existing = sessions.get(key);
