@@ -1164,7 +1164,7 @@ export function createAcpHostClient(
         reqId: randomUUID(),
         slotKey,
       });
-      if (msg.type !== "computer_abort_ok" && msg.type !== "err") {
+      if (msg.type !== "computer_abort_ok") {
         throw new Error(`unexpected ${msg.type}`);
       }
     },

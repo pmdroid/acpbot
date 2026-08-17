@@ -17,7 +17,7 @@ export const COMPUTER_GRANT_TTL_MS = 30 * 60 * 1000;
 
 /**
  * Worker-authoritative per-topic computer grant.
- * `hostId` is worker bookkeeping for routing (D19); the host does not compare it (D21).
+ * hostId is worker routing only; the host must not compare it.
  */
 export type ComputerGrant = {
   enabled: boolean;
@@ -45,7 +45,7 @@ export type ComputerProbe = {
   inputEnabled: boolean;
 };
 
-/** PR 1 stub until a real backend exists. */
+/** Stub probe until a real backend exists. */
 export const STUB_COMPUTER_PROBE: ComputerProbe = {
   ok: false,
   backend: "fake",
