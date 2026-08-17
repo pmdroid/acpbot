@@ -36,7 +36,7 @@ export class ComputerBackendError extends Error {
   }
 }
 
-/** Host-owned capture / input. Fake in PR 2; Playwright in PR 3. */
+/** Host-owned capture / input. Fake backend; input methods throw `input_not_enabled`. */
 export type ComputerUseBackend = {
   screenshot(opts: {
     display?: number;

@@ -144,32 +144,56 @@ export function isComputerUsePermission(raw: unknown): boolean {
     toolCall?: {
       title?: string;
       kind?: string;
+      name?: string;
+      description?: string;
       rawInput?: unknown;
       _meta?: unknown;
     };
     toolCallId?: string;
     title?: string;
     name?: string;
+    description?: string;
+    toolName?: string;
+  };
+
+  const looksComputer = (s: string) => {
+    if (!s) return false;
+    if (
+      s === "computer" ||
+      s.startsWith("computer_") ||
+      s.startsWith("computer/") ||
+      s.includes("computer_screenshot") ||
+      s.includes("computer_click") ||
+      s.includes("computer_type") ||
+      s.includes("computer_key") ||
+      s.includes("computer_navigate") ||
+      /\bcomputer[\s_-](screenshot|click|type|key|navigate|scroll|drag|move|status)\b/.test(
+        s,
+      )
+    ) {
+      return true;
+    }
+    // Adapter may put the MCP description in title and a UUID in toolCallId.
+    return s.includes("[computer]") || s.includes("/computer");
   };
 
   const title = String(r.toolCall?.title ?? r.title ?? r.name ?? "").toLowerCase();
   const kind = String(r.toolCall?.kind ?? "").toLowerCase();
   const toolCallId = String(r.toolCallId ?? "").toLowerCase();
+  const desc = String(
+    r.toolCall?.description ?? r.description ?? "",
+  ).toLowerCase();
+  const mcpName = String(
+    r.toolCall?.name ?? r.toolName ?? r.name ?? "",
+  ).toLowerCase();
 
-  const looksComputer = (s: string) =>
-    s === "computer" ||
-    s.startsWith("computer_") ||
-    s.startsWith("computer/") ||
-    s.includes("computer_screenshot") ||
-    s.includes("computer_click") ||
-    s.includes("computer_type") ||
-    s.includes("computer_key") ||
-    s.includes("computer_navigate") ||
-    /\bcomputer[\s_-](screenshot|click|type|key|navigate|scroll|drag|move|status)\b/.test(
-      s,
-    );
-
-  if (looksComputer(title) || looksComputer(kind) || looksComputer(toolCallId)) {
+  if (
+    looksComputer(title) ||
+    looksComputer(kind) ||
+    looksComputer(toolCallId) ||
+    looksComputer(desc) ||
+    looksComputer(mcpName)
+  ) {
     return true;
   }
 
@@ -185,11 +209,21 @@ export function isComputerUsePermission(raw: unknown): boolean {
 
   const meta = (r.toolCall as { _meta?: Record<string, unknown> } | undefined)
     ?._meta;
-  const xai = meta?.["x.ai/tool"] as { name?: string; kind?: string } | undefined;
-  if (xai) {
-    const n = String(xai.name ?? "").toLowerCase();
-    const k = String(xai.kind ?? "").toLowerCase();
-    if (looksComputer(n) || looksComputer(k)) return true;
+  if (meta && typeof meta === "object") {
+    const xai = meta["x.ai/tool"] as { name?: string; kind?: string } | undefined;
+    if (xai) {
+      const n = String(xai.name ?? "").toLowerCase();
+      const k = String(xai.kind ?? "").toLowerCase();
+      if (looksComputer(n) || looksComputer(k)) return true;
+    }
+    for (const v of Object.values(meta)) {
+      if (typeof v === "string" && looksComputer(v.toLowerCase())) return true;
+      if (v && typeof v === "object") {
+        const rec = v as { name?: string; kind?: string };
+        if (looksComputer(String(rec.name ?? "").toLowerCase())) return true;
+        if (looksComputer(String(rec.kind ?? "").toLowerCase())) return true;
+      }
+    }
   }
 
   return false;
@@ -198,6 +232,20 @@ export function isComputerUsePermission(raw: unknown): boolean {
 /** Plan-exit and computer-use must always reach the operator. */
 export function shouldForceAskPermission(raw: unknown): boolean {
   return isPlanExitPermission(raw) || isComputerUsePermission(raw);
+}
+
+/**
+ * Unique per confirm so a recent allow cannot auto-approve the next
+ * computer-use or plan-exit attempt.
+ */
+export function forceAskFingerprint(
+  sessionKey: string,
+  toolCallId: string,
+  raw: unknown,
+): string | undefined {
+  if (isComputerUsePermission(raw)) return `computer:${sessionKey}:${toolCallId}`;
+  if (isPlanExitPermission(raw)) return `plan-exit:${sessionKey}:${toolCallId}`;
+  return undefined;
 }
 
 export function decisionToPermissionResponse(

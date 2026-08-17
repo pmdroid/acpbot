@@ -23,6 +23,7 @@ import {
   isPlanExitPermission,
   isComputerUsePermission,
   shouldForceAskPermission,
+  forceAskFingerprint,
 } from "./permission-map";
 import { buildSessionMcpServers } from "../mcp/repo-mcp";
 import type { AcpbotConfig } from "../env/types";
@@ -584,11 +585,9 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         typeof params.toolCall?.kind === "string" ? params.toolCall.kind : "";
       // Unique fingerprint per computer/plan-exit confirm so recent-allow
       // cannot auto-approve a second attempt.
-      const fp = computerUse
-        ? `computer:${sessionKey}:${toolCallId}`
-        : planExit
-          ? `plan-exit:${sessionKey}:${toolCallId}`
-          : permissionFingerprint(sessionKey, kind, title);
+      const fp =
+        forceAskFingerprint(sessionKey, toolCallId, params) ??
+        permissionFingerprint(sessionKey, kind, title);
       if (planExit || computerUse) {
         log.info(
           computerUse

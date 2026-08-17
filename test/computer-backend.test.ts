@@ -217,6 +217,64 @@ describe("computer supervisor", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  test("turn abort refuses with abort", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-abort-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      turnSource: "operator",
+      turnAbort: { aborted: true },
+    };
+    const supervisor = createComputerSupervisor({
+      backend: createFakeComputerBackend(),
+      getConfig: () => ({ enabled: true, minActionIntervalMs: 0 }),
+      getSlot: () => slot,
+      publishFrame: () => {},
+      stateDir: dir,
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: false,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).error).toBe(
+      "abort",
+    );
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("min interval refuses a second screenshot", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-int-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      turnSource: "operator",
+    };
+    const supervisor = createComputerSupervisor({
+      backend: createFakeComputerBackend(),
+      getConfig: () => ({ enabled: true, minActionIntervalMs: 60_000 }),
+      getSlot: () => slot,
+      publishFrame: () => {},
+      stateDir: dir,
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: false,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).ok).toBe(true);
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).error).toBe(
+      "interval",
+    );
+    await rm(dir, { recursive: true, force: true });
+  });
+
   test("audit has no pixels or imageBase64", async () => {
     const { supervisor, dir } = await setup();
     await supervisor.act("demo/box", { type: "screenshot" });

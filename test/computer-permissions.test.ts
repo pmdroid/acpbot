@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  forceAskFingerprint,
   isComputerUsePermission,
   shouldForceAskPermission,
 } from "../src/acp/permission-map";
@@ -45,6 +46,41 @@ describe("isComputerUsePermission", () => {
     expect(isComputerUsePermission(PLAN_RAW)).toBe(false);
   });
 
+  test("description-only title with [computer] / /computer is computer-use", () => {
+    const descOnly = {
+      toolCallId: "uuid-no-name",
+      toolCall: {
+        title:
+          "Capture the isolated browser viewport for this topic. Requires [computer].enabled and `/computer on`.",
+        kind: "other",
+      },
+    };
+    expect(isComputerUsePermission(descOnly)).toBe(true);
+    expect(shouldForceAskPermission(descOnly)).toBe(true);
+    expect(sessionHostAutoAllowsPermission("bypass", descOnly)).toBe(false);
+  });
+
+  test("MCP name / _meta name is computer-use", () => {
+    expect(
+      isComputerUsePermission({
+        toolCallId: "uuid-2",
+        toolCall: {
+          title: "Capture viewport",
+          name: "computer_screenshot",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isComputerUsePermission({
+        toolCallId: "uuid-3",
+        toolCall: {
+          title: "Capture viewport",
+          _meta: { "x.ai/tool": { name: "computer_click" } },
+        },
+      }),
+    ).toBe(true);
+  });
+
   test("shouldForceAskPermission covers plan-exit and computer-use", () => {
     expect(shouldForceAskPermission(COMPUTER_RAW)).toBe(true);
     expect(shouldForceAskPermission(PLAN_RAW)).toBe(true);
@@ -60,7 +96,18 @@ describe("site 1: session-host bypass", () => {
     expect(sessionHostAutoAllowsPermission("ask", COMPUTER_RAW)).toBe(false);
     expect(sessionHostPromotesBypass(COMPUTER_RAW)).toBe(false);
     expect(sessionHostPromotesBypass(SHELL_RAW)).toBe(true);
-    expect(`computer:demo/box:c-1`).not.toBe(`computer:demo/box:c-2`);
+  });
+
+  test("forceAskFingerprint is unique per toolCallId (session-host uses this)", () => {
+    const a = forceAskFingerprint("demo/box", "c-1", COMPUTER_RAW);
+    const b = forceAskFingerprint("demo/box", "c-2", COMPUTER_RAW);
+    expect(a).toBe("computer:demo/box:c-1");
+    expect(b).toBe("computer:demo/box:c-2");
+    expect(a).not.toBe(b);
+    expect(forceAskFingerprint("demo/box", "c-1", PLAN_RAW)).toBe(
+      "plan-exit:demo/box:c-1",
+    );
+    expect(forceAskFingerprint("demo/box", "s-1", SHELL_RAW)).toBeUndefined();
   });
 });
 
