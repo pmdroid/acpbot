@@ -372,7 +372,7 @@ export function createDaemon(
   >();
   /** Computer grant buttons: token → session. */
   const computerPicks = new Map<string, { sessionKey: string }>();
-  /** Sessions that sent computer_grant on this worker process (host grant is conn-bound). */
+  /** Last successful computer_grant on this process. Not HostConn-lifetime — re-send on every sync. */
   const computerBound = new Set<string>();
   /**
    * In-memory only — never persisted. Restart always exits naming mode.
@@ -688,14 +688,14 @@ export function createDaemon(
   }
 
   /**
-   * Re-send persist on this conn. Host grant dies with the previous socket;
-   * persist alone must not look granted.
+   * Re-send persist on this conn every time. Host grant dies with the socket;
+   * a process-local flag is not "this conn still has the grant."
    */
-  async function rebindComputerGrantIfNeeded(
+  async function rebindComputerGrant(
     session: PersistedSession,
   ): Promise<void> {
     const g = liveComputerGrant(session);
-    if (!g || computerBound.has(session.sessionKey)) return;
+    if (!g) return;
     if (!env.agents.computerGrant) {
       await revokeComputerGrant(session);
       return;
@@ -712,6 +712,7 @@ export function createDaemon(
       });
       computerBound.add(session.sessionKey);
     } catch (err) {
+      computerBound.delete(session.sessionKey);
       const msg = err instanceof Error ? err.message : String(err);
       if (/unknown type/i.test(msg)) {
         await revokeComputerGrant(session);
@@ -730,7 +731,7 @@ export function createDaemon(
   ): Promise<PersistedSession["computerGrant"]> {
     await maybeRevokeComputerGrantIfHostChanged(session);
     await expireComputerGrantIfNeeded(session);
-    await rebindComputerGrantIfNeeded(session);
+    await rebindComputerGrant(session);
     const live = liveComputerGrant(session);
     if (!live || !computerBound.has(session.sessionKey)) return undefined;
     return live;

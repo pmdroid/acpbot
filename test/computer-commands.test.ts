@@ -210,6 +210,17 @@ describe("/computer commands", () => {
     ).toBe(true);
   });
 
+  test("ensure re-sends grant while persist is live", async () => {
+    const { env, daemon, session } = await openTopic();
+    await daemon.handleUpdate(topic(session.messageThreadId, "/computer on", 2));
+    expect(env.agents.computerGrantCalls).toHaveLength(1);
+    await daemon.handleUpdate(topic(session.messageThreadId, "/status", 3));
+    expect(env.agents.computerGrantCalls.length).toBeGreaterThan(1);
+    expect((await daemon.listSessions())[0]?.computerGrant?.enabled).toBe(
+      true,
+    );
+  });
+
   test("/computer status and /status show computer line", async () => {
     const { env, daemon, session } = await openTopic();
     await daemon.handleUpdate(topic(session.messageThreadId, "/computer", 2));
