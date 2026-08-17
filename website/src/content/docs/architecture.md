@@ -108,6 +108,14 @@ The worker can open **more than one** host client: local Unix plus remote **WSS*
 Each `[repos]` entry may set `host = "<id>"` so agents for that workspace run on the matching machine.  
 Details: [Multi-host](/docs/multi-host).
 
+### Computer use (isolated browser)
+
+When `[computer].enabled` and the topic has `/computer on`, **acp-host** owns a Playwright Chromium per granted slot. MCP `computer_*` tools are a thin RPC to that supervisor (Bearer token on `host-api.sock`).
+
+Frames (`computer_frame`) publish to **`slot.owner`** — the same `HostConn` that sent `computer_grant`. They do **not** go through the EVE client (`eveHost` in `daemon.ts`). The worker `sendPhoto`s the same JPEG the agent sees.
+
+The worker never captures. Multi-host: the repo’s host drives its own browser (`resolveHostId`; no silent local fallback). `/cancel` revokes the grant.
+
 ### Background install (`acpbot setup`)
 
 The guided setup can install **both** host and worker as user services (same

@@ -10,7 +10,7 @@ import { listSkills } from "../src/core/skills";
 import { loadConfig } from "../src/config";
 
 describe("bundled skills", () => {
-  test("package skills/ contains telegram, schedules, multi-agent, linear, eve, autoreview", async () => {
+  test("package skills/ contains telegram, schedules, multi-agent, linear, eve, autoreview, computer", async () => {
     const root = bundledSkillsRoot();
     const skills = await listSkills([root]);
     const ids = skills.map((s) => s.id).sort();
@@ -20,6 +20,7 @@ describe("bundled skills", () => {
     expect(ids).toContain("multi-agent");
     expect(ids).toContain("linear");
     expect(ids).toContain("eve");
+    expect(ids).toContain("computer");
   });
 
   test("installBundledSkills links into global parents", async () => {

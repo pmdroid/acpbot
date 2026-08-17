@@ -1192,6 +1192,7 @@ export function createDaemon(
         sessionKey: frame.sessionKey,
         error: err instanceof Error ? err.message : String(err),
       });
+      await pauseWatchOnSendFailure(session, err);
     }
   }
 
@@ -2221,6 +2222,47 @@ export function createDaemon(
         `Failed to start fresh session:\n\n${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  function isTelegramRateLimit(err: unknown): boolean {
+    if (err instanceof TelegramApiError && err.statusCode === 429) return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    return /\b429\b|too many requests/i.test(msg);
+  }
+
+  /** Stop watch (keep grant) after Telegram 429 / sendPhoto failure. */
+  async function pauseWatchOnSendFailure(
+    session: PersistedSession,
+    err: unknown,
+  ): Promise<void> {
+    const grant = session.computerGrant;
+    if (!grant?.enabled || !grant.watch) return;
+    grant.watch = false;
+    session.updatedAt = env.clock.now();
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+    if (env.agents.computerGrant) {
+      try {
+        await env.agents.computerGrant({
+          sessionKey: session.sessionKey,
+          grant: {
+            enabled: grant.enabled,
+            watch: false,
+            expiresAt: grant.expiresAt,
+            hostId: grant.hostId,
+          },
+        });
+      } catch {
+        /* host may be gone; persist already dropped watch */
+      }
+    }
+    const why = isTelegramRateLimit(err)
+      ? "Telegram rate limit (429)"
+      : "Telegram send failed";
+    await sendInTopic(
+      session,
+      `🖥 Watch paused — ${why}. \`/computer watch\` to resume.`,
+    ).catch(() => {});
   }
 
   async function applyComputerGrant(

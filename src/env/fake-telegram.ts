@@ -62,6 +62,8 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
   injectMany(updates: TelegramUpdate[]): void;
   setConflict(on: boolean): void;
   setMe(me: BotMe): void;
+  /** Next sendPhoto throws this (cleared after one throw). */
+  setSendPhotoError(err: Error | null): void;
   /** Wait until at least n outbound calls of a method exist. */
   waitFor(
     method: OutboundTelegramCall["method"],
@@ -81,6 +83,7 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
   };
 
   let conflict = options.conflictOnGetUpdates ?? false;
+  let sendPhotoError: Error | null = null;
   const pending: TelegramUpdate[] = [];
   const outbound: OutboundTelegramCall[] = [];
   let nextMessageId = 1;
@@ -119,6 +122,7 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
     injectMany(updates: TelegramUpdate[]): void;
     setConflict(on: boolean): void;
     setMe(me: BotMe): void;
+    setSendPhotoError(err: Error | null): void;
     waitFor(
       method: OutboundTelegramCall["method"],
       count?: number,
@@ -135,6 +139,10 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
 
     setConflict(on: boolean) {
       conflict = on;
+    },
+
+    setSendPhotoError(err: Error | null) {
+      sendPhotoError = err;
     },
 
     inject(update: TelegramUpdate) {
@@ -295,6 +303,11 @@ export function fakeTelegram(options: FakeTelegramOptions = {}): TelegramPort & 
     },
 
     async sendPhoto(params) {
+      if (sendPhotoError) {
+        const err = sendPhotoError;
+        sendPhotoError = null;
+        throw err;
+      }
       record({ method: "sendPhoto", params: { ...params } });
       return { message_id: nextMessageId++ };
     },

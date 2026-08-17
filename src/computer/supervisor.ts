@@ -104,9 +104,19 @@ export type ComputerSupervisorOptions = {
   getConfig: () => ComputerConfig | undefined;
   getSlot: (slotKey: string) => ComputerSlotView | undefined;
   publishFrame: (frame: ComputerFrameEvent) => void;
+  /** Optional: status line to slot.owner (watch auto-pause). */
+  publishStatus?: (status: { sessionKey: string; text: string }) => void;
   log?: Logger;
   stateDir: string;
   now?: () => number;
+  /**
+   * Injected watch scheduler for tests. Returns an unschedule fn.
+   * Default: setInterval(tick, intervalMs).
+   */
+  scheduleWatch?: (
+    tick: () => void | Promise<void>,
+    intervalMs: number,
+  ) => () => void;
 };
 
 type BoundGrant = {
@@ -119,16 +129,22 @@ type BoundGrant = {
   lastWidth: number;
   lastHeight: number;
   acked: Set<string>;
+  lastPublishedAt: number;
+  lastWatchFrameId: string | null;
 };
 
 const DEFAULT_MAX_ACTIONS = 40;
 const DEFAULT_MIN_INTERVAL_MS = 150;
+const DEFAULT_WATCH_INTERVAL_MS = 2500;
+const DEFAULT_FRAME_COALESCE_MS = 2000;
 
 export function createComputerSupervisor(options: ComputerSupervisorOptions) {
   const log = options.log;
   const now = options.now ?? (() => Date.now());
   const grants = new Map<string, BoundGrant>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const watchStops = new Map<string, () => void>();
+  const watchInflight = new Set<string>();
 
   function clearExpiry(slotKey: string): void {
     const t = expiryTimers.get(slotKey);
@@ -164,7 +180,41 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     return options.getConfig()?.minActionIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
   }
 
+  function watchIntervalMs(): number {
+    return options.getConfig()?.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
+  }
+
+  function frameCoalesceMs(): number {
+    return options.getConfig()?.frameCoalesceMs ?? DEFAULT_FRAME_COALESCE_MS;
+  }
+
+  function stopWatch(slotKey: string): void {
+    const stop = watchStops.get(slotKey);
+    if (!stop) return;
+    stop();
+    watchStops.delete(slotKey);
+  }
+
+  function startWatch(slotKey: string): void {
+    stopWatch(slotKey);
+    const bound = grants.get(slotKey);
+    if (!bound?.grant.enabled || !bound.grant.watch) return;
+    const interval = Math.max(1, watchIntervalMs());
+    const schedule =
+      options.scheduleWatch ??
+      ((tick, ms) => {
+        const handle = setInterval(tick, ms);
+        handle.unref?.();
+        return () => clearInterval(handle);
+      });
+    watchStops.set(
+      slotKey,
+      schedule(() => tickWatch(slotKey), interval),
+    );
+  }
+
   function dropGrant(slotKey: string): void {
+    stopWatch(slotKey);
     clearExpiry(slotKey);
     grants.delete(slotKey);
     void options.backend.closeSlot?.(slotKey);
@@ -186,6 +236,9 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
       lastWidth: prev && prev.conn === conn ? prev.lastWidth : 0,
       lastHeight: prev && prev.conn === conn ? prev.lastHeight : 0,
       acked: prev && prev.conn === conn ? prev.acked : new Set(),
+      lastPublishedAt: prev && prev.conn === conn ? prev.lastPublishedAt : 0,
+      lastWatchFrameId:
+        prev && prev.conn === conn ? prev.lastWatchFrameId : null,
     });
     log?.info("computer grant applied", {
       sessionKey: slotKey,
@@ -194,6 +247,8 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
       expiresAt: grant.expiresAt,
     });
     scheduleExpiry(slotKey, grant.expiresAt);
+    if (grant.enabled && grant.watch) startWatch(slotKey);
+    else stopWatch(slotKey);
   }
 
   function abort(slotKey: string): void {
@@ -310,6 +365,7 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
             quality: jpegQuality(),
           })
         : shot.jpeg;
+    bound.lastPublishedAt = now();
     const caption = `🖥 ${actionName} · ${bound.grant.hostId} · ${bound.actionsThisTurn}/${maxActions()}`;
     options.publishFrame({
       sessionKey: slotKey,
@@ -557,6 +613,75 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     return options.backend.probe();
   }
 
+  function watchEligible(slotKey: string): BoundGrant | null {
+    if (!computerEnabled()) return null;
+    const bound = grants.get(slotKey);
+    if (!bound || !bound.grant.enabled || !bound.grant.watch) return null;
+    if (bound.grant.expiresAt > 0 && now() >= bound.grant.expiresAt) {
+      dropGrant(slotKey);
+      return null;
+    }
+    const slot = options.getSlot(slotKey);
+    if (!slot) return null;
+    if (slot.computerAllowed !== true) return null;
+    const owner = slot.owner;
+    if (!owner || owner.destroyed) return null;
+    if (owner !== bound.conn) return null;
+    // Watch only while an operator turn is live (same gate as act).
+    if (slot.turnSource !== "operator") return null;
+    if (slot.turnAbort?.aborted) return null;
+    return bound;
+  }
+
+  function pauseWatch(slotKey: string, text: string): void {
+    const bound = grants.get(slotKey);
+    if (!bound?.grant.watch) return;
+    bound.grant.watch = false;
+    stopWatch(slotKey);
+    log?.info("computer watch paused", { sessionKey: slotKey });
+    options.publishStatus?.({ sessionKey: slotKey, text });
+  }
+
+  async function tickWatch(slotKey: string): Promise<void> {
+    if (watchInflight.has(slotKey)) return;
+    watchInflight.add(slotKey);
+    try {
+      const bound = watchEligible(slotKey);
+      if (!bound) return;
+      // Missing ACK = Telegram never got the last watch JPEG; stop capturing.
+      if (
+        bound.lastWatchFrameId &&
+        !bound.acked.has(bound.lastWatchFrameId)
+      ) {
+        pauseWatch(
+          slotKey,
+          "🖥 Watch paused — Telegram send failed (rate limit?). `/computer watch` to resume.",
+        );
+        return;
+      }
+      const coalesce = frameCoalesceMs();
+      if (
+        coalesce > 0 &&
+        bound.lastPublishedAt > 0 &&
+        now() - bound.lastPublishedAt < coalesce
+      ) {
+        return;
+      }
+      const shot = await options.backend.screenshot({ slotKey });
+      const live = grants.get(slotKey);
+      if (!live?.grant.watch) return;
+      const frameId = publishShot(slotKey, live, shot, "watch");
+      live.lastWatchFrameId = frameId;
+    } catch (err) {
+      log?.warn("computer watch tick failed", {
+        sessionKey: slotKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      watchInflight.delete(slotKey);
+    }
+  }
+
   return {
     applyGrant,
     abort,
@@ -567,6 +692,8 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     act,
     status,
     probe,
+    /** Test helper: fire one watch tick now. */
+    tickWatch,
     /** Test / host-api: live grant bound to this slot, if any. */
     getGrant(slotKey: string): BoundGrant | undefined {
       return grants.get(slotKey);

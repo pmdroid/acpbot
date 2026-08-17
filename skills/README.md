@@ -11,6 +11,7 @@ Operator skills shipped with acpbot and installed **globally** for coding agents
 | [`autoreview`](./autoreview/SKILL.md) | Two-agent panel / adversarial closeout review |
 | [`linear`](./linear/SKILL.md) | Linear MCP + topic↔project binding |
 | [`eve`](./eve/SKILL.md) | EVE background multi-agent directives (agent-authored JS graphs; no shipped scripts) |
+| [`computer`](./computer/SKILL.md) | Isolated Playwright browser (`computer_*`; `/computer on` required) |
 
 ## Credits
 

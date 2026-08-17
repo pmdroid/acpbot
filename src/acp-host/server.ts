@@ -261,6 +261,16 @@ export async function startAcpHostServer(
         send(slot.owner, { type: "computer_frame", ...frame });
       }
     },
+    publishStatus: (status) => {
+      const slot = slots.get(status.sessionKey);
+      if (slot?.owner && !slot.owner.destroyed) {
+        send(slot.owner, {
+          type: "computer_status",
+          sessionKey: status.sessionKey,
+          text: status.text,
+        });
+      }
+    },
     log,
     stateDir,
   });

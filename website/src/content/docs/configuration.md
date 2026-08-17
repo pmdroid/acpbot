@@ -243,8 +243,8 @@ v1 drives an **isolated Playwright browser** owned by acp-host — not the login
 | `max_actions_per_turn` | `40` | Per-turn budget |
 | `min_action_interval_ms` | `150` | Rate limit |
 | `grant_ttl_sec` | `1800` | `/computer on` TTL (30m) |
-| `watch_interval_ms` | `2500` | Watch cadence (timer lands later) |
-| `frame_coalesce_ms` | `2000` | Telegram photo coalesce |
+| `watch_interval_ms` | `2500` | Watch screenshot interval while an operator turn is running |
+| `frame_coalesce_ms` | `2000` | Skip a watch tick if a frame was just published |
 | `browser_channel` | `"chrome"` | `chrome` · `chromium` · `msedge` |
 | `browser_headless` | `true` | Headless by default |
 
@@ -255,6 +255,8 @@ v1 drives an **isolated Playwright browser** owned by acp-host — not the login
 # publish_frames = "on_action"
 # jpeg_quality = 60
 # max_edge_px = 1280
+# watch_interval_ms = 2500
+# frame_coalesce_ms = 2000
 # browser_channel = "chrome"
 # browser_headless = true
 ```
