@@ -6,12 +6,21 @@ import {
   createFakeComputerBackend,
   FAKE_SCREENSHOT_JPEG,
 } from "../src/computer/fake";
-import { INPUT_NOT_ENABLED } from "../src/computer/backend";
+import {
+  ComputerBackendError,
+  INPUT_NOT_ENABLED,
+  type ComputerUseBackend,
+  type ScreenshotResult,
+} from "../src/computer/backend";
 import {
   createComputerSupervisor,
   type ComputerOwnerConn,
   type ComputerSlotView,
 } from "../src/computer/supervisor";
+import {
+  decodeJpeg,
+  encodeJpeg,
+} from "../src/computer/annotate";
 
 function liveConn(): ComputerOwnerConn {
   return { destroyed: false };
@@ -285,4 +294,184 @@ describe("computer supervisor", () => {
     expect(text).not.toContain("ffd8");
     await rm(dir, { recursive: true, force: true });
   });
+
+  test("ttl timer drops grant without a subsequent action", async () => {
+    const { supervisor, dir } = await setup({ expiresAt: Date.now() + 50 });
+    expect(supervisor.getGrant("demo/box")).toBeDefined();
+    await Bun.sleep(120);
+    expect(supervisor.getGrant("demo/box")).toBeUndefined();
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).error).toBe(
+      "no_grant",
+    );
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("click publishes annotated Telegram copy; agent jpeg stays clean", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-ann-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      turnSource: "operator",
+    };
+    const w = 64;
+    const h = 48;
+    const data = new Uint8Array(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      data[i * 4 + 2] = 180;
+      data[i * 4 + 3] = 255;
+    }
+    const fixture = encodeJpeg({ data, width: w, height: h }, 90);
+    const frames: Array<{ jpegBase64: string; width: number; height: number }> =
+      [];
+    const backend = inputStubBackend(fixture, w, h);
+    const supervisor = createComputerSupervisor({
+      backend,
+      getConfig: () => ({ enabled: true, minActionIntervalMs: 0, jpegQuality: 90 }),
+      getSlot: () => slot,
+      publishFrame: (f) => {
+        frames.push({
+          jpegBase64: f.jpegBase64,
+          width: f.width,
+          height: f.height,
+        });
+      },
+      stateDir: dir,
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: false,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    const shot = await supervisor.act("demo/box", { type: "screenshot" });
+    expect(shot.ok).toBe(true);
+    if (shot.ok) {
+      expect(shot.width).toBe(w);
+      expect(shot.height).toBe(h);
+      const agent = decodeJpeg(shot.jpeg!);
+      const [ar] = pixel(agent, 20, 16);
+      expect(ar).toBeLessThan(80);
+    }
+    const click = await supervisor.act("demo/box", { type: "click", x: 20, y: 16 });
+    expect(click.ok).toBe(true);
+    expect(frames.length).toBeGreaterThanOrEqual(2);
+    const published = frames[frames.length - 1]!;
+    expect(published.width).toBe(w);
+    expect(published.height).toBe(h);
+    const tg = decodeJpeg(Buffer.from(published.jpegBase64, "base64"));
+    expect(tg.width).toBe(w);
+    expect(tg.height).toBe(h);
+    const [tr] = pixel(tg, 20, 16);
+    expect(tr).toBeGreaterThan(80);
+    const again = await supervisor.act("demo/box", { type: "screenshot" });
+    expect(again.ok).toBe(true);
+    if (again.ok) {
+      const clean = decodeJpeg(again.jpeg!);
+      const [cr] = pixel(clean, 20, 16);
+      expect(cr).toBeLessThan(80);
+    }
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("stale_frame recaptures and returns stale_frame", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "acpbot-comp-stale-"));
+    const owner = liveConn();
+    const slot: ComputerSlotView = {
+      slotKey: "demo/box",
+      owner,
+      computerAllowed: true,
+      turnSource: "operator",
+    };
+    const frames: string[] = [];
+    let pageUrl = "http://a.test/";
+    let shotUrl = "";
+    const backend: ComputerUseBackend = {
+      async screenshot(): Promise<ScreenshotResult> {
+        shotUrl = pageUrl;
+        return {
+          jpeg: FAKE_SCREENSHOT_JPEG,
+          width: 1,
+          height: 1,
+          displayId: "browser",
+        };
+      },
+      async pointer() {
+        if (pageUrl !== shotUrl) {
+          throw new ComputerBackendError("stale_frame");
+        }
+      },
+      async key() {},
+      async typeText() {},
+      async navigate() {},
+      async probe() {
+        return {
+          ok: true,
+          backend: "fake",
+          display: { id: "browser", width: 1, height: 1, scale: 1 },
+          missing: [],
+          inputEnabled: true,
+        };
+      },
+    };
+    const supervisor = createComputerSupervisor({
+      backend,
+      getConfig: () => ({ enabled: true, minActionIntervalMs: 0 }),
+      getSlot: () => slot,
+      publishFrame: (f) => {
+        frames.push(f.frameId);
+      },
+      stateDir: dir,
+    });
+    supervisor.applyGrant("demo/box", owner, {
+      enabled: true,
+      watch: false,
+      expiresAt: 0,
+      hostId: "local",
+    });
+    expect((await supervisor.act("demo/box", { type: "screenshot" })).ok).toBe(
+      true,
+    );
+    pageUrl = "http://b.test/";
+    const click = await supervisor.act("demo/box", { type: "click", x: 1, y: 1 });
+    expect(click.ok).toBe(false);
+    if (!click.ok) expect(click.error).toBe("stale_frame");
+    expect(frames.length).toBe(2);
+    await rm(dir, { recursive: true, force: true });
+  });
 });
+
+function pixel(
+  img: { width: number; data: Uint8Array },
+  x: number,
+  y: number,
+): [number, number, number] {
+  const i = (y * img.width + x) * 4;
+  return [img.data[i]!, img.data[i + 1]!, img.data[i + 2]!];
+}
+
+function inputStubBackend(
+  jpeg: Uint8Array,
+  width: number,
+  height: number,
+): ComputerUseBackend {
+  return {
+    async screenshot(): Promise<ScreenshotResult> {
+      return { jpeg, width, height, displayId: "browser" };
+    },
+    async pointer() {},
+    async key() {},
+    async typeText() {},
+    async navigate() {},
+    async probe() {
+      return {
+        ok: true,
+        backend: "fake",
+        display: { id: "browser", width, height, scale: 1 },
+        missing: [],
+        inputEnabled: true,
+      };
+    },
+  };
+}

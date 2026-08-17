@@ -8,6 +8,7 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
@@ -71,13 +72,42 @@ export function computerBrowserRoot(stateDir: string): string {
   return join(stateDir.replace(/\/$/, ""), "computer-browser");
 }
 
+/**
+ * Unambiguous per-slot dir. Hash so `a/b_c` and `a_b/c` never share a
+ * profile (replacing `/` with `_` would collide and leak cookies).
+ */
 export function safeSlotDirName(slotKey: string): string {
-  const s = slotKey.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 180);
-  return s || "slot";
+  const hash = createHash("sha256").update(slotKey, "utf8").digest("hex").slice(0, 32);
+  const label = slotKey
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return label ? `${hash}-${label}` : hash;
 }
 
 export function slotProfileDir(stateDir: string, slotKey: string): string {
   return join(computerBrowserRoot(stateDir), safeSlotDirName(slotKey));
+}
+
+/** Drop leftover profiles from a previous host process (grants are not persisted). */
+export async function sweepStaleBrowserProfiles(stateDir: string): Promise<void> {
+  await rm(computerBrowserRoot(stateDir), { recursive: true, force: true }).catch(
+    () => {},
+  );
+}
+
+/** Reject anything that is not http(s) *before* launching a browser. */
+export function assertHttpUrl(url: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ComputerBackendError("invalid_url", "invalid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new ComputerBackendError("invalid_url", "http/https only");
+  }
+  return parsed;
 }
 
 function specForChannel(name: string): BrowserLaunchSpec | null {
@@ -182,6 +212,11 @@ type LastShot = {
   vpH: number;
   jpegW: number;
   jpegH: number;
+  /** CSS origin/size of the captured rectangle (full viewport or region clip). */
+  clipX: number;
+  clipY: number;
+  clipW: number;
+  clipH: number;
 };
 
 type SlotSession = {
@@ -189,6 +224,16 @@ type SlotSession = {
   page: Page;
   lastShot: LastShot | null;
   profileDir: string;
+};
+
+type SlotControl = {
+  gen: number;
+  session: SlotSession | null;
+  launching: Promise<SlotSession> | null;
+};
+
+export type PlaywrightComputerBackend = ComputerUseBackend & {
+  pageForTest(slotKey: string): Page | undefined;
 };
 
 export type PlaywrightBackendOptions = {
@@ -199,9 +244,18 @@ export type PlaywrightBackendOptions = {
 
 export function createPlaywrightComputerBackend(
   options: PlaywrightBackendOptions,
-): ComputerUseBackend {
-  const sessions = new Map<string, SlotSession>();
+): PlaywrightComputerBackend {
+  const slots = new Map<string, SlotControl>();
   const log = options.log;
+
+  function control(slotKey: string): SlotControl {
+    let c = slots.get(slotKey);
+    if (!c) {
+      c = { gen: 0, session: null, launching: null };
+      slots.set(slotKey, c);
+    }
+    return c;
+  }
 
   function cfg(): ComputerConfig {
     return options.getConfig() ?? {};
@@ -239,14 +293,39 @@ export function createPlaywrightComputerBackend(
   }
 
   async function session(slotKey: string): Promise<SlotSession> {
-    const existing = sessions.get(slotKey);
-    if (existing) return existing;
+    const c = control(slotKey);
+    if (c.session) return c.session;
+    if (c.launching) return c.launching;
+
+    const gen = c.gen;
+    const p = launchSession(slotKey, gen);
+    c.launching = p;
+    try {
+      return await p;
+    } finally {
+      if (c.launching === p) c.launching = null;
+    }
+  }
+
+  async function launchSession(
+    slotKey: string,
+    gen: number,
+  ): Promise<SlotSession> {
+    const c = control(slotKey);
+    if (c.session) return c.session;
+    if (c.gen !== gen) {
+      throw new ComputerBackendError("aborted", "grant revoked during launch");
+    }
 
     const spec = launchSpec();
     await ensureProfileRoot();
     const dir = slotProfileDir(options.stateDir, slotKey);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await chmod(dir, 0o700).catch(() => {});
+
+    if (c.gen !== gen) {
+      throw new ComputerBackendError("aborted", "grant revoked during launch");
+    }
 
     const vp = viewport();
     const launch: Parameters<typeof chromium.launchPersistentContext>[1] = {
@@ -271,9 +350,21 @@ export function createPlaywrightComputerBackend(
       );
     }
 
+    if (c.gen !== gen) {
+      // /cancel raced the first launch — do not keep Chromium or cookies.
+      await context.close().catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      throw new ComputerBackendError("aborted", "grant revoked during launch");
+    }
+
     const page = context.pages()[0] ?? (await context.newPage());
+    if (c.gen !== gen) {
+      await context.close().catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      throw new ComputerBackendError("aborted", "grant revoked during launch");
+    }
     const s: SlotSession = { context, page, lastShot: null, profileDir: dir };
-    sessions.set(slotKey, s);
+    c.session = s;
     return s;
   }
 
@@ -287,12 +378,13 @@ export function createPlaywrightComputerBackend(
 
   function mapPoint(s: SlotSession, x: number, y: number): { x: number; y: number } {
     const shot = s.lastShot;
-    if (!shot || shot.jpegW < 1 || shot.jpegH < 1) {
+    if (!shot || shot.jpegW < 1 || shot.jpegH < 1 || shot.clipW < 1 || shot.clipH < 1) {
       return { x, y };
     }
+    // JPEG pixels → captured CSS rectangle, then offset by clip origin.
     return {
-      x: (x * shot.vpW) / shot.jpegW,
-      y: (y * shot.vpH) / shot.jpegH,
+      x: shot.clipX + (x * shot.clipW) / shot.jpegW,
+      y: shot.clipY + (y * shot.clipH) / shot.jpegH,
     };
   }
 
@@ -348,6 +440,10 @@ export function createPlaywrightComputerBackend(
       vpH: vp.height,
       jpegW: down.width,
       jpegH: down.height,
+      clipX: clip?.x ?? 0,
+      clipY: clip?.y ?? 0,
+      clipW: clip?.width ?? vp.width,
+      clipH: clip?.height ?? vp.height,
     };
     let title = "";
     try {
@@ -368,25 +464,37 @@ export function createPlaywrightComputerBackend(
   }
 
   async function closeSlot(slotKey: string): Promise<void> {
-    const s = sessions.get(slotKey);
-    sessions.delete(slotKey);
-    if (s) {
+    const c = control(slotKey);
+    c.gen += 1;
+    const launching = c.launching;
+    const session = c.session;
+    c.session = null;
+    if (launching) await launching.catch(() => {});
+    if (session) {
       try {
-        await s.context.close();
+        await session.context.close();
       } catch {
         /* already gone */
       }
     }
-    const dir = s?.profileDir ?? slotProfileDir(options.stateDir, slotKey);
+    if (c.session) {
+      try {
+        await c.session.context.close();
+      } catch {
+        /* raced set after bump */
+      }
+      c.session = null;
+    }
+    const dir = session?.profileDir ?? slotProfileDir(options.stateDir, slotKey);
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 
   async function closeAll(): Promise<void> {
-    const keys = [...sessions.keys()];
+    const keys = [...slots.keys()];
     await Promise.all(keys.map((k) => closeSlot(k)));
   }
 
-  const backend: ComputerUseBackend = {
+  const backend: PlaywrightComputerBackend = {
     async screenshot(opts) {
       const slotKey = requireSlot(opts.slotKey);
       const s = await session(slotKey);
@@ -438,15 +546,7 @@ export function createPlaywrightComputerBackend(
 
     async navigate(opts) {
       const slotKey = requireSlot(opts.slotKey);
-      let parsed: URL;
-      try {
-        parsed = new URL(opts.url);
-      } catch {
-        throw new ComputerBackendError("invalid_url", "invalid URL");
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new ComputerBackendError("invalid_url", "http/https only");
-      }
+      const parsed = assertHttpUrl(opts.url);
       const s = await session(slotKey);
       await s.page.goto(parsed.toString(), {
         waitUntil: "domcontentloaded",
@@ -483,6 +583,9 @@ export function createPlaywrightComputerBackend(
 
     closeSlot,
     closeAll,
+    pageForTest(slotKey: string): Page | undefined {
+      return slots.get(slotKey)?.session?.page;
+    },
   };
 
   return backend;
