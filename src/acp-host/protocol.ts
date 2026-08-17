@@ -12,6 +12,59 @@ import type {
 } from "../env/types";
 import type { HostTurnEvent } from "../acp/session-host";
 
+/** Default per-topic computer grant TTL (30 minutes). 0 on the wire means until /computer off. */
+export const COMPUTER_GRANT_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Worker-authoritative per-topic computer grant.
+ * `hostId` is worker bookkeeping for routing (D19); the host does not compare it (D21).
+ */
+export type ComputerGrant = {
+  enabled: boolean;
+  watch: boolean;
+  /** Epoch ms; 0 = until /computer off */
+  expiresAt: number;
+  /** Host catalog id the grant was issued against (must match resolveHostId). */
+  hostId: string;
+  grantedAt: number;
+};
+
+/** Grant payload on the wire (no grantedAt). */
+export type ComputerGrantWire = {
+  enabled: boolean;
+  watch: boolean;
+  expiresAt: number;
+  hostId: string;
+};
+
+export type ComputerProbe = {
+  ok: boolean;
+  backend: "macos" | "linux" | "fake" | "playwright";
+  display: { id: string; width: number; height: number; scale: number };
+  missing: string[];
+  inputEnabled: boolean;
+};
+
+/** PR 1 stub until a real backend exists. */
+export const STUB_COMPUTER_PROBE: ComputerProbe = {
+  ok: false,
+  backend: "fake",
+  missing: ["backend"],
+  inputEnabled: false,
+  display: { id: "0", width: 0, height: 0, scale: 1 },
+};
+
+export type ComputerFrameEvent = {
+  sessionKey: string;
+  jpegBase64: string;
+  caption: string;
+  width: number;
+  height: number;
+  action?: string;
+  frameId: string;
+  hostId: string;
+};
+
 export type HostAgentConfig = {
   /** acpbot agent name, e.g. grok-build */
   agent: string;
@@ -159,7 +212,16 @@ export type WorkerToHost =
       runId: string;
       sessionKey: string;
       answer: string;
-    };
+    }
+  | {
+      type: "computer_grant";
+      reqId: string;
+      slotKey: string;
+      grant: ComputerGrantWire;
+    }
+  | { type: "computer_abort"; reqId: string; slotKey: string }
+  /** Fire-and-forget. No reqId — must not go through client.request() (600s wait). */
+  | { type: "computer_frame_ack"; slotKey: string; frameId: string };
 
 export type HostToWorker =
   | { type: "hello_ok"; reqId: string }
@@ -243,7 +305,11 @@ export type HostToWorker =
       slotKey: string;
       configOptions: unknown[];
     }
-  | { type: "kill_ok" | "detach_ok" | "cancel_ok"; reqId: string; slotKey: string }
+  | {
+      type: "kill_ok" | "detach_ok" | "cancel_ok" | "computer_abort_ok";
+      reqId: string;
+      slotKey: string;
+    }
   | { type: "pong"; reqId: string }
   | {
       type: "list_ok";
@@ -281,7 +347,26 @@ export type HostToWorker =
       runId?: string;
       /** When set, worker posts an inline keyboard for /eve answer. */
       ask?: Array<{ id: string; label: string }>;
-    };
+    }
+  | {
+      type: "computer_grant_ok";
+      reqId: string;
+      slotKey: string;
+      probe: ComputerProbe;
+    }
+  | { type: "computer_grant_err"; reqId: string; slotKey: string; error: string }
+  | {
+      type: "computer_frame";
+      sessionKey: string;
+      jpegBase64: string;
+      caption: string;
+      width: number;
+      height: number;
+      action?: string;
+      frameId: string;
+      hostId: string;
+    }
+  | { type: "computer_status"; sessionKey: string; text: string };
 
 export function defaultAcpHostSock(
   stateDir = process.env.ACPBOT_STATE_DIR?.trim() || "./data/acpbot-state",

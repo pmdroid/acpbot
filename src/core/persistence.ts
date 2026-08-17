@@ -1,4 +1,7 @@
 import type { SessionIdentity, SessionStatus, Store } from "../env/types";
+import type { ComputerGrant } from "../acp-host/protocol";
+
+export type { ComputerGrant };
 
 export const STORE_KEYS = {
   updateOffset: "telegram:updateOffset",
@@ -31,6 +34,8 @@ export type PersistedSession = {
    * map the parent thread to this session.
    */
   headless?: boolean;
+  /** Per-topic computer-use grant. Worker is source of truth. */
+  computerGrant?: ComputerGrant;
 };
 
 export type SessionIndex = {

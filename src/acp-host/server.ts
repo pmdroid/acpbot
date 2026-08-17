@@ -17,6 +17,8 @@ import type { HostSessionStore } from "../acp/session-store";
 import {
   type HostToWorker,
   type WorkerToHost,
+  type ComputerGrantWire,
+  STUB_COMPUTER_PROBE,
   defaultAcpHostSock,
 } from "./protocol";
 import {
@@ -153,6 +155,32 @@ export async function startAcpHostServer(
 
   const slots = new Map<string, Slot>();
   let scheduler: SchedulerLoopHandle | null = null;
+  /** Conn-bound grants. Host does not compare catalog host ids (D21). */
+  const computerGrantsByConn = new WeakMap<
+    HostConn,
+    Map<string, ComputerGrantWire>
+  >();
+
+  function setConnComputerGrant(
+    conn: HostConn,
+    slotKey: string,
+    grant: ComputerGrantWire,
+  ): void {
+    let m = computerGrantsByConn.get(conn);
+    if (!m) {
+      m = new Map();
+      computerGrantsByConn.set(conn, m);
+    }
+    m.set(slotKey, grant);
+  }
+
+  function dropConnComputerGrant(conn: HostConn, slotKey: string): void {
+    computerGrantsByConn.get(conn)?.delete(slotKey);
+  }
+
+  function dropAllConnComputerGrants(conn: HostConn): void {
+    computerGrantsByConn.delete(conn);
+  }
 
   function makeHooks(slotKey: string): SessionHostHooks {
     return {
@@ -1364,6 +1392,49 @@ export async function startAcpHostServer(
         });
         return;
       }
+      case "computer_grant": {
+        const g = msg.grant;
+        if (
+          !g ||
+          typeof g.enabled !== "boolean" ||
+          typeof g.watch !== "boolean" ||
+          typeof g.expiresAt !== "number" ||
+          typeof g.hostId !== "string"
+        ) {
+          send(sock, {
+            type: "computer_grant_err",
+            reqId: msg.reqId,
+            slotKey: msg.slotKey,
+            error: "invalid grant",
+          });
+          return;
+        }
+        setConnComputerGrant(sock, msg.slotKey, g);
+        log.info("computer grant applied", {
+          sessionKey: msg.slotKey,
+          hostId: g.hostId,
+          watch: g.watch,
+          expiresAt: g.expiresAt,
+        });
+        send(sock, {
+          type: "computer_grant_ok",
+          reqId: msg.reqId,
+          slotKey: msg.slotKey,
+          probe: STUB_COMPUTER_PROBE,
+        });
+        return;
+      }
+      case "computer_abort": {
+        dropConnComputerGrant(sock, msg.slotKey);
+        send(sock, {
+          type: "computer_abort_ok",
+          reqId: msg.reqId,
+          slotKey: msg.slotKey,
+        });
+        return;
+      }
+      case "computer_frame_ack":
+        return;
       case "permission_result": {
         const slot = slots.get(msg.slotKey);
         const resolve = slot?.permissionResolvers.get(msg.permissionReqId);
@@ -1473,6 +1544,7 @@ export async function startAcpHostServer(
       for (const slot of slots.values()) {
         if (slot.owner === conn) slot.owner = null;
       }
+      dropAllConnComputerGrants(conn);
     });
     sock.on("error", (e) => {
       log.warn("worker socket error", { error: e.message });
@@ -1605,6 +1677,7 @@ export async function startAcpHostServer(
           for (const slot of slots.values()) {
             if (slot.owner === conn) slot.owner = null;
           }
+          if (conn) dropAllConnComputerGrants(conn);
         },
       },
     });

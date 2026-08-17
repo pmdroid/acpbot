@@ -29,8 +29,19 @@ export const CALLBACK = {
    * modeIndex 0=ask, 1=bypass, -1=cancel. Distinct from p: (in-flight tool allow).
    */
   permissionModePrefix: "R:",
+  /**
+   * Computer grant buttons: C:<token>:<idx>
+   * idx 0=on, 1=watch, 2=off. 64-byte Telegram limit.
+   */
+  computerPrefix: "C:",
   /** EVE operator ask: v:<runId>:<optionIndex> */
   eveAskPrefix: "v:",
+} as const;
+
+export const COMPUTER_CB = {
+  on: 0,
+  watch: 1,
+  off: 2,
 } as const;
 
 export function encodeQueueRemoveCallback(token: string): string {
@@ -272,6 +283,30 @@ export function parsePermissionModeCallback(
   const modeIndex = Number(rest.slice(colon + 1));
   if (!token || !Number.isInteger(modeIndex)) return undefined;
   return { token, modeIndex };
+}
+
+export function encodeComputerCallback(
+  token: string,
+  actionIndex: number,
+): string {
+  const data = `${CALLBACK.computerPrefix}${token}:${actionIndex}`;
+  if (byteLength(data) > 64) {
+    throw new Error(`callback_data too long (${byteLength(data)} bytes)`);
+  }
+  return data;
+}
+
+export function parseComputerCallback(
+  data: string,
+): { token: string; actionIndex: number } | undefined {
+  if (!data.startsWith(CALLBACK.computerPrefix)) return undefined;
+  const rest = data.slice(CALLBACK.computerPrefix.length);
+  const colon = rest.lastIndexOf(":");
+  if (colon <= 0) return undefined;
+  const token = rest.slice(0, colon);
+  const actionIndex = Number(rest.slice(colon + 1));
+  if (!token || !Number.isInteger(actionIndex)) return undefined;
+  return { token, actionIndex };
 }
 
 export function encodeEveAskCallback(

@@ -570,6 +570,38 @@ export interface AgentsPort {
     identity: SessionIdentity,
     agentId: string,
   ): Promise<AgentSessionHandle>;
+
+  /**
+   * Bind a computer-use grant on the session's acp-host (router client).
+   * Old hosts reject with "unknown type".
+   */
+  computerGrant?(input: {
+    sessionKey: string;
+    grant: {
+      enabled: boolean;
+      watch: boolean;
+      expiresAt: number;
+      hostId: string;
+    };
+  }): Promise<{
+    probe: import("../acp-host/protocol").ComputerProbe;
+  }>;
+
+  computerAbort?(
+    sessionKey: string,
+    opts?: { hostId?: string },
+  ): Promise<void>;
+
+  /** Fire-and-forget frame ACK (no reqId). */
+  computerFrameAck?(sessionKey: string, frameId: string): void;
+
+  setComputerFrameHandler?(
+    handler: (frame: import("../acp-host/protocol").ComputerFrameEvent) => void,
+  ): void;
+
+  setComputerStatusHandler?(
+    handler: (status: { sessionKey: string; text: string }) => void,
+  ): void;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────

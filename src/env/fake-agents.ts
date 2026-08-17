@@ -10,6 +10,12 @@ import type {
   PromptTurnInput,
   SessionIdentity,
 } from "./types";
+import type {
+  ComputerFrameEvent,
+  ComputerGrantWire,
+  ComputerProbe,
+} from "../acp-host/protocol";
+import { STUB_COMPUTER_PROBE } from "../acp-host/protocol";
 
 export type ScriptedTurn = {
   events: AcpTurnEvent[];
@@ -68,6 +74,15 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     forceRespawn?: boolean;
     forceNewSession?: boolean;
   }>;
+  computerGrantCalls: Array<{ sessionKey: string; grant: ComputerGrantWire }>;
+  computerAbortCalls: Array<{ sessionKey: string; hostId?: string }>;
+  computerFrameAckCalls: Array<{ sessionKey: string; frameId: string }>;
+  /** Throw this message from computerGrant (e.g. "unknown type"). */
+  computerGrantError?: string;
+  computerFrameHandler?: (frame: ComputerFrameEvent) => void;
+  computerStatusHandler?: (status: { sessionKey: string; text: string }) => void;
+  raiseComputerFrame(frame: ComputerFrameEvent): void;
+  raiseComputerStatus(status: { sessionKey: string; text: string }): void;
 } {
   const sessions = new Map<string, AgentSessionHandle>();
   const turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }> =
@@ -128,6 +143,14 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       forceRespawn?: boolean;
       forceNewSession?: boolean;
     }>;
+    computerGrantCalls: Array<{ sessionKey: string; grant: ComputerGrantWire }>;
+    computerAbortCalls: Array<{ sessionKey: string; hostId?: string }>;
+    computerFrameAckCalls: Array<{ sessionKey: string; frameId: string }>;
+    computerGrantError?: string;
+    computerFrameHandler?: (frame: ComputerFrameEvent) => void;
+    computerStatusHandler?: (status: { sessionKey: string; text: string }) => void;
+    raiseComputerFrame(frame: ComputerFrameEvent): void;
+    raiseComputerStatus(status: { sessionKey: string; text: string }): void;
   } = {
     sessions,
     turns,
@@ -139,6 +162,16 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     efforts,
     ensureCalls,
     ensureOpts,
+    computerGrantCalls: [],
+    computerAbortCalls: [],
+    computerFrameAckCalls: [],
+
+    raiseComputerFrame(frame) {
+      port.computerFrameHandler?.(frame);
+    },
+    raiseComputerStatus(status) {
+      port.computerStatusHandler?.(status);
+    },
 
     queueTurn(sessionKey, script) {
       const list = scripts.get(sessionKey) ?? [];
@@ -172,6 +205,35 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
 
     setAskUserQuestionHandler(handler) {
       askUserQuestionHandler = handler;
+    },
+
+    setComputerFrameHandler(handler) {
+      port.computerFrameHandler = handler;
+    },
+    setComputerStatusHandler(handler) {
+      port.computerStatusHandler = handler;
+    },
+
+    async computerGrant(input) {
+      port.computerGrantCalls.push({
+        sessionKey: input.sessionKey,
+        grant: input.grant,
+      });
+      if (port.computerGrantError) {
+        throw new Error(port.computerGrantError);
+      }
+      return { probe: STUB_COMPUTER_PROBE satisfies ComputerProbe };
+    },
+
+    async computerAbort(sessionKey, opts) {
+      port.computerAbortCalls.push({
+        sessionKey,
+        ...(opts?.hostId ? { hostId: opts.hostId } : {}),
+      });
+    },
+
+    computerFrameAck(sessionKey, frameId) {
+      port.computerFrameAckCalls.push({ sessionKey, frameId });
     },
 
     async raiseAskUserQuestion(req) {
