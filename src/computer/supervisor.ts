@@ -138,7 +138,6 @@ const DEFAULT_MAX_ACTIONS = 40;
 const DEFAULT_MIN_INTERVAL_MS = 150;
 const DEFAULT_WATCH_INTERVAL_MS = 2500;
 const DEFAULT_FRAME_COALESCE_MS = 2000;
-/** Pause only after this many ticks still missing an ACK (slow sendPhoto). */
 const WATCH_ACK_GRACE_TICKS = 2;
 
 export function createComputerSupervisor(options: ComputerSupervisorOptions) {
@@ -240,7 +239,6 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
       lastHeight: prev && prev.conn === conn ? prev.lastHeight : 0,
       acked: prev && prev.conn === conn ? prev.acked : new Set(),
       lastPublishedAt: prev && prev.conn === conn ? prev.lastPublishedAt : 0,
-      // Resume / rebind must not inherit an unacked watch frame (would re-pause).
       lastWatchFrameId: null,
       watchUnackedTicks: 0,
     });
