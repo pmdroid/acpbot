@@ -19,6 +19,9 @@ import {
   type HostToWorker,
   type WorkerToHost,
   type HostAgentConfig,
+  type ComputerFrameEvent,
+  type ComputerGrantWire,
+  type ComputerProbe,
   defaultAcpHostSock,
 } from "./protocol";
 
@@ -40,6 +43,9 @@ export type AcpHostClientOptions = {
     runId?: string;
     ask?: Array<{ id: string; label: string }>;
   }) => void;
+  /** Unsolicited computer frame (session/router client only — not eveHost). */
+  onComputerFrame?: (msg: ComputerFrameEvent) => void;
+  onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
 };
 
 export type EveHostResult = {
@@ -92,7 +98,41 @@ export type AcpHostClientApi = SessionHost & {
     runId: string;
     answer: string;
   }): Promise<EveHostResult>;
+  computerGrant(input: {
+    slotKey: string;
+    grant: ComputerGrantWire;
+  }): Promise<{ slotKey: string; probe: ComputerProbe }>;
+  computerAbort(slotKey: string): Promise<void>;
+  /** Fire-and-forget — must not use request() (no reqId, host does not reply). */
+  computerFrameAck(slotKey: string, frameId: string): void;
+  setComputerHandlers(handlers: {
+    onComputerFrame?: (msg: ComputerFrameEvent) => void;
+    onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+  }): void;
 };
+
+/** Host replies that may resolve a pending request(). Unsolicited types are ignored. */
+const HOST_REPLY_TYPES = new Set<HostToWorker["type"]>([
+  "hello_ok",
+  "hello_err",
+  "ensure_ok",
+  "prompt_ok",
+  "prompt_err",
+  "set_mode_ok",
+  "get_mode_ok",
+  "get_config_ok",
+  "set_config_ok",
+  "kill_ok",
+  "detach_ok",
+  "cancel_ok",
+  "computer_abort_ok",
+  "pong",
+  "list_ok",
+  "err",
+  "eve_ok",
+  "computer_grant_ok",
+  "computer_grant_err",
+]);
 
 type Pending = {
   resolve: (msg: HostToWorker) => void;
@@ -239,6 +279,8 @@ export function createAcpHostClient(
   const endpointLabel = remoteUrl || sockPath;
   let hooks: SessionHostHooks = { ...options.hooks };
   const onEveNotify = options.onEveNotify;
+  let onComputerFrame = options.onComputerFrame;
+  let onComputerStatus = options.onComputerStatus;
   let sock: Socket | null = null;
   let ws: WebSocket | null = null;
   let buf = "";
@@ -280,7 +322,10 @@ export function createAcpHostClient(
     sock.write(line);
   }
 
-  function request(msg: WorkerToHost, timeoutMs = 600_000): Promise<HostToWorker> {
+  function request(
+    msg: Extract<WorkerToHost, { reqId: string }>,
+    timeoutMs = 600_000,
+  ): Promise<HostToWorker> {
     const reqId = msg.reqId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -308,6 +353,31 @@ export function createAcpHostClient(
   }
 
   function onMessage(msg: HostToWorker): void {
+    if (msg.type === "computer_frame") {
+      try {
+        onComputerFrame?.({
+          sessionKey: msg.sessionKey,
+          jpegBase64: msg.jpegBase64,
+          caption: msg.caption,
+          width: msg.width,
+          height: msg.height,
+          ...(msg.action ? { action: msg.action } : {}),
+          frameId: msg.frameId,
+          hostId: msg.hostId,
+        });
+      } catch {
+        /* */
+      }
+      return;
+    }
+    if (msg.type === "computer_status") {
+      try {
+        onComputerStatus?.({ sessionKey: msg.sessionKey, text: msg.text });
+      } catch {
+        /* */
+      }
+      return;
+    }
     // Unsolicited EVE progress (no reqId wait)
     if (msg.type === "eve_notify") {
       try {
@@ -451,11 +521,14 @@ export function createAcpHostClient(
       return;
     }
 
+    if (!HOST_REPLY_TYPES.has(msg.type)) return;
+    if (!("reqId" in msg) || !msg.reqId) return;
     const p = pending.get(msg.reqId);
     if (p) {
       pending.delete(msg.reqId);
-      if (msg.type === "err") p.reject(new Error(msg.error));
-      else p.resolve(msg);
+      if (msg.type === "err" || msg.type === "computer_grant_err") {
+        p.reject(new Error(msg.error));
+      } else p.resolve(msg);
     }
   }
 
@@ -1061,5 +1134,60 @@ export function createAcpHostClient(
       return { message: msg.message, runId: msg.runId, run: msg.run };
     },
   };
-  return api;
+
+  const computerApi = Object.assign(api, {
+    async computerGrant(input: {
+      slotKey: string;
+      grant: ComputerGrantWire;
+    }) {
+      await connect();
+      const msg = await request({
+        type: "computer_grant",
+        reqId: randomUUID(),
+        slotKey: input.slotKey,
+        grant: input.grant,
+      });
+      if (msg.type !== "computer_grant_ok") {
+        throw new Error(
+          msg.type === "err" || msg.type === "computer_grant_err"
+            ? msg.error
+            : `unexpected ${msg.type}`,
+        );
+      }
+      return { slotKey: msg.slotKey, probe: msg.probe };
+    },
+
+    async computerAbort(slotKey: string) {
+      await connect();
+      const msg = await request({
+        type: "computer_abort",
+        reqId: randomUUID(),
+        slotKey,
+      });
+      if (msg.type !== "computer_abort_ok" && msg.type !== "err") {
+        throw new Error(`unexpected ${msg.type}`);
+      }
+    },
+
+    computerFrameAck(slotKey: string, frameId: string) {
+      try {
+        send({ type: "computer_frame_ack", slotKey, frameId });
+      } catch {
+        /* fire-and-forget */
+      }
+    },
+
+    setComputerHandlers(handlers: {
+      onComputerFrame?: (msg: ComputerFrameEvent) => void;
+      onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+    }) {
+      if (handlers.onComputerFrame !== undefined) {
+        onComputerFrame = handlers.onComputerFrame;
+      }
+      if (handlers.onComputerStatus !== undefined) {
+        onComputerStatus = handlers.onComputerStatus;
+      }
+    },
+  });
+  return computerApi as AcpHostClientApi;
 }
