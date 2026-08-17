@@ -14,6 +14,7 @@ import type {
   ComputerFrameEvent,
   ComputerGrantWire,
   ComputerProbe,
+  ComputerStatusEvent,
 } from "../acp-host/protocol";
 import { STUB_COMPUTER_PROBE } from "../acp-host/protocol";
 
@@ -81,9 +82,9 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
   /** Throw this message from computerGrant (e.g. "unknown type"). */
   computerGrantError?: string;
   computerFrameHandler?: (frame: ComputerFrameEvent) => void;
-  computerStatusHandler?: (status: { sessionKey: string; text: string }) => void;
+  computerStatusHandler?: (status: ComputerStatusEvent) => void;
   raiseComputerFrame(frame: ComputerFrameEvent): void;
-  raiseComputerStatus(status: { sessionKey: string; text: string }): void;
+  raiseComputerStatus(status: ComputerStatusEvent): void;
 } {
   const sessions = new Map<string, AgentSessionHandle>();
   const turns: Array<{ handle: AgentSessionHandle; input: PromptTurnInput }> =
@@ -151,9 +152,9 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
     computerFrameAckCalls: Array<{ sessionKey: string; frameId: string }>;
     computerGrantError?: string;
     computerFrameHandler?: (frame: ComputerFrameEvent) => void;
-    computerStatusHandler?: (status: { sessionKey: string; text: string }) => void;
+    computerStatusHandler?: (status: ComputerStatusEvent) => void;
     raiseComputerFrame(frame: ComputerFrameEvent): void;
-    raiseComputerStatus(status: { sessionKey: string; text: string }): void;
+    raiseComputerStatus(status: ComputerStatusEvent): void;
   } = {
     sessions,
     turns,

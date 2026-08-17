@@ -502,4 +502,29 @@ describe("/computer commands", () => {
       ),
     ).toBe(true);
   });
+
+  test("host status watch=false persists off so /status does not rebind watch on", async () => {
+    const { env, daemon, session } = await openTopic();
+    await daemon.handleUpdate(
+      topic(session.messageThreadId, "/computer watch", 2),
+    );
+    expect((await daemon.listSessions())[0]?.computerGrant?.watch).toBe(true);
+    env.agents.raiseComputerStatus({
+      sessionKey: session.sessionKey,
+      text: "🖥 Watch paused — Telegram send failed (rate limit?). `/computer watch` to resume.",
+      watch: false,
+    });
+    await Bun.sleep(20);
+    expect((await daemon.listSessions())[0]?.computerGrant?.watch).toBe(false);
+    const grantsBefore = env.agents.computerGrantCalls.length;
+    await daemon.handleUpdate(
+      topic(session.messageThreadId, "/computer", 3),
+    );
+    expect((await daemon.listSessions())[0]?.computerGrant?.watch).toBe(false);
+    expect(env.agents.computerGrantCalls.length).toBeGreaterThan(grantsBefore);
+    expect(env.agents.computerGrantCalls.at(-1)?.grant.watch).toBe(false);
+    expect(
+      topicTexts(env, session.messageThreadId).some((t) => /Watch off/.test(t)),
+    ).toBe(true);
+  });
 });

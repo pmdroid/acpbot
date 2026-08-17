@@ -20,6 +20,7 @@ import {
   type WorkerToHost,
   type HostAgentConfig,
   type ComputerFrameEvent,
+  type ComputerStatusEvent,
   type ComputerGrantWire,
   type ComputerProbe,
   defaultAcpHostSock,
@@ -45,7 +46,7 @@ export type AcpHostClientOptions = {
   }) => void;
   /** Unsolicited computer frame (session/router client only — not eveHost). */
   onComputerFrame?: (msg: ComputerFrameEvent) => void;
-  onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+  onComputerStatus?: (msg: ComputerStatusEvent) => void;
 };
 
 export type EveHostResult = {
@@ -107,7 +108,7 @@ export type AcpHostClientApi = SessionHost & {
   computerFrameAck(slotKey: string, frameId: string): void;
   setComputerHandlers(handlers: {
     onComputerFrame?: (msg: ComputerFrameEvent) => void;
-    onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+    onComputerStatus?: (msg: ComputerStatusEvent) => void;
   }): void;
 };
 
@@ -372,7 +373,11 @@ export function createAcpHostClient(
     }
     if (msg.type === "computer_status") {
       try {
-        onComputerStatus?.({ sessionKey: msg.sessionKey, text: msg.text });
+        onComputerStatus?.({
+          sessionKey: msg.sessionKey,
+          text: msg.text,
+          ...(typeof msg.watch === "boolean" ? { watch: msg.watch } : {}),
+        });
       } catch {
         /* */
       }
@@ -1183,7 +1188,7 @@ export function createAcpHostClient(
 
     setComputerHandlers(handlers: {
       onComputerFrame?: (msg: ComputerFrameEvent) => void;
-      onComputerStatus?: (msg: { sessionKey: string; text: string }) => void;
+      onComputerStatus?: (msg: ComputerStatusEvent) => void;
     }) {
       if (handlers.onComputerFrame !== undefined) {
         onComputerFrame = handlers.onComputerFrame;

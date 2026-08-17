@@ -6,6 +6,7 @@ import type {
   ComputerFrameEvent,
   ComputerGrantWire,
   ComputerProbe,
+  ComputerStatusEvent,
 } from "../acp-host/protocol";
 import {
   ComputerBackendError,
@@ -104,8 +105,7 @@ export type ComputerSupervisorOptions = {
   getConfig: () => ComputerConfig | undefined;
   getSlot: (slotKey: string) => ComputerSlotView | undefined;
   publishFrame: (frame: ComputerFrameEvent) => void;
-  /** Optional: status line to slot.owner (watch auto-pause). */
-  publishStatus?: (status: { sessionKey: string; text: string }) => void;
+  publishStatus?: (status: ComputerStatusEvent) => void;
   log?: Logger;
   stateDir: string;
   now?: () => number;
@@ -131,12 +131,15 @@ type BoundGrant = {
   acked: Set<string>;
   lastPublishedAt: number;
   lastWatchFrameId: string | null;
+  watchUnackedTicks: number;
 };
 
 const DEFAULT_MAX_ACTIONS = 40;
 const DEFAULT_MIN_INTERVAL_MS = 150;
 const DEFAULT_WATCH_INTERVAL_MS = 2500;
 const DEFAULT_FRAME_COALESCE_MS = 2000;
+/** Pause only after this many ticks still missing an ACK (slow sendPhoto). */
+const WATCH_ACK_GRACE_TICKS = 2;
 
 export function createComputerSupervisor(options: ComputerSupervisorOptions) {
   const log = options.log;
@@ -237,8 +240,9 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
       lastHeight: prev && prev.conn === conn ? prev.lastHeight : 0,
       acked: prev && prev.conn === conn ? prev.acked : new Set(),
       lastPublishedAt: prev && prev.conn === conn ? prev.lastPublishedAt : 0,
-      lastWatchFrameId:
-        prev && prev.conn === conn ? prev.lastWatchFrameId : null,
+      // Resume / rebind must not inherit an unacked watch frame (would re-pause).
+      lastWatchFrameId: null,
+      watchUnackedTicks: 0,
     });
     log?.info("computer grant applied", {
       sessionKey: slotKey,
@@ -627,7 +631,6 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     const owner = slot.owner;
     if (!owner || owner.destroyed) return null;
     if (owner !== bound.conn) return null;
-    // Watch only while an operator turn is live (same gate as act).
     if (slot.turnSource !== "operator") return null;
     if (slot.turnAbort?.aborted) return null;
     return bound;
@@ -637,9 +640,11 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     const bound = grants.get(slotKey);
     if (!bound?.grant.watch) return;
     bound.grant.watch = false;
+    bound.lastWatchFrameId = null;
+    bound.watchUnackedTicks = 0;
     stopWatch(slotKey);
     log?.info("computer watch paused", { sessionKey: slotKey });
-    options.publishStatus?.({ sessionKey: slotKey, text });
+    options.publishStatus?.({ sessionKey: slotKey, text, watch: false });
   }
 
   async function tickWatch(slotKey: string): Promise<void> {
@@ -648,17 +653,20 @@ export function createComputerSupervisor(options: ComputerSupervisorOptions) {
     try {
       const bound = watchEligible(slotKey);
       if (!bound) return;
-      // Missing ACK = Telegram never got the last watch JPEG; stop capturing.
       if (
         bound.lastWatchFrameId &&
         !bound.acked.has(bound.lastWatchFrameId)
       ) {
-        pauseWatch(
-          slotKey,
-          "🖥 Watch paused — Telegram send failed (rate limit?). `/computer watch` to resume.",
-        );
+        bound.watchUnackedTicks += 1;
+        if (bound.watchUnackedTicks >= WATCH_ACK_GRACE_TICKS) {
+          pauseWatch(
+            slotKey,
+            "🖥 Watch paused — Telegram send failed (rate limit?). `/computer watch` to resume.",
+          );
+        }
         return;
       }
+      bound.watchUnackedTicks = 0;
       const coalesce = frameCoalesceMs();
       if (
         coalesce > 0 &&
