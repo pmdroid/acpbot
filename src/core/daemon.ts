@@ -2555,19 +2555,11 @@ export function createDaemon(
           await sendInTopic(
             session,
             [
-              `🛰 **EVE** · \`${run?.name ?? name ?? "directive"}\` ready **on host**`,
-              EVE_TAGLINE,
-              "",
-              `run \`${out.runId}\` · orchestration survives worker restart`,
+              `🛰 **EVE** · \`${run?.name ?? name ?? "directive"}\` ready`,
               run?.phases?.length
-                ? `phases: ${run.phases.map((p) => p.title).join(" → ")}`
+                ? run.phases.map((p) => p.title).join(" → ")
                 : "",
-              "",
-              "Approve with `/eve approve " +
-                out.runId +
-                "` or deny with `/eve kill " +
-                out.runId +
-                "`.",
+              `\`/eve approve ${out.runId}\` · \`/eve kill ${out.runId}\``,
             ]
               .filter(Boolean)
               .join("\n"),
@@ -2668,8 +2660,6 @@ export function createDaemon(
         });
         const scripts = (out.scripts ?? []) as {
           name: string;
-          origin: string;
-          description: string;
         }[];
         const runs = (out.runs ?? []) as {
           runId: string;
@@ -2679,24 +2669,20 @@ export function createDaemon(
         }[];
         const lines = [
           `🛰 **EVE** — ${EVE_TAGLINE}`,
-          "_Orchestration on **acp-host** (survives worker restart)._",
-          "",
           "`/eve run <name>` · `/eve approve <id>` · `/eve status [id]`",
-          "`/eve pause|resume|kill <id>` · `/eve answer <id> <n>` · `/eve list`",
-          "No shipped directives — agent **writes** scripts (`.acpbot/eve/`) then runs them.",
+          "`/eve pause|resume|kill <id>` · `/eve answer <id> <n>`",
           "",
-          `Scripts (${scripts.length}):`,
-          ...scripts.slice(0, 12).map(
-            (s) =>
-              `· \`${s.name}\` (${s.origin}) — ${String(s.description ?? "").slice(0, 80)}`,
-          ),
-          "",
-          `Recent runs (${runs.length}):`,
-          ...runs.slice(0, 8).map(
+          scripts.length
+            ? `Scripts: ${scripts
+                .slice(0, 12)
+                .map((s) => `\`${s.name}\``)
+                .join(" · ")}`
+            : "No scripts yet — agent writes `.acpbot/eve/`.",
+          ...runs.slice(0, 6).map(
             (r) =>
               `· \`${r.runId.slice(0, 8)}\` **${r.name}** ${r.status}` +
               (r.budget?.agentsUsed != null
-                ? ` · agents ${r.budget.agentsUsed}`
+                ? ` · ${r.budget.agentsUsed} agents`
                 : ""),
           ),
         ];
@@ -2745,13 +2731,7 @@ export function createDaemon(
           name,
           skip_approval: false,
         });
-        if (out.runId && out.message && !/pending/i.test(out.message)) {
-          await sendInTopic(
-            session,
-            `🛰 EVE started on **host** · **${name}** · \`${out.runId}\`\n` +
-              `Watch with \`/eve status ${out.runId}\``,
-          );
-        }
+        // Started with no approval gate: stay silent until done or help.
         return;
       }
 
@@ -2765,10 +2745,7 @@ export function createDaemon(
           sessionKey: session.sessionKey,
           runId,
         });
-        await sendInTopic(
-          session,
-          `🛰 EVE approved · host starting \`${runId}\``,
-        );
+        // Stay silent — next ping is ask or complete.
         return;
       }
 
@@ -2801,15 +2778,11 @@ export function createDaemon(
           );
           return;
         }
-        const out = await eveHost.eveAnswer({
+        await eveHost.eveAnswer({
           sessionKey: session.sessionKey,
           runId,
           answer: choice,
         });
-        await sendInTopic(
-          session,
-          out.message ?? `EVE recorded your answer · \`${runId}\``,
-        );
         return;
       }
 

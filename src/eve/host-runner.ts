@@ -116,14 +116,9 @@ export function bindHostEveRuntimeDeps(input: {
           branch,
         });
         cwd = wt.worktreePath;
-      } catch (err) {
-        // Not a git repo or worktree fail — parent cwd (read-only audits)
-        ctx.notify(
-          parentSessionKey,
-          `🛰 EVE · worktree skipped for ${slug}: ${
-            err instanceof Error ? err.message : String(err)
-          }`.slice(0, 200),
-        );
+      } catch {
+        // Not a git repo or worktree fail — parent cwd (read-only audits).
+        // Stay quiet: this used to spam Telegram once per leaf.
         cwd = repoRoot;
       }
 

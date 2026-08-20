@@ -246,27 +246,30 @@ export function createEveService(input: {
     formatStatus(run) {
       const lines = [
         `🛰 **EVE** · \`${run.name}\` · \`${run.runId.slice(0, 8)}\``,
-        `Status: **${run.status}** · agents ${run.budget.agentsUsed}/${run.budget.agentsMax}`,
+        `**${run.status}** · agents ${run.budget.agentsUsed}/${run.budget.agentsMax}`,
       ];
       if (run.status === "waiting_user" && run.pendingAsk) {
-        lines.push("", `❓ ${run.pendingAsk.question.split("\n")[0]}`);
+        lines.push(`❓ ${run.pendingAsk.question.split("\n")[0]}`);
         for (const [i, o] of run.pendingAsk.options.entries()) {
           lines.push(`  ${i + 1}) ${o.label}`);
         }
-        lines.push(`Answer: \`/eve answer ${run.runId.slice(0, 8)} 1\``);
+        lines.push(`\`/eve answer ${run.runId.slice(0, 8)} 1\``);
       }
       const outcome = inspectEveOutcome(run.finalResult, run.nodes);
-      if (run.status === "completed" && outcome.kind !== "clean") {
-        lines.push(
-          `Outcome: **${outcome.kind}** · ${outcome.blocked} blocked · ${outcome.failed} failed`,
-        );
+      if (run.status === "completed") {
+        if (outcome.kind === "clean") {
+          lines.push(`🌱 ${outcome.done} done`);
+        } else {
+          lines.push(
+            `**${outcome.kind}** · ${outcome.done} done · ${outcome.blocked} blocked · ${outcome.failed} failed`,
+          );
+        }
       }
       if (run.phases.length) {
         lines.push(
-          "Phases: " +
-            run.phases
-              .map((p) => `${p.title}(${p.status}/${p.agentCount})`)
-              .join(" · "),
+          run.phases
+            .map((p) => `${p.title} ${p.status}`)
+            .join(" · "),
         );
       }
       const nodes = Object.entries(run.nodes);
@@ -274,23 +277,15 @@ export function createEveService(input: {
         const running = nodes.filter(([, n]) => n.status === "running");
         const done = nodes.filter(([, n]) => n.status === "done").length;
         const failed = nodes.filter(([, n]) => n.status === "failed").length;
-        lines.push(`Nodes: ${done} done · ${failed} failed · ${running.length} running`);
+        lines.push(
+          `${done} done · ${failed} failed` +
+            (running.length ? ` · ${running.length} running` : ""),
+        );
         for (const [, n] of running.slice(0, 5)) {
-          lines.push(`  · ⏳ ${n.label ?? "agent"}`);
+          lines.push(`⏳ ${n.label ?? "agent"}`);
         }
       }
-      if (run.error) lines.push(`Error: ${run.error.slice(0, 300)}`);
-      if (run.finalResult !== undefined) {
-        const s =
-          typeof run.finalResult === "string"
-            ? run.finalResult
-            : JSON.stringify(run.finalResult, null, 2);
-        lines.push("Result:\n```\n" + s.slice(0, 1500) + "\n```");
-      }
-      const recent = run.logs.slice(-5);
-      if (recent.length) {
-        lines.push("Log:\n" + recent.map((l) => `_${l}_`).join("\n"));
-      }
+      if (run.error) lines.push(run.error.slice(0, 240));
       return lines.join("\n");
     },
   };

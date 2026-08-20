@@ -153,7 +153,7 @@ Paths: project `.acpbot/eve/<name>.js`, or user `$state_dir/eve/directives/`.
 | `parallel([() => …, …])` | Run thunks concurrently (respects `max_concurrent`) |
 | `pipeline(items, …stages)` | For each item, run stage functions left→right; collect results |
 | `phase(title)` | Mark active phase (status UI) |
-| `log(msg)` | Append to run log (operator-visible digests) |
+| `log(msg)` | Append to the run log (`/eve status`). Does **not** ping Telegram. |
 | `args` | Object from `eve_run({ args })` |
 | `budget` | `{ agentsMax, agentsUsed(), remainingAgents(), ok(), deadlineAt? }` |
 | `host` | Host helpers — **`host.ask({ question, options })` parks the run** until the operator answers |
@@ -212,7 +212,7 @@ Orchestrator has **no `fs` / network / shell**. Only leaf agents touch the world
 last assistant message. Tools-only finishes used to look like “null failure”
 even when git work was fine.
 
-Telegram digests: ✅ valid · ⚠️ soft partial · 🚫 failed.
+Leaf outcomes stay in the run log. Telegram only pings on **done** or **help needed**.
 
 ## Hard rules
 
@@ -301,7 +301,7 @@ return { plan, impl, review }
 
 - Default: runs start as **`pending_approval`** until `/eve approve <runId>` or `eve_approve`
 - Config: `[eve] require_approval = false` skips that gate
-- Orchestration runs on **acp-host** (survives worker restart); digests hit Telegram via the worker
+- Orchestration runs on **acp-host** (survives worker restart). Telegram stays silent except approve / ask / complete.
 - A **blocked** or `host.ask` parks as **`waiting_user`**. Operator taps a button or
   `/eve answer <runId> 1`. That is **not** `🌱 EVE complete`.
 
@@ -314,6 +314,7 @@ max_agents_per_run = 100
 max_concurrent = 4
 schema_retries = 2
 require_approval = true
+digest_interval_sec = 300   # 0 = debug every log/leaf line; otherwise silent
 default_agent = "grok-build"
 ```
 

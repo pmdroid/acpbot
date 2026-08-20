@@ -112,11 +112,11 @@ Each `agent()` leaf is a **headless** ACP slot (worktree + bypass tool policy). 
 3. Validates against your `schema` when provided
 4. Retries up to `[eve].schema_retries` with a fix-up hint if validation fails
 
-| Outcome | Telegram | `agent()` return |
+| Outcome | Digest | `agent()` return |
 |---|---|---|
-| Valid JSON | ✅ done | parsed object |
-| Agent **completed** but missing/invalid JSON | ⚠️ done (partial / unstructured) | soft object when it can still match schema (e.g. `{ status: "partial", summary, issueId }` from the leaf `label`) |
-| Hard failure / kill / no recoverable shape | 🚫 failed | `null` |
+| Valid JSON | counted as done | parsed object |
+| Agent **completed** but missing/invalid JSON | ⚠️ partial | soft object when it can still match schema (e.g. `{ status: "partial", summary, issueId }` from the leaf `label`) |
+| Hard failure / kill / no recoverable shape | 🚫 failed (listed) | `null` |
 
 **Always** treat results as nullable: `.filter(Boolean)` and check `status`. Prefer tight schemas and ask leaves to **end with a JSON fence** after the real work (commit/push), not tools-only silence.
 
@@ -137,8 +137,11 @@ max_agents_per_run = 100
 max_concurrent = 4
 schema_retries = 2
 require_approval = true
+digest_interval_sec = 300   # ignored unless 0 (debug: every log/leaf line)
 default_agent = "grok-build"
 ```
+
+Telegram stays **silent** except when the run is **done** or **you need to act** (approve, `host.ask`, blocked). `log()` and leaf ✅/🚫 stay in the run log (`/eve status`) — they do not post. Set `digest_interval_sec = 0` only to debug with the old per-line chatter.
 
 Hard ceilings still apply from `[agents.spawn]`. Leaf children free spawn slots after each node finishes.
 

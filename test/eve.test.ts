@@ -21,6 +21,7 @@ import {
   formatEveCompletionNotify,
   DEFAULT_BLOCKED_ASK_OPTIONS,
 } from "../src/eve/outcome";
+import { formatEveDigest, formatEveProgressLine } from "../src/eve/digest";
 
 describe("EVE meta + body", () => {
   test("extracts nested phases meta", () => {
@@ -408,6 +409,26 @@ describe("EVE outcome", () => {
     expect(inspectEveOutcome({ done: 2, blocked: 0 }, {}).kind).toBe("clean");
   });
 
+  test("digest collapses many leaf lines into counts", () => {
+    const text = formatEveDigest("linear-drain", [
+      { kind: "phase", title: "Implement" },
+      { kind: "log", message: "Ready issues: 12" },
+      { kind: "leaf", label: "pas-1", ok: true },
+      { kind: "leaf", label: "pas-2", ok: true },
+      { kind: "leaf", label: "pas-3", ok: true },
+      { kind: "leaf", label: "pas-4", ok: true },
+      { kind: "leaf", label: "pas-5", ok: true },
+      { kind: "leaf", label: "pas-6", ok: false },
+    ]);
+    expect(text).toContain("🛰 EVE · linear-drain · 5 done · 1 failed");
+    expect(text).toContain("🚫 pas-6");
+    expect(text).not.toContain("✅ pas-1");
+    expect(text).toContain("Ready issues: 12");
+    expect(formatEveProgressLine({ kind: "leaf", label: "hi", ok: true })).toBe(
+      "✅ EVE · hi done",
+    );
+  });
+
   test("matches /eve answer by number, id, or label prefix", () => {
     const opts = DEFAULT_BLOCKED_ASK_OPTIONS;
     expect(matchEveAskAnswer(opts, "1")?.id).toBe("retry");
@@ -415,5 +436,179 @@ describe("EVE outcome", () => {
     expect(matchEveAskAnswer(opts, "continue")?.id).toBe("continue");
     expect(matchEveAskAnswer(opts, "Keep fixing")?.id).toBe("retry");
     expect(matchEveAskAnswer(opts, "nope")).toBeNull();
+  });
+});
+
+describe("EVE quiet progress", () => {
+  test("stays silent until complete even with log + leaves", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-quiet-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-quiet-"));
+    try {
+      const notes: string[] = [];
+      const svc = createEveService({
+        stateDir,
+        config: {
+          enabled: true,
+          requireApproval: false,
+          maxAgentsPerRun: 5,
+          maxConcurrent: 1,
+          schemaRetries: 0,
+          digestIntervalSec: 3600,
+        },
+      });
+
+      await writeEveScript({
+        repoRoot,
+        stateDir,
+        name: "quiet",
+        source: `
+export const meta = { name: "quiet", description: "quiet" };
+log("starting work");
+const a = await agent("one", { label: "alpha" });
+const b = await agent("two", { label: "beta" });
+return { a, b };
+`,
+      });
+
+      const run = await svc.run(
+        {
+          sessionKey: "demo/topic",
+          repoKey: "demo",
+          repoRoot,
+          name: "quiet",
+          skipApproval: true,
+        },
+        {
+          runAgent: async () => ({
+            summary: '{"status":"done"}',
+            status: "idle",
+          }),
+          notify: async (_session, text) => {
+            notes.push(text);
+          },
+        },
+      );
+
+      expect(run.status).toBe("completed");
+      expect(notes).toEqual([
+        expect.stringContaining("🌱 EVE complete"),
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("clean leaves-only run is just the plant", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-plant-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-plant-"));
+    try {
+      const notes: string[] = [];
+      const svc = createEveService({
+        stateDir,
+        config: {
+          enabled: true,
+          requireApproval: false,
+          maxAgentsPerRun: 5,
+          maxConcurrent: 1,
+          schemaRetries: 0,
+          digestIntervalSec: 3600,
+        },
+      });
+
+      await writeEveScript({
+        repoRoot,
+        stateDir,
+        name: "plant",
+        source: `
+export const meta = { name: "plant", description: "plant" };
+await agent("one", { label: "alpha" });
+return { ok: true };
+`,
+      });
+
+      await svc.run(
+        {
+          sessionKey: "demo/topic",
+          repoKey: "demo",
+          repoRoot,
+          name: "plant",
+          skipApproval: true,
+        },
+        {
+          runAgent: async () => ({
+            summary: '{"status":"done"}',
+            status: "idle",
+          }),
+          notify: async (_session, text) => {
+            notes.push(text);
+          },
+        },
+      );
+
+      expect(notes).toEqual([
+        expect.stringContaining("🌱 EVE complete"),
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("digest_interval_sec 0 keeps per-line notifies", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "eve-loud-"));
+    const repoRoot = await mkdtemp(join(tmpdir(), "eve-repo-loud-"));
+    try {
+      const notes: string[] = [];
+      const svc = createEveService({
+        stateDir,
+        config: {
+          enabled: true,
+          requireApproval: false,
+          maxAgentsPerRun: 5,
+          maxConcurrent: 1,
+          schemaRetries: 0,
+          digestIntervalSec: 0,
+        },
+      });
+
+      await writeEveScript({
+        repoRoot,
+        stateDir,
+        name: "loud",
+        source: `
+export const meta = { name: "loud", description: "loud" };
+log("hello");
+await agent("one", { label: "alpha" });
+return { ok: true };
+`,
+      });
+
+      await svc.run(
+        {
+          sessionKey: "demo/topic",
+          repoKey: "demo",
+          repoRoot,
+          name: "loud",
+          skipApproval: true,
+        },
+        {
+          runAgent: async () => ({
+            summary: '{"status":"done"}',
+            status: "idle",
+          }),
+          notify: async (_session, text) => {
+            notes.push(text);
+          },
+        },
+      );
+
+      expect(notes).toContain("🛰 EVE · hello");
+      expect(notes).toContain("✅ EVE · alpha done");
+      expect(notes.some((n) => n.includes("🌱 EVE complete"))).toBe(true);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
