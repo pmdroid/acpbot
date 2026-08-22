@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed / hardened
+
+- **Leftover ACP `stop` after cancel / `/steer`** — `session/prompt` completion is bound to that turn's PromptResponse. A cancelled turn that returns before consuming its `stop` no longer makes the next prompt look like it finished in milliseconds (replayed tools, frozen ⏳, no real reply). Cancel waits briefly for the matching stop; if it times out, leftover updates are dropped until that stop drains.
+
 ### Changed
 
 - **EVE quieter Telegram** — the topic stays silent except when the run is **done** (`🌱` / failed / killed) or **help is needed** (approve, `host.ask`, blocked). No started/approved/progress/digest lines. `/eve status` is a short glance. Set `[eve].digest_interval_sec = 0` only if you want the old per-line chatter.
