@@ -12,7 +12,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { LogLevel, AcpbotConfig, PermissionMode } from "./env/types";
+import type {
+  LogLevel,
+  AcpbotConfig,
+  ComputerConfig,
+  PermissionMode,
+} from "./env/types";
 import { parseLogLevel } from "./env/logger";
 import { resolveStateDir } from "./env/state-dir";
 import {
@@ -82,6 +87,8 @@ export type ProcessConfig = AcpbotConfig & {
     digestIntervalSec?: number;
     defaultAgent?: string;
   };
+  /** Isolated-browser computer use ([computer]). Default off. */
+  computer?: import("./env/types").ComputerConfig;
 };
 
 export type LoadConfigOptions = {
@@ -416,6 +423,60 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
       eveOut.defaultAgent = String(e.default_agent ?? e.defaultAgent).trim();
     }
     if (Object.keys(eveOut).length > 0) out.eve = eveOut;
+  }
+
+  // [computer] — isolated browser computer use (default off)
+  const computer = raw.computer;
+  if (computer && typeof computer === "object" && !Array.isArray(computer)) {
+    const c = computer as Record<string, unknown>;
+    const computerOut: ComputerConfig = {};
+    const num = (v: unknown): number | undefined => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) {
+        return Number(v);
+      }
+      return undefined;
+    };
+    if (c.enabled === false || c.enabled === "false" || c.enabled === 0) {
+      computerOut.enabled = false;
+    }
+    if (c.enabled === true || c.enabled === "true" || c.enabled === 1) {
+      computerOut.enabled = true;
+    }
+    if (c.display === "browser") computerOut.display = "browser";
+    const publish = String(c.publish_frames ?? c.publishFrames ?? "").trim();
+    if (publish === "on_action") computerOut.publishFrames = "on_action";
+    const jpeg = num(c.jpeg_quality ?? c.jpegQuality);
+    if (jpeg != null) computerOut.jpegQuality = jpeg;
+    const maxEdge = num(c.max_edge_px ?? c.maxEdgePx);
+    if (maxEdge != null) computerOut.maxEdgePx = maxEdge;
+    const maxActions = num(c.max_actions_per_turn ?? c.maxActionsPerTurn);
+    if (maxActions != null) computerOut.maxActionsPerTurn = maxActions;
+    const minInterval = num(c.min_action_interval_ms ?? c.minActionIntervalMs);
+    if (minInterval != null) computerOut.minActionIntervalMs = minInterval;
+    const ttl = num(c.grant_ttl_sec ?? c.grantTtlSec);
+    if (ttl != null) computerOut.grantTtlSec = ttl;
+    const watch = num(c.watch_interval_ms ?? c.watchIntervalMs);
+    if (watch != null) computerOut.watchIntervalMs = watch;
+    const coalesce = num(c.frame_coalesce_ms ?? c.frameCoalesceMs);
+    if (coalesce != null) computerOut.frameCoalesceMs = coalesce;
+    const channel = str(c.browser_channel ?? c.browserChannel);
+    if (channel) computerOut.browserChannel = channel;
+    if (
+      c.browser_headless === false ||
+      c.browserHeadless === false ||
+      c.browser_headless === "false"
+    ) {
+      computerOut.browserHeadless = false;
+    }
+    if (
+      c.browser_headless === true ||
+      c.browserHeadless === true ||
+      c.browser_headless === "true"
+    ) {
+      computerOut.browserHeadless = true;
+    }
+    if (Object.keys(computerOut).length > 0) out.computer = computerOut;
   }
 
   return out as Partial<ProcessConfig> & { verbose?: boolean; sttEnabled?: boolean };
@@ -893,6 +954,15 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   }
   if (file.eve && typeof file.eve === "object") {
     config.eve = { ...file.eve };
+  }
+  if (file.computer && typeof file.computer === "object") {
+    config.computer = { ...file.computer };
+  }
+  if (
+    firstEnv(env, "ACPBOT_COMPUTER") === "0" ||
+    firstEnv(env, "ACPBOT_COMPUTER") === "false"
+  ) {
+    config.computer = { ...(config.computer ?? {}), enabled: false };
   }
   // Default idle soft-close 24h when spawn table omitted idle_close_hours
   if (config.agentSpawn?.idleCloseHours === undefined) {

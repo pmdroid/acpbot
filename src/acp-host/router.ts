@@ -8,7 +8,9 @@ import type { SessionHost, SessionHostHooks } from "../acp/session-host";
 import {
   createAcpHostClient,
   resolveAcpHostSockPath,
+  type AcpHostClientApi,
 } from "./client";
+import type { ComputerFrameEvent, ComputerStatusEvent } from "./protocol";
 import {
   getHostEndpoint,
   type HostsCatalog,
@@ -20,6 +22,8 @@ export type HostRouterOptions = {
   stateDir?: string;
   log?: Logger;
   hooks?: SessionHostHooks;
+  onComputerFrame?: (msg: ComputerFrameEvent) => void;
+  onComputerStatus?: (msg: ComputerStatusEvent) => void;
 };
 
 export type HostRouter = {
@@ -27,22 +31,34 @@ export type HostRouter = {
   getHost(hostId: string): SessionHost;
   /** Apply hooks to all live clients. */
   setHooks(hooks: SessionHostHooks): void;
+  setComputerHandlers(handlers: {
+    onComputerFrame?: (msg: ComputerFrameEvent) => void;
+    onComputerStatus?: (msg: ComputerStatusEvent) => void;
+  }): void;
   catalog: HostsCatalog;
 };
 
 export function createHostRouter(options: HostRouterOptions): HostRouter {
   const log = (options.log ?? silentLogger()).child("host-router");
-  const clients = new Map<string, SessionHost>();
+  const clients = new Map<string, AcpHostClientApi>();
   let hooks: SessionHostHooks = { ...options.hooks };
+  let onComputerFrame = options.onComputerFrame;
+  let onComputerStatus = options.onComputerStatus;
 
-  function buildClient(ep: HostEndpointConfig): SessionHost {
+  function buildClient(ep: HostEndpointConfig): AcpHostClientApi {
+    const computer = {
+      onComputerFrame: (msg: ComputerFrameEvent) => onComputerFrame?.(msg),
+      onComputerStatus: (msg: ComputerStatusEvent) =>
+        onComputerStatus?.(msg),
+    };
     if (ep.kind === "wss") {
       log.info("create remote host client", { hostId: ep.id, url: ep.url });
       return createAcpHostClient({
         log,
         hooks,
-        url: ep.url,
-        token: ep.token,
+        ...(ep.url ? { url: ep.url } : {}),
+        ...(ep.token ? { token: ep.token } : {}),
+        ...computer,
       });
     }
     const sockPath =
@@ -53,6 +69,7 @@ export function createHostRouter(options: HostRouterOptions): HostRouter {
       log,
       hooks,
       sockPath,
+      ...computer,
     });
   }
 
@@ -71,6 +88,14 @@ export function createHostRouter(options: HostRouterOptions): HostRouter {
       hooks = { ...hooks, ...next };
       for (const c of clients.values()) {
         c.setHooks(hooks);
+      }
+    },
+    setComputerHandlers(next) {
+      if (next.onComputerFrame !== undefined) {
+        onComputerFrame = next.onComputerFrame;
+      }
+      if (next.onComputerStatus !== undefined) {
+        onComputerStatus = next.onComputerStatus;
       }
     },
   };

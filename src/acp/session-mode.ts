@@ -18,6 +18,7 @@ import {
   normalizeConfigOptions,
   type SessionConfigOptionView,
 } from "./session-config";
+import type { ComputerGrant } from "../acp-host/protocol";
 
 /**
  * Grok Build ACP session modes (wire ids).
@@ -435,6 +436,8 @@ export function formatSessionStatus(input: {
   childrenTruncated?: number | undefined;
   /** Linear topic↔project binding summary line(s). */
   linearLine?: string | undefined;
+  /** Computer-use grant summary (same optional-field style as linearLine). */
+  computerLine?: string | undefined;
 }): string {
   const launch =
     input.launch != null
@@ -481,6 +484,7 @@ export function formatSessionStatus(input: {
     lines.push(`MCP: ${input.mcpCount ?? 0} · ${names}`);
   }
   if (input.linearLine) lines.push(input.linearLine);
+  if (input.computerLine) lines.push(input.computerLine);
 
   if (input.spawnParentKey) {
     const bits = [
@@ -518,4 +522,50 @@ export function formatSessionStatus(input: {
   }
 
   return lines.join("\n");
+}
+
+/** Operator-facing grant line. Does not claim capture or HID. */
+export function formatComputerStatusLine(input: {
+  grant?: ComputerGrant | undefined;
+  now: number;
+}): string {
+  const g = input.grant;
+  if (!g?.enabled || (g.expiresAt > 0 && input.now >= g.expiresAt)) {
+    return "🖥 Computer · off";
+  }
+  const watch = g.watch ? "Watch on" : "Watch off";
+  const exp = formatComputerExpiry(g.expiresAt, input.now);
+  return `🖥 Computer · granted · host \`${g.hostId}\` · ${exp} · ${watch}`;
+}
+
+export function formatComputerExpiry(expiresAt: number, now: number): string {
+  if (!expiresAt) return "until /computer off";
+  const ms = expiresAt - now;
+  if (ms <= 0) return "expired";
+  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  if (minutes >= 60) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `expires in ${h}h ${m}m` : `expires in ${h}h`;
+  }
+  return `expires in ${minutes}m`;
+}
+
+export const COMPUTER_GRANT_COPY =
+  "granted; the agent can drive this topic's isolated browser (navigate, click, type). Desktop is never captured.";
+
+export function formatComputerGrantBanner(input: {
+  grant: ComputerGrant;
+  now: number;
+}): string {
+  const exp = formatComputerExpiry(input.grant.expiresAt, input.now);
+  const watch = input.grant.watch ? "Watch on" : "Watch off";
+  return [
+    "🖥 **Computer granted** for this topic",
+    `Host: \`${input.grant.hostId}\` · ${exp} · ${watch}`,
+    "",
+    COMPUTER_GRANT_COPY,
+    "",
+    "`/computer off`  or  `/cancel`  stops it (grant revoked).",
+  ].join("\n");
 }

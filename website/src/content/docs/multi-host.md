@@ -118,7 +118,20 @@ For session key `repo/name` (e.g. `work/plan`):
 2. Else use `[repos.<repo>].host`  
 3. Else **`local`**
 
-Every agent RPC (`ensure`, prompt, cancel, mode/model) goes through the same resolution, so a session stays on one host as long as the repo binding is stable.
+Every agent RPC (`ensure`, prompt, cancel, mode/model, **`computer_grant`**) goes through the same resolution, so a session stays on one host as long as the repo binding is stable.
+
+### Computer use — which host’s browser?
+
+The isolated Playwright browser is owned by **that session’s acp-host**, not the worker.
+
+| `[repos.work].host` | Browser driven |
+|---|---|
+| `"studio"` | Chromium on **studio** (studio.local) |
+| unset / `"local"` | Chromium on the **local** host |
+
+If studio is down, `/computer on` fails the same way `ensure` does — **no silent fallback** to the worker laptop. Frames travel host → worker on `slot.owner` (the session router connection), never via `eveHost`.
+
+If hot-reload rebinds `[repos.work].host`, the worker revokes the grant and sends `computer_abort` to the **previous** host.
 
 ## Security
 

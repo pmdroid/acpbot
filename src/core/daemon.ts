@@ -24,7 +24,9 @@ import {
   type AskUserQuestionBroker,
 } from "./ask-user-question";
 import {
+  COMPUTER_CB,
   encodeAgentCallback,
+  encodeComputerCallback,
   encodeEffortCallback,
   encodeModeCallback,
   encodeModelCallback,
@@ -36,6 +38,7 @@ import {
   newToken,
   parseAgentCallback,
   parseAskQuestionCallback,
+  parseComputerCallback,
   parseEffortCallback,
   parseEveAskCallback,
   parseElicitationCallback,
@@ -58,7 +61,11 @@ import {
   createPermissionBroker,
   type PermissionBroker,
 } from "./permissions";
-import { isPlanExitPermission } from "../acp/permission-map";
+import {
+  isPlanExitPermission,
+  isComputerUsePermission,
+  shouldForceAskPermission,
+} from "../acp/permission-map";
 import {
   emptySessionIndex,
   loadOperatorChatId,
@@ -106,6 +113,8 @@ import {
 } from "./skills";
 import { initialTopicName, topicName } from "./status";
 import {
+  formatComputerGrantBanner,
+  formatComputerStatusLine,
   formatModeStatus,
   formatSessionStatus,
   resolveBuildModeId,
@@ -113,6 +122,12 @@ import {
   resolvePlanModeId,
   togglePlanBuildModeId,
 } from "../acp/session-mode";
+import {
+  COMPUTER_GRANT_TTL_MS,
+  type ComputerFrameEvent,
+} from "../acp-host/protocol";
+import { resolveHostId } from "../acp-host/hosts";
+import { TELEGRAM_PHOTO_MAX_BYTES } from "../mcp/repo-path";
 import {
   agentDisplayName,
   listRegisteredAgents,
@@ -258,6 +273,14 @@ type LobbyPendingName = {
   chatId: number;
 };
 
+/** Site 3 (daemon UI): bypass never auto-allows plan-exit or computer-use. */
+export function daemonAutoAllowsPermission(
+  permissionMode: "ask" | "bypass" | undefined,
+  raw: unknown,
+): boolean {
+  return permissionMode === "bypass" && !shouldForceAskPermission(raw);
+}
+
 /**
  * Pure daemon core. Depends only on the injected Environment.
  */
@@ -359,6 +382,10 @@ export function createDaemon(
       chatId?: number;
     }
   >();
+  /** Computer grant buttons: token → session. */
+  const computerPicks = new Map<string, { sessionKey: string }>();
+  /** Last successful computer_grant on this process. Not HostConn-lifetime — re-send on every sync. */
+  const computerBound = new Set<string>();
   /**
    * In-memory only — never persisted. Restart always exits naming mode.
    * While set, a valid one-word free-text creates a session topic; must be
@@ -574,6 +601,15 @@ export function createDaemon(
     // Naming mode is never durable — process start/restart always exits it.
     clearPendingNew("hydrate/restart");
     wirePermissionHandler();
+    wireComputerHandlers();
+    for (const session of Object.values(sessionIndex.byKey)) {
+      await syncComputerGrant(session).catch((err) => {
+        log.warn("computer grant hydrate rebind failed", {
+          sessionKey: session.sessionKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
   async function persistIndex(): Promise<void> {
@@ -599,6 +635,126 @@ export function createDaemon(
     session.updatedAt = env.clock.now();
     sessionIndex.byKey[session.sessionKey] = session;
     await persistIndex();
+  }
+
+  function currentComputerHostId(session: PersistedSession): string {
+    const catalog = env.config.hostsCatalog;
+    if (!catalog) return "local";
+    return resolveHostId({
+      repoKey: session.identity.repo,
+      catalog,
+    });
+  }
+
+  function liveComputerGrant(
+    session: PersistedSession,
+  ): PersistedSession["computerGrant"] {
+    const g = session.computerGrant;
+    if (!g?.enabled) return undefined;
+    if (g.expiresAt > 0 && env.clock.now() >= g.expiresAt) return undefined;
+    return g;
+  }
+
+  async function revokeComputerGrant(
+    session: PersistedSession,
+  ): Promise<boolean> {
+    const grant = session.computerGrant;
+    if (!grant) return false;
+    const hostId = grant.hostId;
+    delete session.computerGrant;
+    computerBound.delete(session.sessionKey);
+    session.updatedAt = env.clock.now();
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+    if (env.agents.computerAbort) {
+      await env.agents
+        .computerAbort(session.sessionKey, { hostId })
+        .catch(() => {});
+    }
+    return grant.enabled;
+  }
+
+  async function expireComputerGrantIfNeeded(
+    session: PersistedSession,
+  ): Promise<void> {
+    if (session.computerGrant && !liveComputerGrant(session)) {
+      await revokeComputerGrant(session);
+    }
+  }
+
+  async function maybeRevokeComputerGrantIfHostChanged(
+    session: PersistedSession,
+  ): Promise<void> {
+    const g = session.computerGrant;
+    if (!g?.enabled) return;
+    let hostId: string;
+    try {
+      hostId = currentComputerHostId(session);
+    } catch {
+      await revokeComputerGrant(session);
+      return;
+    }
+    if (hostId !== g.hostId) {
+      await revokeComputerGrant(session);
+    }
+  }
+
+  /**
+   * Re-send persist on this conn every time. Host grant dies with the socket;
+   * a process-local flag is not "this conn still has the grant."
+   */
+  async function rebindComputerGrant(
+    session: PersistedSession,
+  ): Promise<void> {
+    const g = liveComputerGrant(session);
+    if (!g) return;
+    if (!env.agents.computerGrant) {
+      await revokeComputerGrant(session);
+      return;
+    }
+    try {
+      await env.agents.computerGrant({
+        sessionKey: session.sessionKey,
+        grant: {
+          enabled: g.enabled,
+          watch: g.watch,
+          expiresAt: g.expiresAt,
+          hostId: g.hostId,
+        },
+      });
+      computerBound.add(session.sessionKey);
+    } catch (err) {
+      computerBound.delete(session.sessionKey);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unknown type/i.test(msg)) {
+        await revokeComputerGrant(session);
+        await sendInTopic(session, "🖥 Computer · host too old").catch(() => {});
+        return;
+      }
+      log.warn("computer grant rebind failed", {
+        sessionKey: session.sessionKey,
+        error: msg,
+      });
+    }
+  }
+
+  async function syncComputerGrant(
+    session: PersistedSession,
+  ): Promise<PersistedSession["computerGrant"]> {
+    await maybeRevokeComputerGrantIfHostChanged(session);
+    await expireComputerGrantIfNeeded(session);
+    await rebindComputerGrant(session);
+    const live = liveComputerGrant(session);
+    if (!live || !computerBound.has(session.sessionKey)) return undefined;
+    return live;
+  }
+
+  function computerKeyboard(token: string) {
+    return keyboardFromButtons([
+      { text: "Enable", callback_data: encodeComputerCallback(token, COMPUTER_CB.on) },
+      { text: "Watch", callback_data: encodeComputerCallback(token, COMPUTER_CB.watch) },
+      { text: "Stop", callback_data: encodeComputerCallback(token, COMPUTER_CB.off) },
+    ]);
   }
 
   function getDefaultPermissionMode(): PermissionMode {
@@ -736,12 +892,14 @@ export function createDaemon(
         });
       }
     }
+    await syncComputerGrant(session);
     const handle = await env.agents.ensureSession(session.identity, {
       permissionMode: effectivePermissionMode(session),
       // Child worktrees store absolute cwd on the session record
       ...(session.cwd ? { cwd: session.cwd } : {}),
       ...(forceRespawn ? { forceRespawn: true } : {}),
       ...(forceNewSession ? { forceNewSession: true } : {}),
+      computerAllowed: session.headless !== true,
     });
     try {
       await refreshAttachedMcpProxyTracking(session);
@@ -825,6 +983,7 @@ export function createDaemon(
     const permissionMode = getDefaultPermissionMode();
     const handle = await env.agents.ensureSession(identity, {
       permissionMode,
+      computerAllowed: true,
     });
     const topic = await env.telegram.createForumTopic({
       chatId: operatorChatId,
@@ -989,6 +1148,75 @@ export function createDaemon(
     log,
   };
 
+  function wireComputerHandlers(): void {
+    env.agents.setComputerFrameHandler?.((frame) => {
+      void handleComputerFrame(frame);
+    });
+    env.agents.setComputerStatusHandler?.((status) => {
+      void handleComputerStatus(status);
+    });
+  }
+
+  async function handleComputerFrame(frame: ComputerFrameEvent): Promise<void> {
+    const session = sessionIndex.byKey[frame.sessionKey];
+    if (!session) return;
+    let data: Uint8Array;
+    try {
+      data = Buffer.from(frame.jpegBase64, "base64");
+    } catch {
+      log.warn("computer frame invalid base64", {
+        sessionKey: frame.sessionKey,
+      });
+      return;
+    }
+    if (data.byteLength === 0 || data.byteLength > TELEGRAM_PHOTO_MAX_BYTES) {
+      log.warn("computer frame dropped", {
+        sessionKey: frame.sessionKey,
+        bytes: data.byteLength,
+      });
+      return;
+    }
+    if (!env.telegram.sendPhoto) return;
+    try {
+      await env.telegram.sendPhoto({
+        chatId: session.chatId,
+        messageThreadId: session.messageThreadId,
+        data,
+        filename: "computer.jpg",
+        ...(frame.caption.trim() ? { caption: frame.caption.trim() } : {}),
+      });
+      await working.bump(session).catch(() => {});
+      env.agents.computerFrameAck?.(frame.sessionKey, frame.frameId);
+    } catch (err) {
+      log.warn("computer frame telegram failed", {
+        sessionKey: frame.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await pauseWatchOnSendFailure(session, err);
+    }
+  }
+
+  async function handleComputerStatus(status: {
+    sessionKey: string;
+    text: string;
+    watch?: boolean;
+  }): Promise<void> {
+    const session = sessionIndex.byKey[status.sessionKey];
+    if (!session || !status.text.trim()) return;
+    if (status.watch === false && session.computerGrant?.watch) {
+      session.computerGrant.watch = false;
+      session.updatedAt = env.clock.now();
+      sessionIndex.byKey[session.sessionKey] = session;
+      await persistIndex();
+    }
+    await sendInTopic(session, status.text).catch((err) => {
+      log.warn("computer status telegram failed", {
+        sessionKey: status.sessionKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
   function wirePermissionHandler(): void {
     if (permissionWired) return;
     permissionWired = true;
@@ -1025,20 +1253,26 @@ export function createDaemon(
     }
 
     const planExit = isPlanExitPermission(req.raw);
-    // Tools may bypass; plan-exit always needs a Telegram approve/reject.
-    if (effectivePermissionMode(session) === "bypass" && !planExit) {
+    const computerUse = isComputerUsePermission(req.raw);
+    // Tools may bypass; plan-exit / computer-use always need a Telegram click.
+    if (daemonAutoAllowsPermission(effectivePermissionMode(session), req.raw)) {
       log.info("permission auto-approved (bypass)", {
         sessionKey,
         toolCallId: req.toolCallId,
       });
       return { outcome: "allow_always" };
     }
-    if (planExit) {
-      log.info("plan-exit permission UI (forced ask)", {
-        sessionKey,
-        toolCallId: req.toolCallId,
-        sessionBypass: effectivePermissionMode(session) === "bypass",
-      });
+    if (planExit || computerUse) {
+      log.info(
+        computerUse
+          ? "computer-use permission UI (forced ask)"
+          : "plan-exit permission UI (forced ask)",
+        {
+          sessionKey,
+          toolCallId: req.toolCallId,
+          sessionBypass: effectivePermissionMode(session) === "bypass",
+        },
+      );
     }
 
     const surface = resolveOperatorSurface(session);
@@ -1931,15 +2165,17 @@ export function createDaemon(
     if (env.agents.cancelTurn) {
       await env.agents.cancelTurn(session.sessionKey, "operator /cancel");
     }
+    const revoked = await revokeComputerGrant(session);
     await working.clear(session);
     await setSessionStatus(session, "idle");
     const extra =
       queued > 0
         ? ` · cleared ${queued} queued message${queued === 1 ? "" : "s"}`
         : "";
+    const grantNote = revoked ? " — computer grant revoked" : " — session kept";
     await sendInTopic(
       session,
-      `⏹ turn cancelled — session kept${extra}`,
+      `⏹ turn cancelled${grantNote}${extra}`,
       undefined,
       { html: true },
     );
@@ -1968,6 +2204,7 @@ export function createDaemon(
         /* */
       }
     }
+    const revoked = await revokeComputerGrant(session);
     await working.clear(session);
 
     try {
@@ -1977,9 +2214,10 @@ export function createDaemon(
         queued > 0
           ? ` · cleared ${queued} queued message${queued === 1 ? "" : "s"}`
           : "";
+      const grantNote = revoked ? " · computer grant revoked" : "";
       await sendInTopic(
         session,
-        `✨ **Fresh session** — agent history cleared; topic kept${extra}\n` +
+        `✨ **Fresh session** — agent history cleared; topic kept${extra}${grantNote}\n` +
           `Send a message to start a new conversation.`,
         undefined,
         { html: true },
@@ -1990,6 +2228,209 @@ export function createDaemon(
         session,
         `Failed to start fresh session:\n\n${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+  }
+
+  function isTelegramRateLimit(err: unknown): boolean {
+    if (err instanceof TelegramApiError && err.statusCode === 429) return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    return /\b429\b|too many requests/i.test(msg);
+  }
+
+  async function pauseWatchOnSendFailure(
+    session: PersistedSession,
+    err: unknown,
+  ): Promise<void> {
+    const grant = session.computerGrant;
+    if (!grant?.enabled || !grant.watch) return;
+    grant.watch = false;
+    session.updatedAt = env.clock.now();
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+    if (env.agents.computerGrant) {
+      try {
+        await env.agents.computerGrant({
+          sessionKey: session.sessionKey,
+          grant: {
+            enabled: grant.enabled,
+            watch: false,
+            expiresAt: grant.expiresAt,
+            hostId: grant.hostId,
+          },
+        });
+      } catch {
+        /* host may be gone; persist already dropped watch */
+      }
+    }
+    const why = isTelegramRateLimit(err)
+      ? "Telegram rate limit (429)"
+      : "Telegram send failed";
+    await sendInTopic(
+      session,
+      `🖥 Watch paused — ${why}. \`/computer watch\` to resume.`,
+    ).catch(() => {});
+  }
+
+  async function applyComputerGrant(
+    session: PersistedSession,
+    opts: { watch: boolean },
+  ): Promise<void> {
+    await maybeRevokeComputerGrantIfHostChanged(session);
+    let hostId: string;
+    try {
+      hostId = currentComputerHostId(session);
+    } catch (err) {
+      await sendInTopic(
+        session,
+        `🖥 Computer · ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    const now = env.clock.now();
+    const grant = {
+      enabled: true,
+      watch: opts.watch,
+      expiresAt: now + COMPUTER_GRANT_TTL_MS,
+      hostId,
+    };
+    if (!env.agents.computerGrant) {
+      await sendInTopic(session, "🖥 Computer · host too old");
+      return;
+    }
+    try {
+      await env.agents.computerGrant({
+        sessionKey: session.sessionKey,
+        grant,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unknown type/i.test(msg)) {
+        await sendInTopic(session, "🖥 Computer · host too old");
+        return;
+      }
+      await sendInTopic(session, `🖥 Computer · grant failed: ${msg}`);
+      return;
+    }
+    session.computerGrant = { ...grant, grantedAt: now };
+    computerBound.add(session.sessionKey);
+    session.updatedAt = now;
+    sessionIndex.byKey[session.sessionKey] = session;
+    await persistIndex();
+    const token = newToken();
+    computerPicks.set(token, { sessionKey: session.sessionKey });
+    await sendInTopic(
+      session,
+      formatComputerGrantBanner({ grant: session.computerGrant, now }),
+      computerKeyboard(token),
+      { html: true },
+    );
+  }
+
+  async function sendComputerStatus(session: PersistedSession): Promise<void> {
+    const now = env.clock.now();
+    const live = await syncComputerGrant(session);
+    const token = newToken();
+    computerPicks.set(token, { sessionKey: session.sessionKey });
+    const line = formatComputerStatusLine({
+      grant: live,
+      now,
+    });
+    await sendInTopic(
+      session,
+      `${line}\n\`/computer off\`  ·  \`/cancel\` revokes grant`,
+      computerKeyboard(token),
+      { html: true },
+    );
+  }
+
+  async function handleComputerCommand(
+    session: PersistedSession,
+    args: string[],
+  ): Promise<void> {
+    const sub = (args[0] ?? "").trim().toLowerCase();
+    if (!sub || sub === "status") {
+      await sendComputerStatus(session);
+      return;
+    }
+    if (sub === "on") {
+      await applyComputerGrant(session, { watch: false });
+      return;
+    }
+    if (sub === "watch") {
+      await applyComputerGrant(session, { watch: true });
+      return;
+    }
+    if (sub === "off") {
+      const revoked = await revokeComputerGrant(session);
+      await sendInTopic(
+        session,
+        revoked ? "🖥 Computer grant revoked" : "🖥 Computer · off",
+      );
+      return;
+    }
+    await sendInTopic(
+      session,
+      "Usage: `/computer` · `/computer on` · `/computer off` · `/computer watch` · `/computer status`",
+      undefined,
+      { html: true },
+    );
+  }
+
+  async function handleComputerCallback(
+    data: string,
+    callbackQueryId: string,
+    message?: TelegramMessage,
+  ): Promise<void> {
+    const parsed = parseComputerCallback(data);
+    if (!parsed) return;
+    const pick = computerPicks.get(parsed.token);
+    if (!pick) {
+      await env.telegram
+        .answerCallbackQuery({
+          callbackQueryId,
+          text: "Picker expired — /computer again",
+        })
+        .catch(() => {});
+      return;
+    }
+    const session = sessionIndex.byKey[pick.sessionKey];
+    if (!session) {
+      computerPicks.delete(parsed.token);
+      return;
+    }
+    const label =
+      parsed.actionIndex === COMPUTER_CB.on
+        ? "Enable"
+        : parsed.actionIndex === COMPUTER_CB.watch
+          ? "Watch"
+          : parsed.actionIndex === COMPUTER_CB.off
+            ? "Stop"
+            : "OK";
+    await env.telegram
+      .answerCallbackQuery({ callbackQueryId, text: label })
+      .catch(() => {});
+    if (parsed.actionIndex === COMPUTER_CB.on) {
+      await applyComputerGrant(session, { watch: false });
+    } else if (parsed.actionIndex === COMPUTER_CB.watch) {
+      await applyComputerGrant(session, { watch: true });
+    } else if (parsed.actionIndex === COMPUTER_CB.off) {
+      const revoked = await revokeComputerGrant(session);
+      await sendInTopic(
+        session,
+        revoked ? "🖥 Computer grant revoked" : "🖥 Computer · off",
+      );
+    }
+    if (message) {
+      try {
+        await env.telegram.editMessageText({
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          text: message.text ?? "🖥 Computer",
+          replyMarkup: { inline_keyboard: [] },
+        });
+      } catch {
+        /* */
+      }
     }
   }
 
@@ -3325,6 +3766,11 @@ export function createDaemon(
       /* ignore */
     }
 
+    const computerLine = formatComputerStatusLine({
+      grant: await syncComputerGrant(session),
+      now: env.clock.now(),
+    });
+
     // Multi-agent: parent children + child→parent link
     let spawnParentKey: string | undefined;
     let spawnRole: string | undefined;
@@ -3402,6 +3848,7 @@ export function createDaemon(
         mcpNames,
         acpHost: true, // worker always uses acp-host
         ...(linearLine ? { linearLine } : {}),
+        computerLine,
         ...(spawnParentKey ? { spawnParentKey } : {}),
         ...(spawnRole ? { spawnRole } : {}),
         ...(spawnStatus ? { spawnStatus } : {}),
@@ -4356,33 +4803,16 @@ export function createDaemon(
     }
 
     const apply = async (agentId: string) => {
-      if (!env.agents.switchSessionAgent) {
-        // Fallback: update identity + ensureSession with agent change
-        session.identity = { ...session.identity, agent: agentId };
-        sessionIndex.byKey[session.sessionKey] = session;
-        await saveSessionIndex(env.store, sessionIndex);
-        if (session.status === "running") {
-          await env.agents.cancelTurn?.(
-            session.sessionKey,
-            "operator /agent switch",
-          );
-        }
-        await ensureSessionWithPerms(session);
-      } else {
-        if (session.status === "running") {
-          await env.agents.cancelTurn?.(
-            session.sessionKey,
-            "operator /agent switch",
-          );
-        }
-        const handle = await env.agents.switchSessionAgent(
-          session.identity,
-          agentId,
+      session.identity = { ...session.identity, agent: agentId };
+      sessionIndex.byKey[session.sessionKey] = session;
+      await saveSessionIndex(env.store, sessionIndex);
+      if (session.status === "running") {
+        await env.agents.cancelTurn?.(
+          session.sessionKey,
+          "operator /agent switch",
         );
-        session.identity = handle.identity;
-        sessionIndex.byKey[session.sessionKey] = session;
-        await saveSessionIndex(env.store, sessionIndex);
       }
+      await ensureSessionWithPerms(session);
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
@@ -4686,16 +5116,8 @@ export function createDaemon(
           "operator /agent switch",
         );
       }
-      if (env.agents.switchSessionAgent) {
-        const handle = await env.agents.switchSessionAgent(
-          session.identity,
-          agentId,
-        );
-        session.identity = handle.identity;
-      } else {
-        session.identity = { ...session.identity, agent: agentId };
-        await ensureSessionWithPerms(session);
-      }
+      session.identity = { ...session.identity, agent: agentId };
+      await ensureSessionWithPerms(session);
       sessionIndex.byKey[session.sessionKey] = session;
       await saveSessionIndex(env.store, sessionIndex);
       const launch = resolveAgentLaunch(agentId);
@@ -5194,6 +5616,10 @@ export function createDaemon(
       }
       if (slash.name === "/status") {
         await handleStatusCommand(session);
+        return;
+      }
+      if (slash.name === "/computer") {
+        await handleComputerCommand(session, slash.args);
         return;
       }
       if (slash.name === "/model") {
@@ -5837,6 +6263,12 @@ export function createDaemon(
     const queueToken = parseQueueRemoveCallback(cq.data);
     if (queueToken) {
       await handleQueueRemoveCallback(cq.data, cq.id, cq.message);
+      return;
+    }
+
+    const computerCb = parseComputerCallback(cq.data);
+    if (computerCb) {
+      await handleComputerCallback(cq.data, cq.id, cq.message);
       return;
     }
 

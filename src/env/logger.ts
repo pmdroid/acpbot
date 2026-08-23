@@ -19,15 +19,30 @@ const LEVEL_RANK: Record<LogLevel, number> = {
   silent: 100,
 };
 
-const SENSITIVE_KEY = /token|password|secret|authorization|api[_-]?key/i;
+const SENSITIVE_KEY =
+  /token|password|secret|authorization|api[_-]?key|jpeg|pixels|imageBase64|typedText|screenshot|frame/i;
+const IMAGE_KEY = /jpeg|pixels|imageBase64|image|base64|screenshot|frame/i;
 
 /** Drop/redact fields that must never hit logs. */
 export function sanitizeMeta(meta?: LogMeta): LogMeta | undefined {
   if (!meta) return undefined;
   const out: LogMeta = {};
   for (const [k, v] of Object.entries(meta)) {
+    if (v instanceof Uint8Array || (typeof Buffer !== "undefined" && Buffer.isBuffer(v))) {
+      const n = (v as Uint8Array).byteLength;
+      out[k] = `[bytes ${n}]`;
+      continue;
+    }
+    if (typeof v === "string" && (/^\/9j\//.test(v) || /^ffd8/i.test(v))) {
+      out[k] = `[redacted string ${v.length}]`;
+      continue;
+    }
     if (SENSITIVE_KEY.test(k)) {
-      out[k] = "[redacted]";
+      if (typeof v === "string" && IMAGE_KEY.test(k)) {
+        out[k] = `[redacted string ${v.length}]`;
+      } else {
+        out[k] = "[redacted]";
+      }
       continue;
     }
     if (typeof v === "string" && v.length > 500) {

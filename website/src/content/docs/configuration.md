@@ -41,6 +41,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Multi-host (optional) | Accept remote workers (`[host_listen]`) and/or route repos to remote hosts (`[hosts.*]`) — see [Multi-host](/docs/multi-host) |
 | OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |
 | Log level | Optional `log_level` (`info` default) |
+| Computer use | Optional `[computer]` isolated Playwright browser (probes Chrome/Chromium; never the desktop) |
 | Daemon | Installs **both** host and worker as background services (see below) |
 
 Bare `acpbot` prints CLI help. Use `acpbot setup` for the TUI; `acpbot worker` needs a real `bot_token`.
@@ -61,6 +62,7 @@ watched and applied without restart for:
 | `permission_mode` | Default for **new** topics |
 | `tts_mode` / MCP feature flags | Runtime toggles |
 | skill roots | Extra skill scan paths |
+| `[computer].enabled` | Turning off aborts all grants on that host |
 
 **Not** hot-reloaded (restart required): `bot_token`, `store_path`, `state_dir`,
 OAuth listen host/port. Logs print `acpbot config reloaded (repos, …)`.
@@ -222,6 +224,44 @@ stt_provider = "auto"
 ```
 
 Full annotated template: [`config.example.toml`](https://github.com/pmdroid/acpbot/blob/main/config.example.toml).
+
+## Computer use (isolated browser)
+
+Default **off**. Two independent opt-ins: host `[computer].enabled = true`, then a per-topic `/computer on` grant. Never implied by `permission_mode = "bypass"`. `ACPBOT_COMPUTER=0` forces the table off.
+
+v1 drives an **isolated Playwright browser** owned by acp-host — not the login desktop. Click / type / key / scroll / navigate work **only inside that browser**. The operator’s real Chrome profile is never used; each topic gets `$state_dir/computer-browser/<slot>/` (mode `0700`), deleted on revoke / `/cancel` / owner disconnect / TTL / `enabled` off.
+
+**Requires** system Chrome (`browser_channel = "chrome"`) or Chromium from `npx playwright install chromium`. acpbot does **not** bundle a browser. If none is installed, probe returns `{ ok: false, backend: "playwright", missing: ["chromium"] }` and tools fail closed.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Host master switch |
+| `display` | `"browser"` | Isolated Playwright only |
+| `publish_frames` | `"on_action"` | JPEG to the topic after each action |
+| `jpeg_quality` | `60` | Viewport JPEG quality |
+| `max_edge_px` | `1280` | Downsample longest edge |
+| `max_actions_per_turn` | `40` | Per-turn budget |
+| `min_action_interval_ms` | `150` | Rate limit |
+| `grant_ttl_sec` | `1800` | `/computer on` TTL (30m) |
+| `watch_interval_ms` | `2500` | Watch screenshot interval while an operator turn is running |
+| `frame_coalesce_ms` | `2000` | Skip a watch tick if a frame was just published |
+| `browser_channel` | `"chrome"` | `chrome` · `chromium` · `msedge` |
+| `browser_headless` | `true` | Headless by default |
+
+```toml
+# [computer]
+# enabled = false
+# display = "browser"
+# publish_frames = "on_action"
+# jpeg_quality = 60
+# max_edge_px = 1280
+# watch_interval_ms = 2500
+# frame_coalesce_ms = 2000
+# browser_channel = "chrome"
+# browser_headless = true
+```
+
+Setup probes Chrome/Chromium availability. There is no Screen Recording TCC step — the desktop is never captured.
 
 ## Docker
 

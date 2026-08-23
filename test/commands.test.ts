@@ -55,6 +55,7 @@ describe("command registry", () => {
       "/agent",
       "/build",
       "/cancel",
+      "/computer",
       "/effort",
       "/eve",
       "/fresh",
@@ -96,6 +97,8 @@ describe("command registry", () => {
     expect(commandAllowedIn("/fresh", "topic")).toBe(true);
     expect(commandAllowedIn("/fresh", "lobby")).toBe(false);
     expect(resolveCanonicalName("/reset")).toBe("/fresh");
+    expect(commandAllowedIn("/computer", "topic")).toBe(true);
+    expect(commandAllowedIn("/computer", "lobby")).toBe(false);
     expect(commandAllowedIn("/steer", "topic")).toBe(true);
     expect(commandAllowedIn("/queue", "topic")).toBe(true);
     expect(commandAllowedIn("/unqueue", "topic")).toBe(true);
@@ -118,6 +121,7 @@ describe("command registry", () => {
 
     const topic = topicHelpText();
     expect(topic).toContain("/cancel");
+    expect(topic).toContain("/computer");
     expect(topic).toContain("/fresh");
     expect(topic).toContain("/steer");
     expect(topic).toContain("/queue");

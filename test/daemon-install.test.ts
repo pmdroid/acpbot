@@ -96,6 +96,12 @@ describe("renderFullConfigToml", () => {
         scheduleTickMs: 15000,
         claudeAcpPkg: "@agentclientprotocol/claude-agent-acp@0.64.0",
         mcpEnabled: false,
+        computer: {
+          enabled: true,
+          display: "browser",
+          publishFrames: "on_action",
+          jpegQuality: 60,
+        },
       },
     });
     expect(toml).toContain("[schedule]");
@@ -104,6 +110,10 @@ describe("renderFullConfigToml", () => {
     expect(toml).toContain("claude_acp_pkg");
     expect(toml).toContain("mcp = false");
     expect(toml).toContain('permission_mode = "bypass"');
+    expect(toml).toContain("[computer]");
+    expect(toml).toContain("enabled = true");
+    expect(toml).toContain('display = "browser"');
+    expect(toml).not.toContain("publish_frames = \"off\"");
   });
 
   test("multi-host host_listen, remote hosts, and repo host binding", () => {

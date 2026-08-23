@@ -80,6 +80,29 @@ export type AcpbotConfig = {
     digestIntervalSec?: number;
     defaultAgent?: string;
   };
+  /**
+   * Isolated-browser computer use ([computer]). Default off.
+   * Even when enabled, each topic still needs `/computer on`.
+   */
+  computer?: ComputerConfig;
+};
+
+/** Host-process `[computer]` table. Default is off / unset. */
+export type ComputerConfig = {
+  enabled?: boolean;
+  /** v1: isolated Playwright browser only. */
+  display?: "browser";
+  /** v1: on_action only. `off` is not accepted. */
+  publishFrames?: "on_action";
+  jpegQuality?: number;
+  maxEdgePx?: number;
+  maxActionsPerTurn?: number;
+  minActionIntervalMs?: number;
+  grantTtlSec?: number;
+  watchIntervalMs?: number;
+  frameCoalesceMs?: number;
+  browserChannel?: string;
+  browserHeadless?: boolean;
 };
 
 
@@ -460,6 +483,11 @@ export interface AgentsPort {
        * When set, used instead of config.repos[repo].
        */
       cwd?: string;
+      /**
+       * Operator topics only. Host applies `=== true`; omitted leaves an
+       * existing slot flag untouched (schedule/EVE must not flip it).
+       */
+      computerAllowed?: boolean;
     },
   ): Promise<AgentSessionHandle>;
 
@@ -570,6 +598,40 @@ export interface AgentsPort {
     identity: SessionIdentity,
     agentId: string,
   ): Promise<AgentSessionHandle>;
+
+  /**
+   * Bind a computer-use grant on the session's acp-host (router client).
+   * Old hosts reject with "unknown type".
+   */
+  computerGrant?(input: {
+    sessionKey: string;
+    grant: {
+      enabled: boolean;
+      watch: boolean;
+      expiresAt: number;
+      hostId: string;
+    };
+  }): Promise<{
+    probe: import("../acp-host/protocol").ComputerProbe;
+  }>;
+
+  computerAbort?(
+    sessionKey: string,
+    opts?: { hostId?: string },
+  ): Promise<void>;
+
+  /** Fire-and-forget frame ACK (no reqId). */
+  computerFrameAck?(sessionKey: string, frameId: string): void;
+
+  setComputerFrameHandler?(
+    handler: (frame: import("../acp-host/protocol").ComputerFrameEvent) => void,
+  ): void;
+
+  setComputerStatusHandler?(
+    handler: (
+      status: import("../acp-host/protocol").ComputerStatusEvent,
+    ) => void,
+  ): void;
 }
 
 // ── Clock ──────────────────────────────────────────────────────────────────

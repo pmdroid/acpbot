@@ -41,6 +41,9 @@ export function createFakeEnvironment(
     ...(options.config?.permissionMode !== undefined
       ? { permissionMode: options.config.permissionMode }
       : {}),
+    ...(options.config?.hostsCatalog
+      ? { hostsCatalog: options.config.hostsCatalog }
+      : {}),
   };
 
   const agents = fakeAgents({

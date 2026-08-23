@@ -92,6 +92,12 @@ export const COMMANDS: readonly CommandDef[] = [
     summary: "Session context: agent, model, mode, cwd, MCP",
   },
   {
+    name: "/computer",
+    scope: "topic",
+    summary:
+      "Isolated browser grant for this topic: on|off|watch|status (/cancel revokes)",
+  },
+  {
     name: "/model",
     scope: "topic",
     summary: "Pick LLM model (ACP config) or /model <value>",

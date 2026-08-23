@@ -28,6 +28,7 @@ The name `acpbot` is reserved.
 | `agent_spawn` / `list` / `send` / `wait` / `kill` | Multi-agent children (worktrees + A2A) — [Multi-agent](/docs/multi-agent) |
 | `review_run` | Dual-agent closeout review (frozen bundle) — [Review](/docs/review) |
 | `linear_get_binding` / `linear_bind_project` / `linear_unbind_project` | Topic ↔ Linear project binding — [Linear](/docs/linear) |
+| `computer_navigate` / `screenshot` / `click` / `move` / `drag` / `scroll` / `type` / `key` / `status` | Isolated Playwright browser on this session’s acp-host — see below |
 
 ### Working bubble vs permanent messages
 
@@ -41,7 +42,23 @@ Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegra
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [Worker API](/docs/worker-api).
 
-Agent guidance for these tools is in bundled skills **telegram**, **schedules**, **multi-agent**, and **linear** ([Skills](/docs/skills)).
+Agent guidance for these tools is in bundled skills **telegram**, **schedules**, **multi-agent**, **linear**, and **computer** ([Skills](/docs/skills)).
+
+### Computer use (`computer_*`)
+
+Always registered; fail closed without `[computer].enabled` **and** `/computer on`. Drive the **isolated Playwright browser** on this session’s acp-host. The desktop is never captured.
+
+| Tool | Purpose |
+|---|---|
+| `computer_navigate` | Open `http`/`https` in this topic’s browser |
+| `computer_screenshot` | Viewport JPEG + `{ frameId, width, height }` (no filesystem path) |
+| `computer_click` / `move` / `drag` / `scroll` | Pointer in viewport coordinates (`frameId`) |
+| `computer_type` / `computer_key` | Keyboard in the isolated browser |
+| `computer_status` | Grant, budget, backend, last frame |
+
+Frames are published to Telegram by the host supervisor (`on_action`, plus the watch timer). Prefer **`update`** for text progress — do not `telegram_send_photo` the same bitmap.
+
+Typical loop: `computer_navigate` → `computer_screenshot` → click/type → screenshot. Agent habits: bundled **computer** skill (`skills/computer/SKILL.md`).
 
 Disable host MCP entirely:
 

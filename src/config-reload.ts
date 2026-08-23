@@ -19,6 +19,7 @@ export type HotReloadableSnapshot = {
   ttsMode?: AcpbotConfig["ttsMode"];
   mcpEnabled?: boolean;
   skillRoots?: string[];
+  computer?: AcpbotConfig["computer"];
 };
 
 export function snapshotHotFields(cfg: {
@@ -28,6 +29,7 @@ export function snapshotHotFields(cfg: {
   ttsMode?: AcpbotConfig["ttsMode"];
   mcpEnabled?: boolean;
   skillRoots?: string[];
+  computer?: AcpbotConfig["computer"];
 }): HotReloadableSnapshot {
   return {
     repos: { ...(cfg.repos ?? {}) },
@@ -42,6 +44,7 @@ export function snapshotHotFields(cfg: {
     ...(cfg.skillRoots !== undefined
       ? { skillRoots: [...cfg.skillRoots] }
       : {}),
+    ...(cfg.computer !== undefined ? { computer: { ...cfg.computer } } : {}),
   };
 }
 
@@ -113,6 +116,13 @@ export function applyHotReloadableConfig(
   ) {
     live.skillRoots = [...next.skillRoots];
     changed.push("skillRoots");
+  }
+
+  const nextComputer =
+    "computer" in next ? (next as { computer?: AcpbotConfig["computer"] }).computer : undefined;
+  if (sortedJson(nextComputer ?? {}) !== sortedJson(live.computer ?? {})) {
+    live.computer = nextComputer ? { ...nextComputer } : undefined;
+    changed.push("computer");
   }
 
   return changed;

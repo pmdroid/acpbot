@@ -20,9 +20,14 @@ import type { SessionHost } from "../acp/session-host";
 import {
   createAcpHostClient,
   resolveAcpHostSockPath,
+  type AcpHostClientApi,
 } from "../acp-host/client";
 import { createHostRouter } from "../acp-host/router";
 import { resolveHostId } from "../acp-host/hosts";
+import type {
+  ComputerFrameEvent,
+  ComputerStatusEvent,
+} from "../acp-host/protocol";
 import {
   isAutoApproveAgentMode,
   pickModeForPermissionPolicy,
@@ -80,6 +85,12 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
         ctx: { signal: AbortSignal },
       ) => Promise<Record<string, unknown>>)
     | undefined;
+  let computerFrameHandler:
+    | ((frame: ComputerFrameEvent) => void)
+    | undefined;
+  let computerStatusHandler:
+    | ((status: ComputerStatusEvent) => void)
+    | undefined;
 
   const hooks = {
     onPermissionRequest: async (
@@ -122,6 +133,8 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
             stateDir: options.stateDir,
             log,
             hooks,
+            onComputerFrame: (msg) => computerFrameHandler?.(msg),
+            onComputerStatus: (msg) => computerStatusHandler?.(msg),
           })
         : null;
   const defaultHost: SessionHost =
@@ -130,8 +143,26 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       ? router.getHost("local")
       : (() => {
           log.info("using acp-host client", { sockPath: hostSockPath });
-          return createAcpHostClient({ log, hooks, sockPath: hostSockPath });
+          return createAcpHostClient({
+            log,
+            hooks,
+            sockPath: hostSockPath,
+            onComputerFrame: (msg) => computerFrameHandler?.(msg),
+            onComputerStatus: (msg) => computerStatusHandler?.(msg),
+          });
         })());
+
+  function asComputerHost(h: SessionHost): AcpHostClientApi | undefined {
+    const api = h as Partial<AcpHostClientApi>;
+    if (typeof api.computerGrant !== "function") return undefined;
+    return api as AcpHostClientApi;
+  }
+
+  function hostById(hostId?: string, sessionKey?: string): SessionHost {
+    if (hostId && router) return router.getHost(hostId);
+    if (sessionKey) return hostFor(sessionKey);
+    return defaultHost;
+  }
 
   /** Resolve host for a session identity (sticky hostId on handle later). */
   function hostFor(sessionKey: string, repoKey?: string, stickyHostId?: string): SessionHost {
@@ -178,6 +209,35 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
     setAskUserQuestionHandler(handler) {
       askUserQuestionHandler = handler;
       refreshHooks();
+    },
+    setComputerFrameHandler(handler) {
+      computerFrameHandler = handler;
+    },
+    setComputerStatusHandler(handler) {
+      computerStatusHandler = handler;
+    },
+
+    async computerGrant(input) {
+      const host = hostById(input.grant.hostId, input.sessionKey);
+      const api = asComputerHost(host);
+      if (!api) throw new Error("unknown type");
+      const out = await api.computerGrant({
+        slotKey: input.sessionKey,
+        grant: input.grant,
+      });
+      return { probe: out.probe };
+    },
+
+    async computerAbort(sessionKey, opts) {
+      const host = hostById(opts?.hostId, sessionKey);
+      const api = asComputerHost(host);
+      if (!api) return;
+      await api.computerAbort(sessionKey);
+    },
+
+    computerFrameAck(sessionKey, frameId) {
+      const api = asComputerHost(hostFor(sessionKey));
+      api?.computerFrameAck(sessionKey, frameId);
     },
 
     async cancelTurn(sessionKey, reason) {
@@ -342,6 +402,9 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
           permissionMode,
           ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
           ...(opts?.forceNewSession ? { forceNewSession: true } : {}),
+          ...(opts?.computerAllowed !== undefined
+            ? { computerAllowed: opts.computerAllowed === true }
+            : {}),
         });
         if (options.forceReadOnly) {
           const modes = await hostFor(key).getAvailableModes(key);

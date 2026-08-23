@@ -22,6 +22,7 @@ You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / co
 - You are **solely responsible** for allowlists, repos, credentials, and agent permissions.
 - The authors are **not responsible** for damage, data loss, security incidents, leaked secrets, unexpected costs, or other consequences.
 - Prefer **ask** / cautious modes when available, and review permission prompts.
+- **Computer use** (`[computer]` + `/computer on`) drives an isolated browser on the acp-host — default **off**, two-key enablement. That browser can still open banking URLs and paste passwords; page content leaks to Telegram and the model. Watch the frames. Desktop is never captured.
 - Provided **“AS IS”** under the [MIT License](LICENSE), without warranty.
 
 By running acpbot you accept these terms.

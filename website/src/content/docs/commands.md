@@ -21,12 +21,13 @@ Commands are registered in `src/core/commands.ts`.
 
 | Command | Description |
 |---|---|
-| `/cancel` | Stop the current turn **and clear the prompt queue** (session kept) |
+| `/cancel` | Stop the current turn **and clear the prompt queue** (session kept). **Revokes** a computer grant if one is active. |
 | `/fresh` | **Fresh agent session** — clear conversation history, keep the topic (alias `/reset`; like Grok **new**) |
 | `/steer <text>` | **Interrupt** the current turn and inject guidance now |
 | `/queue` | List messages waiting until the current turn ends |
 | `/unqueue` | Remove queued msgs: bare = last · `<n>` · `all` |
-| `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP; multi-agent parent lists children / child shows parent |
+| `/status` | Context dump: agent, launch, mode, model, effort, cwd, MCP, computer grant; multi-agent parent lists children / child shows parent |
+| `/computer` | Isolated-browser grant for this topic (`on` / `off` / `watch` / `status`). Desktop is never captured. See below. |
 | `/model` | LLM picker buttons, or `/model <value>` |
 | `/effort` | Reasoning effort picker, or `/effort <level>` |
 | `/agent` | Switch agent process (respawn), or `/agent <id>` |
@@ -97,6 +98,24 @@ While a turn is in flight, the topic shows one **⏳** status message. It update
 | `/fresh` / `/reset` | Abort turn + clear queue, then **session/new** (no history resume). Telegram topic and repo/name stay. |
 
 Cap: 32 items per session (oldest dropped when full).
+
+### `/computer` (isolated browser)
+
+Two-key enablement: host `[computer].enabled = true`, then this per-topic grant. Never implied by `permission_mode = "bypass"`. The agent drives **this topic’s isolated Playwright browser on the session’s acp-host** — not the desktop, and not the worker laptop.
+
+| Usage | Effect |
+|---|---|
+| `/computer` / `/computer status` | Status + **Enable** · **Watch** · **Stop** |
+| `/computer on` | Grant this topic (TTL). Agent may navigate / click / type in the isolated browser. |
+| `/computer watch` | Grant + periodic frames while a turn is running |
+| `/computer off` | Revoke. **Turn continues.** |
+| `/cancel` | Abort turn **and revoke the grant** (panic) |
+| `/steer` | Interrupt turn; **grant remains** |
+| `/fresh` | New session; grant revoked |
+
+Watch auto-pauses if Telegram rate-limits (`429`) or `sendPhoto` fails. `/computer watch` resumes.
+
+Which host: same as `resolveHostId` (sticky → `[repos.<repo>].host` → `local`). If that host is down, `/computer on` fails — **no silent fallback to local**.
 
 ### `/mcp` subcommands
 

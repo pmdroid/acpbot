@@ -37,3 +37,11 @@ Only someone with **shell access to the host** can approve. See [Pairing](https:
 - Do not share the bot username until you have paired.
 
 See also the [README disclaimer](README.md#disclaimer--use-at-your-own-risk) and [LICENSE](LICENSE).
+
+## Computer use (isolated browser)
+
+Default **off**. Two independent opt-ins: host `[computer].enabled = true`, then a per-topic `/computer on` grant. Never implied by `permission_mode = "bypass"`. `ACPBOT_COMPUTER=0` forces the table off.
+
+v1 drives an isolated Playwright browser on the **acp-host** — not the login desktop. The isolated profile can still open arbitrary URLs and submit forms (banking, paste passwords). The same JPEG goes to Telegram and the model. Do not grant on a topic you will not watch. `/cancel` revokes the grant (panic). `/computer off` revokes without cancelling the coding turn.
+
+Frames never land as a filesystem path the agent can `fs/read`. The worker never captures; the host that owns the repo (`resolveHostId`) owns the browser.
