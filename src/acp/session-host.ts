@@ -45,6 +45,11 @@ import {
   type HostSessionRecord,
   type HostSessionStore,
 } from "./session-store";
+import {
+  createPromptTurnQueue,
+  pumpPromptTurn,
+  type PromptTurnQueue,
+} from "./prompt-turn";
 
 export type SessionHostHooks = {
   onPermissionRequest?: (
@@ -106,6 +111,8 @@ type LiveSession = {
   permissionMode: "ask" | "bypass";
   /** Abort in-flight prompt / permission waits */
   turnAbort: AbortController | undefined;
+  /** Shared nextUpdate FIFO + leftover-stop bookkeeping across turns. */
+  promptQueue: PromptTurnQueue;
 };
 
 /** Map session/update notification → simplified turn events for the daemon. */
@@ -1333,6 +1340,7 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
         ? "bypass"
         : "ask",
       turnAbort: undefined,
+      promptQueue: createPromptTurnQueue(() => session.nextUpdate()),
     };
     live.set(input.sessionKey, entry);
 
@@ -1527,34 +1535,32 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
 
       const events = (async function* (): AsyncGenerator<HostTurnEvent> {
         try {
-          // Fire prompt (promise resolves with final PromptResponse; also queued as stop)
-          void entry.session.prompt(blocks).catch((err) => {
-            log.error("prompt failed", {
-              sessionKey: input.sessionKey,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
-
-          for (;;) {
-            if (ac.signal.aborted) {
-              try {
-                await entry.connection.agent.notify(
-                  acp.methods.agent.session.cancel,
-                  { sessionId: entry.session.sessionId },
-                );
-              } catch {
-                /* best effort */
-              }
+          for await (const ev of pumpPromptTurn({
+            prompt: () =>
+              entry.session.prompt(blocks).catch((err) => {
+                log.error("prompt failed", {
+                  sessionKey: input.sessionKey,
+                  error: err instanceof Error ? err.message : String(err),
+                });
+                throw err;
+              }),
+            queue: entry.promptQueue,
+            signal: ac.signal,
+            cancelAgent: async () => {
+              await entry.connection.agent.notify(
+                acp.methods.agent.session.cancel,
+                { sessionId: entry.session.sessionId },
+              );
+            },
+            log,
+          })) {
+            if (ev.type === "cancelled") {
               yield { type: "done", stopReason: "cancelled" };
               resolveResult({ status: "cancelled", stopReason: "cancelled" });
               return;
             }
-
-            const message = await entry.session.nextUpdate();
-            if (message.kind === "stop") {
-              const stopReason = String(message.stopReason ?? "end_turn");
-              yield { type: "done", stopReason };
-              // Heartbeat durable record so last-used survives restarts.
+            if (ev.type === "done") {
+              yield { type: "done", stopReason: ev.stopReason };
               void persistRecord({
                 sessionKey: entry.sessionKey,
                 agentSessionId: entry.session.sessionId,
@@ -1563,13 +1569,21 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
               });
               resolveResult({
                 status:
-                  stopReason === "cancelled" ? "cancelled" : "completed",
-                stopReason,
+                  ev.stopReason === "cancelled" ? "cancelled" : "completed",
+                stopReason: ev.stopReason,
+              });
+              return;
+            }
+            if (ev.type === "error") {
+              yield { type: "error", message: ev.message };
+              resolveResult({
+                status: "failed",
+                error: { message: ev.message },
               });
               return;
             }
 
-            const update = message.update as {
+            const update = ev.update as {
               sessionUpdate?: string;
               content?: unknown;
               toolCallId?: string;

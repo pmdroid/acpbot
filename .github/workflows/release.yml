@@ -6,7 +6,8 @@
 #   2. Compiles Linux unified acpbot binary (host+worker) → attach to the release
 #   3. Builds/pushes multi-arch Docker image → ghcr.io/<owner>/acpbot:<tag>
 #
-# macOS (darwin-arm64 / darwin-x64): build + Developer ID sign by hand on a Mac:
+# macOS (darwin-arm64 / darwin-x64): build + Developer ID sign + notarize
+# by hand on a Mac:
 #   ./scripts/release-darwin.sh v0.1.0 --upload
 name: Release
 
@@ -98,7 +99,7 @@ jobs:
           mkdir -p dist
           # Embed version stamp (optional runtime import of version.gen.ts)
           printf 'export const ACPBOT_VERSION = "%s";\n' "${VERSION}" > src/version.gen.ts
-          # Darwin is NOT built here — codesign requires a Mac + Developer ID.
+          # Darwin is NOT built here — codesign + notarize need a Mac + Developer ID.
           # See scripts/release-darwin.sh
           targets=(
             "bun-linux-x64:linux-x64"
@@ -243,8 +244,8 @@ jobs:
             acpbot help
             ```
 
-            **macOS** binaries are built and Developer ID–signed on a Mac, then
-            attached with `./scripts/release-darwin.sh <tag> --upload`
+            **macOS** binaries are built, Developer ID–signed, and notarized on a
+            Mac, then attached with `./scripts/release-darwin.sh <tag> --upload`
             (`darwin-arm64`, `darwin-x64`).
 
             ### Docker (GHCR)

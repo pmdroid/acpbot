@@ -2,9 +2,21 @@
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-08-23
+
+### Fixed / hardened
+
+- **Leftover ACP `stop` after cancel / `/steer`** — `session/prompt` completion is bound to that turn's PromptResponse. A cancelled turn that returns before consuming its `stop` no longer makes the next prompt look like it finished in milliseconds (replayed tools, frozen ⏳, no real reply). Cancel waits briefly for the matching stop; if it times out, leftover updates are dropped until that stop drains.
+
 ### Changed
 
+- **macOS Darwin releases** — `scripts/release-darwin.sh` notarizes Developer ID builds (`ditto` zip → `notarytool`). `--skip-notarize` is for local experiments. Naked Mach-O is not stapled; first launch of a quarantined download needs network so Gatekeeper can fetch the ticket.
 - **EVE quieter Telegram** — the topic stays silent except when the run is **done** (`🌱` / failed / killed) or **help is needed** (approve, `host.ask`, blocked). No started/approved/progress/digest lines. `/eve status` is a short glance. Set `[eve].digest_interval_sec = 0` only if you want the old per-line chatter.
+
+### Install
+
+- Binaries: [v0.2.2](https://github.com/pmdroid/acpbot/releases/tag/v0.2.2) (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`)
+- Docker: `ghcr.io/pmdroid/acpbot:v0.2.2` (`:0.2.2`, `:latest`)
 
 ## [0.2.1] — 2026-08-13
 
