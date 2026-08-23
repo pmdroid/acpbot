@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **macOS Darwin releases** — `scripts/release-darwin.sh` notarizes Developer ID builds (`ditto` zip → `notarytool`). `--skip-notarize` is for local experiments. Naked Mach-O is not stapled; first launch of a quarantined download needs network so Gatekeeper can fetch the ticket.
 - **EVE quieter Telegram** — the topic stays silent except when the run is **done** (`🌱` / failed / killed) or **help is needed** (approve, `host.ask`, blocked). No started/approved/progress/digest lines. `/eve status` is a short glance. Set `[eve].digest_interval_sec = 0` only if you want the old per-line chatter.
 
 ## [0.2.1] — 2026-08-13
