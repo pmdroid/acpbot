@@ -15,6 +15,9 @@ import {
 } from "../src/core/permissions";
 import { createFakeEnvironment } from "../src/env/fake-env";
 import type { TelegramUpdate } from "../src/env/types";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const OPERATOR = 42;
 const CHAT = 1000;
@@ -112,6 +115,47 @@ describe("callback_data encoding (64-byte safe)", () => {
 });
 
 describe("minimal repo picker", () => {
+  test("/new with no repos tells you to run acpbot repo add", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: {},
+      },
+    });
+    const daemon = createDaemon(env, {
+      stateDir: mkdtempSync(join(tmpdir(), "acpbot-norepo-")),
+    });
+    await daemon.handleUpdate(root("/new", 1));
+    const text = env.telegram.sentMessages()[0]?.text ?? "";
+    expect(text).toMatch(/cannot start a session/i);
+    expect(text).toContain("acpbot repo add");
+    expect(text).not.toMatch(/TACP_REPOS/);
+
+    env.telegram.clearOutbound();
+    await daemon.handleUpdate(root("/new missing sess", 2));
+    const named = env.telegram.sentMessages()[0]?.text ?? "";
+    expect(named).toMatch(/cannot start a session/i);
+    expect(named).toContain("acpbot repo add");
+  });
+
+  test("/new unknown repo tells you to acpbot repo add that key", async () => {
+    const env = createFakeEnvironment({
+      config: {
+        operatorUserId: OPERATOR,
+        operatorChatId: CHAT,
+        repos: { demo: "/configured/repos/demo" },
+      },
+    });
+    const daemon = createDaemon(env, {
+      stateDir: mkdtempSync(join(tmpdir(), "acpbot-badrepo-")),
+    });
+    await daemon.handleUpdate(root("/new nope sess", 1));
+    const text = env.telegram.sentMessages()[0]?.text ?? "";
+    expect(text).toContain("Unknown repo");
+    expect(text).toContain("acpbot repo add nope");
+  });
+
   test("/new without args offers repo keyboard from config", async () => {
     const env = createFakeEnvironment({
       config: {

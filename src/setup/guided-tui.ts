@@ -45,6 +45,12 @@ import {
   listKnownAgentIds,
   normalizeAgentName as normalizeAgentId,
 } from "../acp/agent-launch";
+import {
+  TopicsDisabledError,
+  verifyBotTokenTopics,
+  type BotTokenVerifier,
+} from "../env/telegram-topics";
+import { projectsFolderHint } from "../core/repo-required";
 
 export type GuidedSetupResult = {
   configPath: string;
@@ -62,6 +68,55 @@ function cancelled(v: unknown): boolean {
 function abort(): never {
   p.cancel("Setup cancelled.");
   process.exit(0);
+}
+
+/**
+ * Collect a bot token and require Threaded Mode via getMe.
+ * Invalid tokens re-prompt. Topics disabled stops setup (does not write config).
+ */
+async function promptAndVerifyBotToken(input: {
+  initial: string;
+  verifyBot: BotTokenVerifier;
+}): Promise<string> {
+  let botToken = input.initial;
+  while (true) {
+    while (isPlaceholderBotToken(botToken)) {
+      const entered = await p.text({
+        message: "Bot token from @BotFather",
+        placeholder: "123456:AA…",
+        validate: (v) => {
+          if (!v?.trim()) return "Token is required";
+          if (isPlaceholderBotToken(v)) return "Enter a real bot token";
+        },
+      });
+      if (cancelled(entered)) abort();
+      botToken = String(entered).trim();
+    }
+
+    const s = p.spinner();
+    s.start("Checking bot with Telegram (Threaded Mode)…");
+    try {
+      const me = await input.verifyBot(botToken);
+      const who = me.username ? `@${me.username}` : me.first_name;
+      s.stop(`Bot ${who} — Threaded Mode is on`);
+      return botToken;
+    } catch (err) {
+      s.stop("Bot check failed");
+      if (err instanceof TopicsDisabledError) {
+        p.note(err.message, "Threaded Mode required");
+        p.cancel(
+          "Setup stopped. Enable Threaded Mode in @BotFather, then run acpbot setup again.",
+        );
+        throw err;
+      }
+      p.log.error(
+        err instanceof Error
+          ? `Could not use that token: ${err.message}`
+          : "Could not use that token",
+      );
+      botToken = "";
+    }
+  }
 }
 
 function tomlString(value: string): string {
@@ -527,7 +582,7 @@ function preserveFromExisting(
  * Re-run anytime: existing values are pre-selected; Enter / defaults keep them.
  */
 export async function runGuidedSetupTui(
-  options: LoadConfigOptions = {},
+  options: LoadConfigOptions & { verifyBot?: BotTokenVerifier } = {},
 ): Promise<GuidedSetupResult> {
   const env = options.env ?? process.env;
   const layout = ensureAcpbotLayout(options);
@@ -572,7 +627,7 @@ export async function runGuidedSetupTui(
         "and can install background services on macOS or Linux.",
         "",
         "Prereqs:",
-        "  • Telegram bot from @BotFather (topics in private chats)",
+        "  • Telegram bot from @BotFather (Threaded Mode / topics in private chats)",
         "  • At least one agent CLI on PATH (detected next step)",
         "  • Optional: OpenAI / ElevenLabs keys for voice",
         "",
@@ -590,6 +645,9 @@ export async function runGuidedSetupTui(
       ? existing.botToken
       : undefined;
 
+  const verifyBot: BotTokenVerifier =
+    options.verifyBot ?? ((token) => verifyBotTokenTopics({ token }));
+
   let botToken = keepToken ?? "";
   if (keepToken) {
     const keep = await p.confirm({
@@ -599,18 +657,11 @@ export async function runGuidedSetupTui(
     if (cancelled(keep)) abort();
     if (!keep) botToken = "";
   }
-  while (isPlaceholderBotToken(botToken)) {
-    const entered = await p.text({
-      message: "Bot token from @BotFather",
-      placeholder: "123456:AA…",
-      validate: (v) => {
-        if (!v?.trim()) return "Token is required";
-        if (isPlaceholderBotToken(v)) return "Enter a real bot token";
-      },
-    });
-    if (cancelled(entered)) abort();
-    botToken = String(entered).trim();
-  }
+
+  botToken = await promptAndVerifyBotToken({
+    initial: botToken,
+    verifyBot,
+  });
 
   // ── Agent (PATH-detected only) ────────────────────────────────────────
   p.log.step("Agent");
@@ -697,6 +748,7 @@ export async function runGuidedSetupTui(
 
   // ── Repos ─────────────────────────────────────────────────────────────
   p.log.step("Workspace");
+  p.note(projectsFolderHint(), "Pick the project, not the parent folder");
 
   const repos: Record<string, string> = { ...(existing?.repos ?? {}) };
   const repoKeys = Object.keys(repos);
@@ -738,10 +790,14 @@ export async function runGuidedSetupTui(
       });
       if (!picked) abort();
       repos[k] = picked;
+      p.log.info(
+        `Added ${k} → ${picked}. That one folder is the workspace. Add more with: acpbot repo add`,
+      );
     }
   } else {
     const addRepo = await p.confirm({
-      message: "Add a workspace repo for /new?",
+      message:
+        "Add a project now? Browse into the project folder itself (not ~/Projects or ~/code). /new cannot start a session until at least one repo exists",
       initialValue: true,
     });
     if (cancelled(addRepo)) abort();
@@ -761,6 +817,13 @@ export async function runGuidedSetupTui(
       });
       if (!picked) abort();
       repos[k] = picked;
+      p.log.info(
+        `Added ${k} → ${picked}. That one folder is the workspace. Add more with: acpbot repo add`,
+      );
+    } else {
+      p.log.warn(
+        "No repos yet. You cannot /new until you add a project folder: acpbot repo add",
+      );
     }
   }
 
@@ -1518,8 +1581,12 @@ export async function runGuidedSetupTui(
       "  System Settings → Privacy & Security → Full Disk Access",
     );
   }
+  const repoCount = Object.keys(repos).length;
   nextLines.push(
     "",
+    repoCount === 0
+      ? "Required before /new:  acpbot repo add   (browse into a project folder, not the parent)"
+      : `Repos: ${repoCount} (each is one project folder; add more: acpbot repo add)`,
     "Telegram: /ping  then  /new",
     "Re-run setup anytime: acpbot setup",
   );

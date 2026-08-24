@@ -110,6 +110,7 @@ describe("command registry", () => {
     const lobby = lobbyHelpText();
     expect(lobby).toContain("/ping");
     expect(lobby).toContain("/new");
+    expect(lobby).toContain("acpbot repo add");
     expect(lobby).toContain("/sessions");
     expect(lobby).not.toMatch(/^\/cancel/m);
     expect(lobby).not.toContain("/skills");

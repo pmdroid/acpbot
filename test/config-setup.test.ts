@@ -13,6 +13,7 @@ import {
   runFirstRunSetup,
 } from "../src/config-setup";
 import { loadConfig } from "../src/config";
+import { TopicsDisabledError } from "../src/env/telegram-topics";
 
 describe("first-run layout + setup", () => {
   test("isPlaceholderBotToken", () => {
@@ -129,6 +130,61 @@ describe("first-run layout + setup", () => {
       env: { HOME: "/tmp" },
     });
     expect(cfg.operatorUserId).toBe(0);
+  });
+
+  test("runFirstRunSetup does not write config when Threaded Mode is off", async () => {
+    const home = mkdtempSync(join(tmpdir(), "acpbot-topics-fail-"));
+    const env = {
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      XDG_DATA_HOME: join(home, ".local", "share"),
+    };
+    const layout = ensureAcpbotLayout({ env });
+    const before = readFileSync(layout.configPath, "utf8");
+    expect(before).toContain("REPLACE_ME");
+
+    await expect(
+      runFirstRunSetup({
+        configPath: layout.configPath,
+        env,
+        answers: {
+          botToken: "999:TESTTOKEN_TOPICS_DISABLED_ABCDEF",
+          defaultAgent: "grok-build",
+        },
+        verifyBot: async () => {
+          throw new TopicsDisabledError();
+        },
+      }),
+    ).rejects.toBeInstanceOf(TopicsDisabledError);
+
+    expect(readFileSync(layout.configPath, "utf8")).toBe(before);
+  });
+
+  test("runFirstRunSetup writes after a successful bot check", async () => {
+    const home = mkdtempSync(join(tmpdir(), "acpbot-topics-ok-"));
+    const env = {
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      XDG_DATA_HOME: join(home, ".local", "share"),
+    };
+    const layout = ensureAcpbotLayout({ env });
+    const cfg = await runFirstRunSetup({
+      configPath: layout.configPath,
+      env,
+      answers: {
+        botToken: "999:TESTTOKEN_TOPICS_OK_ABCDEFGHIJK",
+        defaultAgent: "grok-build",
+      },
+      verifyBot: async () => ({
+        id: 1,
+        is_bot: true,
+        first_name: "acpbot",
+        username: "acpbot_bot",
+        has_topics_enabled: true,
+      }),
+    });
+    expect(cfg.botToken).toContain("TOPICS_OK");
+    expect(readFileSync(layout.configPath, "utf8")).toContain("TOPICS_OK");
   });
 
   test("isSetupCliCommand recognizes setup / init / flags", () => {

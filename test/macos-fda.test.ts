@@ -72,5 +72,6 @@ describe("macos-fda", () => {
     const g = fullDiskAccessGuidance("/usr/local/bin/acpbot");
     expect(g).toContain("/usr/local/bin/acpbot");
     expect(g).toContain("Full Disk Access");
+    expect(g).toContain("acpbot repo add");
   });
 });

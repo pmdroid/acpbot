@@ -32,7 +32,8 @@ Flow:
   1. Start host + worker with a bot token
   2. User DMs the bot → receives a pairing code
   3. On this machine: acpbot pair approve ABCD-1234
-  4. Worker applies claim (no restart required if already running)`;
+  4. Worker applies claim (no restart required if already running)
+  5. Add a workspace: acpbot repo add  (required — /new cannot start a session without one)`;
 }
 
 export async function runPairCli(

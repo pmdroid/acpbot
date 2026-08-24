@@ -20,6 +20,7 @@ import {
   repoCliHelp,
   runRepoCli,
 } from "../src/setup/repo-cli";
+import { projectsFolderHint } from "../src/core/repo-required";
 
 describe("repos-toml", () => {
   test("isValidRepoKey", () => {
@@ -158,6 +159,15 @@ describe("repo-cli", () => {
   test("repoCliHelp mentions browse", () => {
     expect(repoCliHelp()).toContain("browse");
     expect(repoCliHelp()).toContain("list");
+    expect(repoCliHelp()).toContain("cannot start a Telegram session");
+    expect(repoCliHelp()).toContain("one project folder");
+  });
+
+  test("projectsFolderHint says parent is not a workspace", () => {
+    const h = projectsFolderHint();
+    expect(h).toMatch(/parent directory/i);
+    expect(h).toContain("acpbot repo add");
+    expect(h).toContain("Use this folder");
   });
 
   test("runRepoCli list and add non-interactive", async () => {

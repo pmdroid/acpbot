@@ -49,7 +49,7 @@ No Bun or source checkout required for normal use.
 
 ### 1. Bot (once)
 
-In [@BotFather](https://t.me/BotFather): create a bot, enable **topics in private chats**, note your Telegram user id. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, `opencode`, or `cursor-agent`).
+In [@BotFather](https://t.me/BotFather): create a bot, enable **Threaded Mode** (Bot Settings; also called topics in private chats). Setup will not finish until `getMe.has_topics_enabled` is true. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, `opencode`, or `cursor-agent`).
 
 ### 2. Download the binary
 
@@ -75,7 +75,7 @@ acpbot setup          # re-run anytime
 acpbot pair approve ABCD-1234
 ```
 
-Walks through bot token, agent, workspace, speech keys, OAuth, then optionally installs **both** background services (same binary, two processes):
+Walks through bot token, agent, workspace, speech keys, OAuth, then optionally installs **both** background services (same binary, two processes). **Add a project folder** during setup (browse into the project, not `~/Projects`) or later with `acpbot repo add`. `/new` cannot start a session without one.
 
 | Service | Command | Role |
 |---|---|---|
@@ -108,12 +108,21 @@ acpbot worker    # terminal 2
 
 Bare `acpbot` prints help. Use `acpbot setup` for the TUI when config is missing.
 
-### 4. Telegram
+### 4. Workspace repo (required)
+
+```bash
+acpbot repo add                # folder browser: pick the project folder itself
+acpbot repo add demo ~/code/demo
+```
+
+Setup may open on a parent like `~/code`. That parent is not a workspace. Browse into the project, then **Use this folder**. `/new` cannot start a session until `[repos]` has an entry. Host and worker hot-reload the list.
+
+### 5. Telegram
 
 ```text
 /ping
-/new demo hello
-# open the topic → type a prompt
+/new
+# pick a repo, name the session, open the topic → type a prompt
 
 /status  /model  /effort  /agent  /mode  /skills  /mcp  /cancel  /fresh
 # while busy: free-text is queued; /steer <text> interrupts

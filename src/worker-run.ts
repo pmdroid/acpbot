@@ -21,7 +21,18 @@ import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
 
 export async function runWorkerMain(): Promise<void> {
-  const { cfg, layout } = await loadConfigWithSetup({ requireTelegram: true });
+  let loaded: Awaited<ReturnType<typeof loadConfigWithSetup>>;
+  try {
+    loaded = await loadConfigWithSetup({ requireTelegram: true });
+  } catch (err) {
+    if (err instanceof TopicsDisabledError) {
+      console.error(err.message);
+      process.exitCode = 2;
+      return;
+    }
+    throw err;
+  }
+  const { cfg, layout } = loaded;
   const stateDirAbs = cfg.stateDir;
   const paired = await loadPairedOperator(stateDirAbs);
   if (paired) {

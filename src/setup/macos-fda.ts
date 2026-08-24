@@ -102,7 +102,9 @@ export function fullDiskAccessGuidance(binPath?: string): string {
   return [
     "macOS Full Disk Access lets acpbot (and agents it spawns) read your",
     "real project folders under Desktop, Documents, Downloads, iCloud, etc.",
-    "Without it, background LaunchAgents often see “Operation not permitted”.",
+    "It does not register projects. Add each workspace with acpbot repo add",
+    "(or during setup: browse into the project folder, not the parent).",
+    "Without FDA, background LaunchAgents often see “Operation not permitted”.",
     "",
     "In System Settings → Privacy & Security → Full Disk Access:",
     `  1. Click + and add:  ${bin}`,

@@ -114,7 +114,7 @@ export async function browseFolder(
     }> = [
       {
         value: "__use__",
-        label: `Use this folder`,
+        label: `Use this folder (this project, not its subfolders)`,
         hint: current,
       },
     ];

@@ -28,7 +28,7 @@ export function echoAgents(config: AcpbotConfig): AgentsPort {
       const cwd = config.repos?.[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON`,
+          `unknown repo "${identity.repo}" — add it with: acpbot repo add ${identity.repo}`,
         );
       }
 

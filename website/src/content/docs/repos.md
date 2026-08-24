@@ -6,7 +6,15 @@ section: start
 ---
 
 Named workspace roots live in `config.toml` under `[repos]`.  
-Telegram `/new` uses these keys as the repo picker.
+Telegram `/new` uses these keys as the repo picker. **Without at least one repo, you cannot start a session.**
+
+Each key is **one project directory** (the agent’s cwd). A parent such as `~/Projects` or `~/code` is not a workspace and does **not** register the projects inside it.
+
+During `acpbot setup` the folder browser often opens on that parent. Browse **into** the project, then **Use this folder**. Add further projects later:
+
+```bash
+acpbot repo add
+```
 
 ```toml
 [repos]
@@ -36,12 +44,12 @@ acpbot repos …              # alias
 
 When a path is not given on the CLI (or you choose **Browse folders…**):
 
-- Arrow keys move; **Use this folder** confirms
+- Arrow keys move; **Use this folder (this project, not its subfolders)** confirms the cwd for that repo key
 - `..` goes up; **Home** jumps to `$HOME`
 - Subfolders are listed (non-hidden)
 - **Type path…** accepts absolute or `~/…` paths
 
-`acpbot setup` uses the same browser when adding a workspace.
+`acpbot setup` uses the same browser. Confirming the parent (the “projects folder”) does not add every child project. Pick the project you want `/new` to use.
 
 ### Config write
 

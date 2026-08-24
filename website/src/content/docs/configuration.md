@@ -36,7 +36,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
 | Agent | grok-build · claude · codex · opencode · cursor-agent |
 | Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [Commands](/docs/commands) `/permissions` |
-| Workspace | Optional `[repos]` entry for `/new` |
+| Workspace | `[repos]` via `acpbot repo` — required before `/new` can start a session |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |
 | Multi-host (optional) | Accept remote workers (`[host_listen]`) and/or route repos to remote hosts (`[hosts.*]`) — see [Multi-host](/docs/multi-host) |
 | OAuth | Optional `callback_base` (setup detects Tailscale DNS / IP / LAN) |
@@ -184,7 +184,7 @@ bot_token = "…"           # @BotFather — required
 
 | Key | Why |
 |---|---|
-| `bot_token` | Telegram Bot API auth |
+| `bot_token` | Telegram Bot API auth. The bot must have **Threaded Mode** on in @BotFather (private-chat topics). Setup and worker start fail if `getMe.has_topics_enabled` is false. |
 
 **acp-host** does not require the bot token; it only needs the shared `state_dir`
 and optional `[repos]` / `[oauth]` / `[schedule]`.
