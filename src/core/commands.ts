@@ -25,7 +25,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/new",
     scope: "lobby",
-    summary: "Create a session (needs a repo from `acpbot repo`)",
+    summary: "Create a session (repo picker; needs `acpbot repo` first)",
   },
   {
     name: "/sessions",

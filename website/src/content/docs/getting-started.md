@@ -156,8 +156,8 @@ macOS Full Disk Access (offered in setup) only lets agents **read** those paths.
 
 ```text
 /ping
-/new demo hello
-# open the new forum topic → type a prompt
+/new
+# pick a repo, name the session, open that topic → type a prompt
 
 /status   /model   /effort   /agent   /mode   /skills   /mcp   /cancel
 # while busy: free-text is queued; /steer <text> interrupts

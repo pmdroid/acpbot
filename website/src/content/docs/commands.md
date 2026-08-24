@@ -13,7 +13,7 @@ Commands are registered in `src/core/commands.ts`.
 | Command | Description |
 |---|---|
 | `/ping` | Liveness → `pong` |
-| `/new` | Create a session (repo picker, or `/new <repo> <name>`) |
+| `/new` | Create a session (repo picker). `/new <repo> <name>` skips the picker |
 | `/sessions` | List sessions from the acpbot store (shows Linear project when bound) |
 | `/help` | Lobby help |
 

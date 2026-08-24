@@ -121,8 +121,8 @@ Setup may open on a parent like `~/code`. That parent is not a workspace. Browse
 
 ```text
 /ping
-/new demo hello
-# open the topic → type a prompt
+/new
+# pick a repo, name the session, open the topic → type a prompt
 
 /status  /model  /effort  /agent  /mode  /skills  /mcp  /cancel  /fresh
 # while busy: free-text is queued; /steer <text> interrupts
