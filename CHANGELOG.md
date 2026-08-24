@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **Native Linear integration** — `/linear`, `linear_*` MCP tools, topic↔project bindings, Linear skill, and the Linear docs page. Track work in **GitHub issues** (`gh issue`, or add GitHub MCP with `/mcp add`). Generic remote MCP OAuth is unchanged.
+
 ### Fixed / hardened
 
 - **Setup fails closed without Threaded Mode** — `acpbot setup` calls `getMe` after the bot token and **does not write config or install services** when `has_topics_enabled` is false. BotFather labels this **Threaded Mode** (same flag as topics in private chats). Worker boot uses the same wording (no more “restart tacp”).

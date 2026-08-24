@@ -27,7 +27,6 @@ The name `acpbot` is reserved.
 | `schedule_run_now` | Mark due so the host fires on the next tick |
 | `agent_spawn` / `list` / `send` / `wait` / `kill` | Multi-agent children (worktrees + A2A) — [Multi-agent](/docs/multi-agent) |
 | `review_run` | Dual-agent closeout review (frozen bundle) — [Review](/docs/review) |
-| `linear_get_binding` / `linear_bind_project` / `linear_unbind_project` | Topic ↔ Linear project binding — [Linear](/docs/linear) |
 
 ### Working bubble vs permanent messages
 
@@ -41,7 +40,7 @@ Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegra
 
 Outbound Telegram tools **never** see the bot token. They POST to the worker Unix API — [Worker API](/docs/worker-api).
 
-Agent guidance for these tools is in bundled skills **telegram**, **schedules**, **multi-agent**, and **linear** ([Skills](/docs/skills)).
+Agent guidance for these tools is in bundled skills **telegram**, **schedules**, and **multi-agent** ([Skills](/docs/skills)).
 
 Disable host MCP entirely:
 
@@ -113,10 +112,10 @@ Missing or invalid JSON → built-in only (warn on invalid).
 Register via topic commands (persisted in the repo registry, **not** tokens):
 
 ```text
-/mcp add linear https://mcp.example/…
+/mcp add github https://mcp.example/…
 /mcp status
-/mcp remove linear
-/mcp auth linear
+/mcp remove github
+/mcp auth github
 ```
 
 OAuth: [OAuth](/docs/oauth).

@@ -1,6 +1,6 @@
 /**
  * Bundled operator skills embedded for release binaries.
- * Keep in sync with package `skills/{telegram,schedules,multi-agent,linear,eve,autoreview}/SKILL.md`.
+ * Keep in sync with package `skills/{autoreview,eve,multi-agent,schedules,telegram}/SKILL.md`.
  * Binary installs materialize these under ~/.local/share/acpbot/bundled-skills/
  * (see bundled-skills.ts). Source of truth when developing: package `skills/`.
  */
@@ -31,7 +31,7 @@ Skip for prose-only docs / skill text unless the operator insists.
 
 | Who | How |
 |---|---|
-| Operator | \`/review [local\|branch] [agentA] [agentB] [panel\|adversarial]\` |
+| Operator | \`/review [local\\|branch] [agentA] [agentB] [panel\\|adversarial]\` |
 | Agent | MCP \`review_run({ mode, protocol, agent_a, agent_b, … })\` |
 
 Defaults:
@@ -111,7 +111,7 @@ description: >
   EVE (Extraterrestrial Vegetation Evaluator) — background multi-agent
   directives. You author JS orchestration graphs; the host runs them with
   zero-token control flow; leaf agent() calls use worktrees. Prefer for
-  Linear drains, multi-file audits, and long parallel jobs. Not ultracode.
+  GitHub issue drains, multi-file audits, and long parallel jobs. Not ultracode.
   There are no shipped directive scripts — write one with eve_write, then
   eve_run (or inline source).
 ---
@@ -121,7 +121,7 @@ description: >
 Named after WALL·E’s probe: **EVE runs the fleet while you wait for the plant.**
 
 **You build the workflow.** acpbot does **not** ship named directives
-(\`linear-drain\`, \`audit-routes\`, etc.). For any multi-step background job:
+(\`issue-drain\`, \`audit-routes\`, etc.). For any multi-step background job:
 
 1. Design a small JS graph (discover → fan-out → synthesize)
 2. Save it with **\`eve_write\`** (or pass **inline \`source\`** to \`eve_run\`)
@@ -142,16 +142,16 @@ an EVE graph fits.
 | \`eve_approve\` | Approve a pending run |
 | \`eve_status\` / \`eve_pause\` / \`eve_resume\` / \`eve_kill\` | Control |
 
-Operator: \`/eve\` (alias \`/directive\`). \`/linear drain\` kicks **you** to
-author a drain directive for the bound project — it does not run a built-in.
+Operator: \`/eve\` (alias \`/directive\`). Ask for a GitHub issue drain in chat
+to have **you** author a directive — it does not run a built-in.
 
 ## When to use EVE vs chat multi-agent
 
 | Situation | Use |
 |---|---|
 | One implementer after a plan | \`agent_spawn\` (multi-agent skill) |
-| One Linear issue interactively | \`/linear next\` or \`/linear work\` |
-| Drain a Linear project unattended | **Write + \`eve_run\` a drain directive** |
+| One GitHub issue interactively | Work it in this topic (\`gh issue view\`) |
+| Drain open GitHub issues unattended | **Write + \`eve_run\` a drain directive** |
 | Multi-file audit / parallel graph | **Write + \`eve_run\`** |
 | Recurring background job | Schedule whose fire prompt calls \`eve_run\` on a script you saved |
 
@@ -342,29 +342,25 @@ Leaf outcomes stay in the run log. Telegram only pings on **done** or **help nee
 
 ## Recipe patterns (build these yourself)
 
-### A. Linear project drain (ready-set)
+### A. GitHub issues drain (ready-set)
 
-When the operator wants an unattended drain (\`/linear drain\`, “drain the
-project”, “work open issues in background”):
+When the operator wants an unattended drain (“drain open issues”, “work
+GitHub issues in background”):
 
-1. \`linear_get_binding\` — require a bound project; stop if missing
-2. \`eve_write\` a directive named e.g. \`linear-drain\` (project scope) that:
-   - **Discover:** one \`agent()\` with Linear MCP instructions: list open
-     issues in the **bound** project only; return \`{ issues: [{ id,
-     identifier, title, body, blockedBy[] }] }\` via schema
+1. Confirm the GitHub repo (this session’s cwd, or \`gh repo view\`)
+2. \`eve_write\` a directive named e.g. \`issue-drain\` (project scope) that:
+   - **Discover:** one \`agent()\` using \`gh issue list\` (or GitHub MCP if
+     registered via \`/mcp add\`): list open issues; return \`{ issues: [{ id,
+     number, title, body, blockedBy[] }] }\` via schema
    - Filter to **ready** (empty \`blockedBy\`), cap with \`args.maxIssues\` (default 20)
    - **Implement:** \`pipeline(ready, issue => agent(…only this issue…, {
-     label: identifier, schema: { status: done|blocked, summary, prUrl? },
+     label: String(issue.number), schema: { status: done|blocked, summary, prUrl? },
      timeout_sec: 1200 }))\`
-   - **Close:** either call \`host.linearApplyResults(results)\` if present, or
-     one final \`agent()\` that comments + sets Done/blocked from the JSON.
+   - **Close:** one final \`agent()\` that comments + closes/leaves open from the JSON.
      If any result is \`blocked\`, **\`await host.ask\`** (retry / continue / stop)
      before returning — do not silently end the drain.
-3. \`eve_run({ name: "linear-drain", args: { maxIssues?, sequential? } })\`
+3. \`eve_run({ name: "issue-drain", args: { maxIssues?, sequential? } })\`
 4. Tell operator: approve if pending; watch \`/eve status\`
-
-Pass binding ids in \`args\` when useful (\`projectId\`, \`projectName\`). Leaf
-prompts must still say “bound project only”.
 
 ### B. Fan-out audit / review
 
@@ -429,133 +425,11 @@ Hard spawn caps from \`[agents.spawn]\` still apply. Leaves free slots after eac
 
 ## Do not
 
-- Expect built-in names (\`linear-drain\`, \`audit-routes\`) to exist until **you** write them
+- Expect built-in names (\`issue-drain\`, \`audit-routes\`) to exist until **you** write them
 - Put long multi-issue loops only in chat when EVE fits
 - Ignore \`budget.ok()\` or spawn caps
 - Call it ultracode
 - Commit secrets into \`.acpbot/eve/*.js\`
-`,
-  },
-  "linear": {
-    "SKILL.md": `---
-name: linear
-description: >
-  Linear via acpbot: OAuth MCP tools for issues/projects, plus host binding so
-  this Telegram topic is tied to one Linear project. Use when exporting a plan
-  to Linear, working the bound project's backlog, fan-out, or updating issue status.
----
-
-# Linear (acpbot)
-
-This topic can be **bound** to one Linear project. That project is the backlog
-you work through. Linear data lives in Linear; acpbot only stores the binding.
-
-Free-text turns may include a sticky \`[Linear] Bound project …\` prefix when
-bound — honor it. Env may also set \`ACPBOT_LINEAR_PROJECT_ID\` (and optional
-name/url/last issue) on MCP children after (re)spawn.
-
-## Setup (operator)
-
-1. \`[oauth].callback_base\` configured (\`acpbot setup\`)
-2. \`/linear connect\` — registers official MCP + browser OAuth
-3. \`/linear project <id|url>\` **or** create via export and \`linear_bind_project\`
-
-Official MCP: \`https://mcp.linear.app/mcp\` (id **\`linear\`**).
-
-## Host MCP tools (\`acpbot\`)
-
-| Tool | Purpose |
-|---|---|
-| \`linear_get_binding\` | Read topic↔project binding |
-| \`linear_bind_project\` | Save binding after create/attach; set \`lastIssueId\` when focusing |
-| \`linear_unbind_project\` | Clear binding (does not delete Linear data) |
-
-## Linear MCP tools (\`linear\`)
-
-Use the **Linear** remote MCP (after OAuth) to list/create/update projects,
-issues, comments, and statuses. Prefer those tools over shell/\`curl\`.
-
-## Always scope to the bound project
-
-\`\`\`
-linear_get_binding({})
-\`\`\`
-
-If bound, filter issue list/create to that \`projectId\`. Do not wander the
-whole workspace unless the operator asks.
-
-## One issue at a time
-
-Unless the operator asks for fan-out or multi-issue work:
-
-1. Pick **one** open issue
-2. In Progress → implement → comment → Done (or blocked)
-3. Do **not** start a second issue in the same turn
-4. Refresh \`lastIssueId\` via \`linear_bind_project\`
-
-## Recipes
-
-### Plan → Linear project
-
-1. Finish the plan with the operator (often after \`/plan\`).
-2. Propose project name, milestones (only if clear phases), and issues
-   (title + problem/goal/approach/open questions).
-3. Wait for confirmation before bulk create.
-4. Create via Linear MCP.
-5. \`linear_bind_project({ projectId, projectName, projectUrl?, teamId?, teamKey?, boundBy: "export" })\`
-6. Reply with links/ids.
-
-Operator shortcut: \`/linear export\`.
-
-### Work the bound project (\`/linear next\`)
-
-1. \`linear_get_binding\`
-2. List open issues in that project only
-3. Choose the best next (unblocked, priority); if \`/linear next\` was used, proceed
-   unless two candidates are tied
-4. In Progress + comment; set \`lastIssueId\`
-5. Implement; \`update\` for progress
-6. Comment + Done (or blocked); suggest another \`/linear next\`
-
-### Single issue (\`/linear work ENG-123\`)
-
-Same loop forced onto one identifier.
-
-### Multi-agent fan-out (\`/linear fanout\`)
-
-After the project is bound:
-
-1. List open issues; show spawn plan; confirm unless operator already approved
-2. For each ready issue (respect spawn caps):  
-   \`agent_spawn({ name: "<issue-slug>", prompt: "Implement only ISSUE … acceptance …" })\`  
-   Prefer default headless children
-3. \`agent_wait\` per child
-4. On success: Linear comment + Done; on failure: comment blocker
-5. Summarize to the operator
-
-See the **multi-agent** skill for spawn/wait rules. Parent is A2A hub only.
-
-## Do not
-
-- Put Linear tokens or OAuth secrets in the repo or prompts
-- Create bulk issues without operator confirmation
-- Ignore a bound project id when one is set
-- Start multiple issues in one non-fanout turn
-- Assume Linear MCP tools exist before \`/linear connect\` / OAuth
-
-## Operator commands
-
-| Command | Effect |
-|---|---|
-| \`/linear\` | Status |
-| \`/linear connect\` | MCP + OAuth |
-| \`/linear project <id\\|url>\` | Bind topic (+ topic title suffix) |
-| \`/linear export\` | Plan → project agent turn |
-| \`/linear next\` | One next open issue |
-| \`/linear work <ISSUE>\` | Focus one issue |
-| \`/linear fanout\` | Multi-agent one child per open issue |
-| \`/linear drain\` | Agent **writes + runs** an EVE drain directive (see **eve** skill) |
-| \`/linear unbind\` | Clear binding |
 `,
   },
   "multi-agent": {
@@ -595,14 +469,14 @@ Host MCP server: **\`acpbot\`**. Tools (no CLI in v1):
 4. Optionally \`agent_spawn\` a reviewer; or merge/PR from the child branch yourself
 5. Summarize to the operator
 
-## Linear project fan-out
+## GitHub issue fan-out
 
-When this topic is bound to a Linear project (see **linear** skill / \`/linear fanout\`):
+When the operator wants one child per GitHub issue:
 
-1. List open issues in the bound project only
+1. List open issues (\`gh issue list\` in this repo, or GitHub MCP if \`/mcp add\` registered it)
 2. Confirm spawn plan with the operator
-3. One \`agent_spawn\` per issue (slug from issue id); kickoff = issue body + acceptance criteria
-4. Parent waits; on success update Linear (comment + Done)
+3. One \`agent_spawn\` per issue (slug from issue number); kickoff = issue body + acceptance criteria
+4. Parent waits; on success comment and close the issue
 5. Do not share parent cwd; respect spawn caps
 
 ## Example
@@ -800,5 +674,5 @@ do not invent a fake “sent” status.
 
 For delayed or recurring work, use the **schedules** skill (\`schedule_create\` / \`list\` / \`cancel\` / \`run_now\`).
 `,
-  }
+  },
 };

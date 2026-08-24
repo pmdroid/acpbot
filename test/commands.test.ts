@@ -59,7 +59,6 @@ describe("command registry", () => {
       "/eve",
       "/fresh",
       "/help",
-      "/linear",
       "/mcp",
       "/mode",
       "/model",

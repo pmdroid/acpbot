@@ -64,7 +64,7 @@ tts_mode = "agent"                       # agent | always | off
 
 # ── EVE (Extraterrestrial Vegetation Evaluator) ────────────────────────────
 # Background multi-agent directives — JS graphs, leaf worktrees.
-# WALL-E-inspired. Not ultracode. Operator: /eve · /linear drain
+# WALL-E-inspired. Not ultracode. Operator: /eve
 [eve]
 # enabled = true
 # max_agents_per_run = 100

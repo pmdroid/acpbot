@@ -41,7 +41,7 @@ import type { Logger } from "../env/logger";
 import { silentLogger } from "../env/logger";
 
 export type StartMcpAuthInput = {
-  /** Gateway id from mcp.json (e.g. "linear"). */
+  /** Gateway id from mcp.json (e.g. "github"). */
   id: string;
   /** Remote MCP URL from mcp.json. */
   resourceUrl: string;

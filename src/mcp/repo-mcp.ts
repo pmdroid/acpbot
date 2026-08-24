@@ -34,10 +34,6 @@ import {
 } from "./oauth-flow";
 import { repoKeyForOAuth, resolveOAuthStateDir } from "./oauth-store";
 import { resolveRepoConfigDir } from "../env/repo-config-dir";
-import {
-  linearBindingEnvVars,
-  loadLinearBinding,
-} from "../linear/bindings";
 
 /** ACP-compatible remote MCP (http/sse) — passed through when present. */
 export type AcpbotMcpRemoteServer = {
@@ -578,7 +574,7 @@ export function injectSessionEnv(
     repoRoot: string;
     /** Per-repo state dir (`<cwd>/.acpbot`). */
     repoStateDir: string;
-    /** Extra env (e.g. Linear project binding — not secrets). */
+    /** Extra env for MCP children (not secrets). */
     extraEnv?: Array<{ name: string; value: string }>;
   },
 ): SessionMcpServer {
@@ -766,20 +762,6 @@ export async function buildSessionMcpServers(
     options.oauthStateDir?.trim() || options.stateDir?.trim() || undefined,
   );
 
-  // Inject bound Linear project ids into MCP children (non-secret context).
-  let linearEnv: Array<{ name: string; value: string }> = [];
-  if (options.sessionKey?.trim()) {
-    try {
-      const binding = await loadLinearBinding(
-        oauthStateDir,
-        options.sessionKey.trim(),
-      );
-      linearEnv = linearBindingEnvVars(binding);
-    } catch {
-      /* ignore binding read errors */
-    }
-  }
-
   const injectCtx: {
     sessionKey?: string;
     repoRoot: string;
@@ -791,9 +773,6 @@ export async function buildSessionMcpServers(
   };
   if (options.sessionKey !== undefined) {
     injectCtx.sessionKey = options.sessionKey;
-  }
-  if (linearEnv.length > 0) {
-    injectCtx.extraEnv = linearEnv;
   }
 
   let merged: SessionMcpServer[] = [

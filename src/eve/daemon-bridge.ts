@@ -115,11 +115,7 @@ export function bindEveRuntimeDeps(input: {
   return {
     notify,
     shouldAbort: async (runId: string) => abortFlags.get(runId) === true,
-    hostHelpers: {
-      async linearApplyResults(results: unknown) {
-        return { applied: Array.isArray(results) ? results.length : 0 };
-      },
-    },
+    hostHelpers: {},
     runNested,
     runAgent: async (leaf) => {
       const agent = leaf.agent.trim() || defaultAgent || "grok-build";

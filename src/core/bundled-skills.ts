@@ -1,5 +1,5 @@
 /**
- * acpbot ships operator skills under package `skills/{telegram,schedules}/`
+ * acpbot ships operator skills under package `skills/{telegram,schedules,…}/`
  * and embeds the same content in the binary for release installs.
  *
  * - Always available for Telegram `/skills` via skillRoots (ensured root).

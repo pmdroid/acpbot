@@ -116,7 +116,7 @@ acpbot repo add
 
 See [Repos](/docs/repos).
 
-Optional — install bundled skills (`telegram`, `schedules`, `multi-agent`, `linear`, `eve`) into global agent dirs so Grok/Claude/… see them outside Telegram:
+Optional — install bundled skills (`telegram`, `schedules`, `multi-agent`, `eve`) into global agent dirs so Grok/Claude/… see them outside Telegram:
 
 ```bash
 acpbot skills install
@@ -250,5 +250,5 @@ bun run typecheck
 - [Architecture](/docs/architecture)
 - [MCP](/docs/mcp) — per-repo tools & host `acpbot` tools  
 - [Skills](/docs/skills) — bundled skills, global install
-- [Multi-agent](/docs/multi-agent) · [EVE](/docs/eve) · [Linear](/docs/linear)
+- [Multi-agent](/docs/multi-agent) · [EVE](/docs/eve)
 - [OAuth](/docs/oauth) — remote MCP gateways

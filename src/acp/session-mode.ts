@@ -433,8 +433,6 @@ export function formatSessionStatus(input: {
   /** Children of this session (parent hub). */
   children?: StatusChildLine[] | undefined;
   childrenTruncated?: number | undefined;
-  /** Linear topic↔project binding summary line(s). */
-  linearLine?: string | undefined;
 }): string {
   const launch =
     input.launch != null
@@ -480,7 +478,6 @@ export function formatSessionStatus(input: {
         : "—";
     lines.push(`MCP: ${input.mcpCount ?? 0} · ${names}`);
   }
-  if (input.linearLine) lines.push(input.linearLine);
 
   if (input.spawnParentKey) {
     const bits = [

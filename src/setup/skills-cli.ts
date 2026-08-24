@@ -24,7 +24,7 @@ export function skillsCliHelp(): string {
   acpbot skills help            This help
 
 Install targets (symlink preferred, copy fallback):
-  ~/.agents/skills/{telegram,schedules,multi-agent,linear,eve,autoreview,…}
+  ~/.agents/skills/{telegram,schedules,multi-agent,eve,autoreview,…}
   ~/.grok/skills/…
   ~/.claude/skills/…
 
