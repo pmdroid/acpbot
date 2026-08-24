@@ -9,6 +9,7 @@ import type {
   TelegramUpdate,
 } from "../env/types";
 import { TelegramApiError } from "../env/types";
+import { assertBotMeHasTopics } from "../env/telegram-topics";
 import { silentLogger, summarizeUpdate } from "../env/logger";
 import { createOutboundMessageIndex } from "./outbound-messages";
 import {
@@ -105,6 +106,10 @@ import {
   type SkillInfo,
 } from "./skills";
 import { initialTopicName, topicName } from "./status";
+import {
+  noReposConfiguredMessage,
+  unknownRepoMessage,
+} from "./repo-required";
 import {
   formatModeStatus,
   formatSessionStatus,
@@ -234,15 +239,7 @@ export type Daemon = {
   createSession(identity: SessionIdentity): Promise<PersistedSession>;
 };
 
-export class TopicsDisabledError extends Error {
-  constructor() {
-    super(
-      "Bot does not have topics enabled (getMe.has_topics_enabled is false). " +
-        "Enable topic mode for this bot via @BotFather, then restart tacp.",
-    );
-    this.name = "TopicsDisabledError";
-  }
-}
+export { TopicsDisabledError } from "../env/telegram-topics";
 
 export class StartupError extends Error {
   constructor(message: string) {
@@ -544,9 +541,7 @@ export function createDaemon(
       username: me.username,
       has_topics_enabled: me.has_topics_enabled,
     });
-    if (!me.has_topics_enabled) {
-      throw new TopicsDisabledError();
-    }
+    assertBotMeHasTopics(me);
   }
 
   async function hydrate(): Promise<void> {
@@ -1395,11 +1390,7 @@ export function createDaemon(
   async function offerRepoPicker(chatId: number): Promise<void> {
     const keys = repoKeys();
     if (keys.length === 0) {
-      await replyInRoot(
-        chatId,
-        "No repos configured. Set TACP_REPOS_JSON, e.g. {\"tacp\":\"/path/to/repo\"}.\n" +
-          "Or use /new <repo> <name> once configured.",
-      );
+      await replyInRoot(chatId, noReposConfiguredMessage());
       return;
     }
     const buttons = keys.map((k, i) => ({
@@ -1561,6 +1552,15 @@ export function createDaemon(
         const name = slash.args[1];
         if (!repo || !name) {
           await offerRepoPicker(chatId);
+          return;
+        }
+        const known = repoKeys();
+        if (known.length === 0) {
+          await lobbyReply(noReposConfiguredMessage());
+          return;
+        }
+        if (!known.includes(repo)) {
+          await lobbyReply(unknownRepoMessage(repo));
           return;
         }
         const ok = parseSessionNameCandidate(name);
@@ -6301,7 +6301,5 @@ export function createDaemon(
 
 export async function assertReadyToRun(env: Environment): Promise<void> {
   const me = await env.telegram.getMe();
-  if (!me.has_topics_enabled) {
-    throw new TopicsDisabledError();
-  }
+  assertBotMeHasTopics(me);
 }

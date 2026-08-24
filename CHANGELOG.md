@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed / hardened
+
+- **Setup fails closed without Threaded Mode** — `acpbot setup` calls `getMe` after the bot token and **does not write config or install services** when `has_topics_enabled` is false. BotFather labels this **Threaded Mode** (same flag as topics in private chats). Worker boot uses the same wording (no more “restart tacp”).
+- **`/new` without a repo** — empty `[repos]` tells you to run `acpbot repo add`. You cannot start a session until a workspace exists. Setup outro, `/help`, and getting-started say the same.
+- **Setup projects folder** — the folder browser may open on a parent (`~/code`, `~/Projects`). That parent is not a workspace. Browse into the project, then Use this folder. Full Disk Access does not register repos. Docs match.
+
 ## [0.2.2] — 2026-08-23
 
 ### Fixed / hardened

@@ -176,7 +176,10 @@ export type BotMe = {
   is_bot: boolean;
   first_name: string;
   username?: string;
-  /** Bot API 9.3+: topics enabled in private chats with this bot. */
+  /**
+   * Bot API 9.3+: private-chat topics for this bot.
+   * Same toggle as BotFather Threaded Mode.
+   */
   has_topics_enabled?: boolean;
 };
 

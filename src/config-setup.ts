@@ -31,6 +31,11 @@ import {
   agentSelectOptions,
   listKnownAgentIds,
 } from "./acp/agent-launch";
+import {
+  TopicsDisabledError,
+  verifyBotTokenTopics,
+  type BotTokenVerifier,
+} from "./env/telegram-topics";
 
 const PLACEHOLDER_TOKEN = "REPLACE_ME";
 
@@ -225,6 +230,12 @@ export type FirstRunOptions = {
    * (bot token shown masked; Enter keeps current values).
    */
   existing?: ProcessConfig;
+  /**
+   * getMe + Threaded Mode check. Interactive setup always verifies
+   * (default: live Telegram). Pass a stub in tests, or omit on the
+   * injected-answers path to skip the network call.
+   */
+  verifyBot?: BotTokenVerifier;
 };
 
 function maskToken(token: string): string {
@@ -272,7 +283,7 @@ export async function runFirstRunSetup(
             ? `(Re-run: press Enter to keep a current value.)\n\n`
             : `\n`) +
           `Prereqs:\n` +
-          `  • @BotFather → bot token + topics in private chats\n` +
+          `  • @BotFather → bot token + Threaded Mode (topics in private chats)\n` +
           `  • Agent CLI on PATH (detected below)\n\n`,
       );
 
@@ -294,6 +305,24 @@ export async function runFirstRunSetup(
             "  Need a real token from @BotFather (looks like 123456:AA…).\n",
           );
         }
+      }
+
+      const verify: BotTokenVerifier =
+        options.verifyBot ?? ((token) => verifyBotTokenTopics({ token }));
+      stdout.write("  Checking bot with Telegram (Threaded Mode)…\n");
+      try {
+        const me = await verify(botToken);
+        const who = me.username ? `@${me.username}` : me.first_name;
+        stdout.write(`  Bot ${who} — Threaded Mode is on.\n`);
+      } catch (err) {
+        if (err instanceof TopicsDisabledError) {
+          throw err;
+        }
+        throw new Error(
+          err instanceof Error
+            ? `Could not use that bot token: ${err.message}`
+            : "Could not use that bot token",
+        );
       }
 
       let agentPick = agentSelectOptions();
@@ -349,7 +378,7 @@ export async function runFirstRunSetup(
           rl,
           hasRepo
             ? `Add/replace a workspace repo? (y/N)  [have: ${existingRepos.map(([k]) => k).join(", ")}]`
-            : "Add a workspace repo now? (y/N)",
+            : "Add a project folder now? Pick the project itself, not ~/code (y/N)",
           "n",
         )
       ).toLowerCase();
@@ -359,6 +388,10 @@ export async function runFirstRunSetup(
         const defKey = existingRepos[0]?.[0] ?? "demo";
         const defPath =
           existingRepos[0]?.[1] ?? join(homeDir(env), "code");
+        stdout.write(
+          "  Path is the project directory (cwd for the agent), not a parent like ~/Projects.\n" +
+            "  Add more later with: acpbot repo add\n",
+        );
         repoKey = (await ask(rl, "Repo key (short name)", defKey)) || "demo";
         const pathRaw = await ask(rl, "Repo absolute path", defPath);
         repoPath = resolvePath(pathRaw, env);
@@ -380,12 +413,19 @@ export async function runFirstRunSetup(
         `\nNext:\n` +
           `  terminal 1:  acpbot host\n` +
           `  terminal 2:  acpbot worker\n` +
+          (repoKey
+            ? ``
+            : `  required:    acpbot repo add   # /new cannot start a session without a repo\n`) +
           `  telegram:    /ping  then  /new\n` +
           `  re-run:      acpbot setup\n\n`,
       );
     } finally {
       rl.close();
     }
+  }
+
+  if (options.verifyBot) {
+    await options.verifyBot(answers!.botToken);
   }
 
   writeConfigToml(options.configPath, renderConfigToml(answers!));
@@ -401,35 +441,43 @@ export async function runFirstRunSetup(
 export async function runSetupCommand(
   options: LoadConfigOptions = {},
 ): Promise<ProcessConfig> {
-  // Prefer full guided TUI when stdin is a TTY.
-  const interactive =
-    typeof process.stdin !== "undefined" && process.stdin.isTTY === true;
-  if (interactive) {
-    const { runGuidedSetupTui } = await import("./setup/guided-tui");
-    const result = await runGuidedSetupTui(options);
-    return result.cfg;
-  }
-  // Non-TTY fallback: simple wizard requires answers injection or fails clearly
-  const layout = ensureAcpbotLayout(options);
-  const env = options.env ?? process.env;
-  let existing: ProcessConfig | undefined;
   try {
-    existing = loadConfig({
+    // Prefer full guided TUI when stdin is a TTY.
+    const interactive =
+      typeof process.stdin !== "undefined" && process.stdin.isTTY === true;
+    if (interactive) {
+      const { runGuidedSetupTui } = await import("./setup/guided-tui");
+      const result = await runGuidedSetupTui(options);
+      return result.cfg;
+    }
+    // Non-TTY fallback: simple wizard requires answers injection or fails clearly
+    const layout = ensureAcpbotLayout(options);
+    const env = options.env ?? process.env;
+    let existing: ProcessConfig | undefined;
+    try {
+      existing = loadConfig({
+        configPath: layout.configPath,
+        env,
+        requireTelegram: false,
+      });
+    } catch {
+      existing = undefined;
+    }
+    return await runFirstRunSetup({
       configPath: layout.configPath,
       env,
-      requireTelegram: false,
+      existing:
+        existing && !isPlaceholderBotToken(existing.botToken)
+          ? existing
+          : undefined,
     });
-  } catch {
-    existing = undefined;
+  } catch (err) {
+    if (err instanceof TopicsDisabledError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
   }
-  return runFirstRunSetup({
-    configPath: layout.configPath,
-    env,
-    existing:
-      existing && !isPlaceholderBotToken(existing.botToken)
-        ? existing
-        : undefined,
-  });
 }
 
 /**

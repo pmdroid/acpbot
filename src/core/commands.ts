@@ -25,7 +25,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {
     name: "/new",
     scope: "lobby",
-    summary: "Create a session (picker, or /new <repo> <name>)",
+    summary: "Create a session (needs a repo from `acpbot repo`)",
   },
   {
     name: "/sessions",
@@ -205,6 +205,7 @@ export function lobbyHelpText(): string {
       (c) => `${c.name} — ${c.summary}`,
     ),
     "",
+    "Sessions need a workspace repo: `acpbot repo add`, then `/new`.",
     "Prompt the agent in a session topic · topic `/help` for more.",
   ];
   return lines.join("\n");

@@ -283,7 +283,7 @@ export function fakeAgents(options: FakeAgentsOptions = {}): AgentsPort & {
       const cwd = opts?.cwd?.trim() || repos[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — configure it before creating a session`,
+          `unknown repo "${identity.repo}" — add it with: acpbot repo add ${identity.repo}`,
         );
       }
 

@@ -31,7 +31,7 @@ export function isRepoCliCommand(argv: string[] = process.argv): boolean {
 }
 
 export function repoCliHelp(): string {
-  return `Workspace repos ([repos] in config.toml — used by /new)
+  return `Workspace repos ([repos] in config.toml — required before /new)
   acpbot repo                 Interactive manager (list / add / edit / remove)
   acpbot repo list            List configured repos
   acpbot repo add [key] [path]
@@ -44,8 +44,11 @@ export function repoCliHelp(): string {
   acpbot repos …              Alias of repo
 
 Notes:
+  • You cannot start a Telegram session until at least one repo exists
+  • Each key is one project folder (cwd). A parent like ~/Projects is not enough
+  • Browse into the project, then Use this folder; add more with acpbot repo add
   • Paths must be existing directories (absolute or ~/…)
-  • Restart the worker after changes so /new picks them up
+  • Host/worker hot-reload [repos]; /new sees new keys without restart
   • Config: ~/.config/acpbot/config.toml (or $ACPBOT_CONFIG)`;
 }
 
@@ -94,7 +97,7 @@ function loadReposMap(
 function printList(repos: Record<string, string>, configPath: string): void {
   const keys = Object.keys(repos).sort((a, b) => a.localeCompare(b));
   if (keys.length === 0) {
-    console.log("No repos configured.");
+    console.log("No repos configured. /new cannot start a session until you add one.");
     console.log(`Config: ${configPath}`);
     console.log("Add one: acpbot repo add");
     return;
@@ -157,7 +160,9 @@ async function runInteractive(
   for (;;) {
     const keys = Object.keys(repos).sort((a, b) => a.localeCompare(b));
     if (keys.length === 0) {
-      p.log.message("No workspace repos yet. Add one for Telegram /new.");
+      p.log.message(
+        "No workspace repos yet. Add a project folder (not the parent ~/Projects or ~/code) so /new can start a session.",
+      );
     } else {
       p.log.info(
         keys.map((k) => `${k} → ${repos[k]}`).join("\n"),

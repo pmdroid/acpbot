@@ -241,7 +241,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       const cwd = repos[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON / config.repos`,
+          `unknown repo "${identity.repo}" — add it with: acpbot repo add ${identity.repo}`,
         );
       }
       const agent = agentId.trim();
@@ -296,7 +296,7 @@ export function realAgents(options: RealAgentsOptions): AgentsPort {
       const cwd = opts?.cwd?.trim() || repos[identity.repo];
       if (!cwd) {
         throw new Error(
-          `unknown repo "${identity.repo}" — add it to ACPBOT_REPOS_JSON / config.repos`,
+          `unknown repo "${identity.repo}" — add it with: acpbot repo add ${identity.repo}`,
         );
       }
 

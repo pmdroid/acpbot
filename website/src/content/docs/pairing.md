@@ -33,6 +33,7 @@ acpbot pair status
 
 5. The worker picks up the pair on the next poll and confirms in Telegram.
 6. Only that Telegram account can control the bot afterward.
+7. Add a **project folder** with `acpbot repo add` if you have not already (browse into the project, not the parent `~/Projects`). `/new` cannot start a session until `[repos]` has an entry.
 
 ## Why this is safer
 

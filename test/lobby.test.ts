@@ -87,6 +87,7 @@ describe("01 — authenticated daemon with working lobby", () => {
     await expect(assertReadyToRun(env)).rejects.toBeInstanceOf(
       TopicsDisabledError,
     );
+    await expect(assertReadyToRun(env)).rejects.toThrow(/Threaded Mode/);
 
     const ac = new AbortController();
     const daemon = createDaemon(env, { pollTimeoutSec: 0 });

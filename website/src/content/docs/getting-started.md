@@ -9,7 +9,7 @@ No Bun or source checkout required for normal use. Download a **[v0.2.2](https:/
 
 ## Requirements
 
-- A Telegram bot with **topic mode enabled** in private chats ([@BotFather](https://t.me/BotFather))
+- A Telegram bot with **Threaded Mode** on in [@BotFather](https://t.me/BotFather) (Bot Settings; Telegram also calls this topics in private chats)
 - Shell access on the host (to approve pairing — you do **not** need a Telegram user id first)
 - At least one agent CLI on `PATH` and logged in where required:
   - **Grok Build** — `grok` (`grok agent stdio`)
@@ -23,7 +23,7 @@ No Bun or source checkout required for normal use. Download a **[v0.2.2](https:/
 @BotFather is not scriptable. Once per bot:
 
 1. Create a bot → copy the **token**
-2. Enable **topics in private chats** for that bot
+2. Open the BotFather mini app (the **Open** button), pick the bot → **Bot Settings** → enable **Threaded Mode**. Chat-style BotFather commands do not always show this toggle. Telegram also calls it topics in private chats. `acpbot setup` checks `getMe.has_topics_enabled` and **stops** if it is false.
 
 Pair as operator after start: DM the bot for a code, then run `acpbot pair approve <code>` on the host. See [Pairing](/docs/pairing).
 
@@ -106,13 +106,15 @@ acpbot host      # terminal 1 — agent stdio, schedules, OAuth
 acpbot worker    # terminal 2 — Telegram
 ```
 
-Workspace roots (folder browser) — see [Repos](/docs/repos):
+**You must add a project folder before `/new`.** Setup’s folder browser often starts in a parent like `~/code` or `~/Projects`. That parent is not the workspace. Browse **into** the project, then **Use this folder**. If you skip this in the wizard, `/new` cannot start a session until you run:
 
 ```bash
-acpbot repo
-acpbot repo add demo ~/code/demo
-# host/worker hot-reload [repos]; restart worker only if needed
+acpbot repo add
+# or: acpbot repo add demo ~/code/demo
+# host/worker hot-reload [repos]; no restart needed
 ```
+
+See [Repos](/docs/repos).
 
 Optional — install bundled skills (`telegram`, `schedules`, `multi-agent`, `linear`, `eve`) into global agent dirs so Grok/Claude/… see them outside Telegram:
 
@@ -138,7 +140,19 @@ acpbot pair status
 
 Details: [Pairing](/docs/pairing).
 
-## 5. Use Telegram
+## 5. Add a workspace repo
+
+`/new` will not create a session until `[repos]` has at least one entry. Each entry is **one project folder**, not the parent that holds many projects.
+
+```bash
+acpbot repo add
+# folder browser: go into the project, then Use this folder
+# or: acpbot repo add demo ~/code/demo
+```
+
+macOS Full Disk Access (offered in setup) only lets agents **read** those paths. It does not add repos. Skip the workspace step and Telegram `/new` replies that you need `acpbot repo add` first.
+
+## 6. Use Telegram
 
 ```text
 /ping
@@ -172,7 +186,7 @@ While a turn runs you will see a single **`⏳`** (or **`❓`**) status bubble i
 
 Details: [Commands](/docs/commands), [Agents](/docs/agents), [Architecture](/docs/architecture#turn-ux-working-bubble).
 
-## 6. Media & speech (optional)
+## 7. Media & speech (optional)
 
 | Direction | Behavior |
 |---|---|
@@ -199,7 +213,8 @@ Full provider options: [Configuration](/docs/configuration#speech-tts--stt-provi
 
 | Symptom | Likely cause |
 |---|---|
-| Boot fails: topics disabled | Enable private-chat topics in @BotFather |
+| Setup or worker: topics disabled | Enable **Threaded Mode** in @BotFather (Bot Settings), then re-run `acpbot setup` |
+| `/new` says no repos | Run `acpbot repo add` on the host, then `/new` again |
 | No reply from non-you | Not paired, or a different Telegram account |
 | Missing bot token | Run `acpbot setup` or edit `~/.config/acpbot/config.toml` |
 | Agent picker empty | No agent CLIs on `PATH` (`grok`, `claude`, …) |
