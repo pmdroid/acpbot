@@ -65,11 +65,7 @@ export function bindHostEveRuntimeDeps(input: {
       ctx.notify(sessionKey, text, extra);
     },
     shouldAbort: async (runId) => isEveAborted(runId),
-    hostHelpers: {
-      async linearApplyResults(results: unknown) {
-        return { applied: Array.isArray(results) ? results.length : 0 };
-      },
-    },
+    hostHelpers: {},
     runNested: async (name, args, parent) => {
       const nested = await service.run(
         {

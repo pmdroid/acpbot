@@ -119,12 +119,6 @@ export const COMMANDS: readonly CommandDef[] = [
       "MCP gateways: status|add|remove|auth|code (tokens on host, not in repo)",
   },
   {
-    name: "/linear",
-    scope: "topic",
-    summary:
-      "Linear: connect|project|export|next|work|fanout|drain (topic ↔ project)",
-  },
-  {
     name: "/eve",
     scope: "topic",
     summary:

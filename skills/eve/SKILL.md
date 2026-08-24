@@ -4,7 +4,7 @@ description: >
   EVE (Extraterrestrial Vegetation Evaluator) — background multi-agent
   directives. You author JS orchestration graphs; the host runs them with
   zero-token control flow; leaf agent() calls use worktrees. Prefer for
-  Linear drains, multi-file audits, and long parallel jobs. Not ultracode.
+  GitHub issue drains, multi-file audits, and long parallel jobs. Not ultracode.
   There are no shipped directive scripts — write one with eve_write, then
   eve_run (or inline source).
 ---
@@ -14,7 +14,7 @@ description: >
 Named after WALL·E’s probe: **EVE runs the fleet while you wait for the plant.**
 
 **You build the workflow.** acpbot does **not** ship named directives
-(`linear-drain`, `audit-routes`, etc.). For any multi-step background job:
+(`issue-drain`, `audit-routes`, etc.). For any multi-step background job:
 
 1. Design a small JS graph (discover → fan-out → synthesize)
 2. Save it with **`eve_write`** (or pass **inline `source`** to `eve_run`)
@@ -35,16 +35,16 @@ an EVE graph fits.
 | `eve_approve` | Approve a pending run |
 | `eve_status` / `eve_pause` / `eve_resume` / `eve_kill` | Control |
 
-Operator: `/eve` (alias `/directive`). `/linear drain` kicks **you** to
-author a drain directive for the bound project — it does not run a built-in.
+Operator: `/eve` (alias `/directive`). Ask for a GitHub issue drain in chat
+to have **you** author a directive — it does not run a built-in.
 
 ## When to use EVE vs chat multi-agent
 
 | Situation | Use |
 |---|---|
 | One implementer after a plan | `agent_spawn` (multi-agent skill) |
-| One Linear issue interactively | `/linear next` or `/linear work` |
-| Drain a Linear project unattended | **Write + `eve_run` a drain directive** |
+| One GitHub issue interactively | Work it in this topic (`gh issue view`) |
+| Drain open GitHub issues unattended | **Write + `eve_run` a drain directive** |
 | Multi-file audit / parallel graph | **Write + `eve_run`** |
 | Recurring background job | Schedule whose fire prompt calls `eve_run` on a script you saved |
 
@@ -235,29 +235,25 @@ Leaf outcomes stay in the run log. Telegram only pings on **done** or **help nee
 
 ## Recipe patterns (build these yourself)
 
-### A. Linear project drain (ready-set)
+### A. GitHub issues drain (ready-set)
 
-When the operator wants an unattended drain (`/linear drain`, “drain the
-project”, “work open issues in background”):
+When the operator wants an unattended drain (“drain open issues”, “work
+GitHub issues in background”):
 
-1. `linear_get_binding` — require a bound project; stop if missing
-2. `eve_write` a directive named e.g. `linear-drain` (project scope) that:
-   - **Discover:** one `agent()` with Linear MCP instructions: list open
-     issues in the **bound** project only; return `{ issues: [{ id,
-     identifier, title, body, blockedBy[] }] }` via schema
+1. Confirm the GitHub repo (this session’s cwd, or `gh repo view`)
+2. `eve_write` a directive named e.g. `issue-drain` (project scope) that:
+   - **Discover:** one `agent()` using `gh issue list` (or GitHub MCP if
+     registered via `/mcp add`): list open issues; return `{ issues: [{ id,
+     number, title, body, blockedBy[] }] }` via schema
    - Filter to **ready** (empty `blockedBy`), cap with `args.maxIssues` (default 20)
    - **Implement:** `pipeline(ready, issue => agent(…only this issue…, {
-     label: identifier, schema: { status: done|blocked, summary, prUrl? },
+     label: String(issue.number), schema: { status: done|blocked, summary, prUrl? },
      timeout_sec: 1200 }))`
-   - **Close:** either call `host.linearApplyResults(results)` if present, or
-     one final `agent()` that comments + sets Done/blocked from the JSON.
+   - **Close:** one final `agent()` that comments + closes/leaves open from the JSON.
      If any result is `blocked`, **`await host.ask`** (retry / continue / stop)
      before returning — do not silently end the drain.
-3. `eve_run({ name: "linear-drain", args: { maxIssues?, sequential? } })`
+3. `eve_run({ name: "issue-drain", args: { maxIssues?, sequential? } })`
 4. Tell operator: approve if pending; watch `/eve status`
-
-Pass binding ids in `args` when useful (`projectId`, `projectName`). Leaf
-prompts must still say “bound project only”.
 
 ### B. Fan-out audit / review
 
@@ -322,7 +318,7 @@ Hard spawn caps from `[agents.spawn]` still apply. Leaves free slots after each 
 
 ## Do not
 
-- Expect built-in names (`linear-drain`, `audit-routes`) to exist until **you** write them
+- Expect built-in names (`issue-drain`, `audit-routes`) to exist until **you** write them
 - Put long multi-issue loops only in chat when EVE fits
 - Ignore `budget.ok()` or spawn caps
 - Call it ultracode

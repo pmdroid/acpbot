@@ -14,7 +14,7 @@ Commands are registered in `src/core/commands.ts`.
 |---|---|
 | `/ping` | Liveness → `pong` |
 | `/new` | Create a session (repo picker). `/new <repo> <name>` skips the picker |
-| `/sessions` | List sessions from the acpbot store (shows Linear project when bound) |
+| `/sessions` | List sessions from the acpbot store |
 | `/help` | Lobby help |
 
 ## Topic (session)
@@ -55,7 +55,6 @@ To test in Telegram (`ask`): prompt *“run `echo hello` and write `perm-test.tx
 | `/build` | Switch to build/code mode (tools on); also used after a plan is ready |
 | `/skills` | Pick a skill, then send a prompt |
 | `/mcp` | Remote MCP registry + OAuth (see below) |
-| `/linear` | Linear OAuth MCP + topic↔project bind / export / next / work / fanout — [Linear](/docs/linear) |
 | `/eve` | Background directives: run / approve / status / answer a parked question — [EVE](/docs/eve) |
 | `/help` | Topic help (includes queue vs steer notes) |
 

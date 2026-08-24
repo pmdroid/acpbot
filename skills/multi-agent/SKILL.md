@@ -34,14 +34,14 @@ Host MCP server: **`acpbot`**. Tools (no CLI in v1):
 4. Optionally `agent_spawn` a reviewer; or merge/PR from the child branch yourself
 5. Summarize to the operator
 
-## Linear project fan-out
+## GitHub issue fan-out
 
-When this topic is bound to a Linear project (see **linear** skill / `/linear fanout`):
+When the operator wants one child per GitHub issue:
 
-1. List open issues in the bound project only
+1. List open issues (`gh issue list` in this repo, or GitHub MCP if `/mcp add` registered it)
 2. Confirm spawn plan with the operator
-3. One `agent_spawn` per issue (slug from issue id); kickoff = issue body + acceptance criteria
-4. Parent waits; on success update Linear (comment + Done)
+3. One `agent_spawn` per issue (slug from issue number); kickoff = issue body + acceptance criteria
+4. Parent waits; on success comment and close the issue
 5. Do not share parent cwd; respect spawn caps
 
 ## Example

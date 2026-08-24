@@ -27,11 +27,11 @@ Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/ma
 | Situation | Approach |
 |---|---|
 | One implementer after a plan | [Multi-agent](/docs/multi-agent) `agent_spawn` |
-| One Linear issue | `/linear next` |
-| Drain a bound Linear project unattended | **`/linear drain`** → agent **authors** an EVE script + `eve_run` |
+| One GitHub issue | Work it in the topic (`gh issue view`) |
+| Drain open GitHub issues unattended | Agent **authors** an EVE script + `eve_run` |
 | Multi-file audit / parallel graph | Agent `eve_write` + `eve_run` (or inline `source`) |
 
-**No shipped directive scripts.** Names like `linear-drain` only exist after an agent
+**No shipped directive scripts.** Names like `issue-drain` only exist after an agent
 (or you) writes them under `.acpbot/eve/`. The **eve** skill teaches agents how.
 
 ## Operator commands
@@ -46,7 +46,6 @@ Design note: [docs/ideas/workflows.md](https://github.com/pmdroid/acpbot/blob/ma
 | `/eve pause` / `resume` / `kill` | Control |
 | `/eve answer <runId> <n>` | Answer a parked `waiting_user` question (or tap the Telegram buttons) |
 | `/directive` | Alias for `/eve` |
-| `/linear drain` | Agent turn: write + start an EVE drain for the bound project |
 
 ## Script layout
 
@@ -88,7 +87,7 @@ return (audits || []).filter(Boolean)
 ```
 
 Injected: `agent`, `parallel`, `pipeline`, `phase`, `log`, `args`, `budget`, `host` (including **`host.ask`**), `workflow`.
-See the **eve** skill for full API, recipes (Linear drain, audit, plan→impl→verify), and rules.
+See the **eve** skill for full API, recipes (GitHub issue drain, audit, plan→impl→verify), and rules.
 
 ### Blocked is not complete
 
@@ -154,5 +153,4 @@ assume built-in names. Host ticker + existing [Schedules](/docs/schedules) apply
 ## Related
 
 - [Multi-agent](/docs/multi-agent) — node runtime (worktrees)
-- [Linear](/docs/linear) — project binding; `/linear drain` authors an EVE graph
 - [Schedules](/docs/schedules) — durable kicks

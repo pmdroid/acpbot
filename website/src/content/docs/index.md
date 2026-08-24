@@ -26,9 +26,8 @@ Operator and architecture docs for **acpbot** — Telegram as a control surface 
 | [MCP](/docs/mcp) | Built-in `acpbot` tools, per-repo servers, profiles |
 | [Worker API](/docs/worker-api) | Unix HTTP API MCP → Telegram |
 | [Schedules](/docs/schedules) | Durable delayed/recurring jobs + host ticker |
-| [Skills](/docs/skills) | Bundled skills (telegram, schedules, multi-agent, autoreview, linear, eve) |
+| [Skills](/docs/skills) | Bundled skills (telegram, schedules, multi-agent, autoreview, eve) |
 | [OAuth](/docs/oauth) | Remote MCP auth (PKCE + DCR) |
-| [Linear](/docs/linear) | Linear MCP + topic↔project binding |
 | [Multi-agent](/docs/multi-agent) | Spawn child agents via MCP; worktrees + A2A |
 | [Review](/docs/review) | Dual-agent closeout review (`/review`, `review_run`) |
 | [EVE](/docs/eve) | Agent-authored directive graphs; host orchestration; leaf schema handoff |

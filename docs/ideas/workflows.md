@@ -1,7 +1,8 @@
 # Idea: Host-side dynamic workflows (agent-authored JS graphs)
 
 **Status:** implemented as **EVE** (2026-08-06; host runner 2026-08-07) — see [website docs /eve](../../website/src/content/docs/eve.md), `src/eve/`, `/eve`.  
-**Note (2026-08-07):** shipped/bundled directive scripts (`linear-drain`, `audit-routes`) were **removed**. Agents author graphs via `eve_write` + `eve_run` (skill-driven). `/linear drain` is an agent turn that writes a drain directive, not a built-in script. Historical “bundled workflow” language below is design-era.
+**Note (2026-08-07):** shipped/bundled directive scripts (`linear-drain`, `audit-routes`) were **removed**. Agents author graphs via `eve_write` + `eve_run` (skill-driven).  
+**Note (2026-08-24):** native Linear (`/linear`, bindings, Linear skill) was **removed**. Track work in GitHub issues. Historical Linear drain language below is design-era.
 
 **Brand:** Extraterrestrial Vegetation Evaluator (WALL·E) — not ultracode.  
 **Process:** orchestration + leaf slots on **acp-host**; worker is control plane + Telegram only.
@@ -10,7 +11,7 @@ Related:
 
 - [multi-agent-spawn.md](./multi-agent-spawn.md) — **node runtime** (parent-linked slots, worktrees, A2A). Multi-agent is largely **shipped**; this doc assumes it.
 - [multi-host-http3.md](./multi-host-http3.md) — **where** agents run.
-- Product docs: [Multi-agent](https://acpbot.app/docs/multi-agent), [Linear](https://acpbot.app/docs/linear), [Schedules](https://acpbot.app/docs/schedules).
+- Product docs: [Multi-agent](https://acpbot.app/docs/multi-agent), [EVE](https://acpbot.app/docs/eve), [Schedules](https://acpbot.app/docs/schedules).
 - External reference: [Claude Code Dynamic Workflows](https://code.claude.com/docs/en/workflows) (script holds the plan; runtime executes; leaf `agent()` calls pay tokens).
 
 This doc is **how the graph runs in the background**: a small JS orchestration script owns topology; acp-host executes it; Telegram is only human I/O (progress, permissions, questions).
