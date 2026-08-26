@@ -225,11 +225,11 @@ Full annotated template: [`config.example.toml`](https://github.com/pmdroid/acpb
 
 ## Docker
 
-Prebuilt multi-arch image (from the [v0.2.2](https://github.com/pmdroid/acpbot/releases/tag/v0.2.2) release workflow):
+Prebuilt multi-arch image (from the [v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0) release workflow):
 
 ```bash
-docker pull ghcr.io/pmdroid/acpbot:v0.2.2
-# also: :0.2.2 and :latest
+docker pull ghcr.io/pmdroid/acpbot:v0.3.0
+# also: :0.3.0 and :latest
 ```
 
 Or build/run with Compose from the repo (`docker compose up --build`). Mount a config file and set `ACPBOT_CONFIG`:
