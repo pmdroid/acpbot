@@ -5,7 +5,7 @@ order: 1
 section: start
 ---
 
-No Bun or source checkout required for normal use. Download a **[v0.2.2](https://github.com/pmdroid/acpbot/releases/tag/v0.2.2)** release binary, run setup, pair once.
+No Bun or source checkout required for normal use. Download a **[v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0)** release binary, run setup, pair once.
 
 ## Requirements
 
@@ -29,28 +29,28 @@ Pair as operator after start: DM the bot for a code, then run `acpbot pair appro
 
 ## 2. Download the binary
 
-Current release: **[v0.2.2](https://github.com/pmdroid/acpbot/releases/tag/v0.2.2)**. Download **one** artifact for your platform (or use the [landing page install section](/#install)):
+Current release: **[v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0)**. Download **one** artifact for your platform (or use the [landing page install section](/#install)):
 
 | Platform | Artifact | Direct link |
 |---|---|---|
-| macOS Apple Silicon | `acpbot-v0.2.2-darwin-arm64.tar.gz` (notarized) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.2.2/acpbot-v0.2.2-darwin-arm64.tar.gz) |
-| macOS Intel | `acpbot-v0.2.2-darwin-x64.tar.gz` (notarized) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.2.2/acpbot-v0.2.2-darwin-x64.tar.gz) |
-| Linux x86_64 | `acpbot-v0.2.2-linux-x64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.2.2/acpbot-v0.2.2-linux-x64.tar.gz) |
-| Linux arm64 | `acpbot-v0.2.2-linux-arm64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.2.2/acpbot-v0.2.2-linux-arm64.tar.gz) |
+| macOS Apple Silicon | `acpbot-v0.3.0-darwin-arm64.tar.gz` (notarized) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-darwin-arm64.tar.gz) |
+| macOS Intel | `acpbot-v0.3.0-darwin-x64.tar.gz` (notarized) | [download](https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-darwin-x64.tar.gz) |
+| Linux x86_64 | `acpbot-v0.3.0-linux-x64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-linux-x64.tar.gz) |
+| Linux arm64 | `acpbot-v0.3.0-linux-arm64.tar.gz` | [download](https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-linux-arm64.tar.gz) |
 
 One unified binary — host and worker are subcommands of `acpbot`.
 
 ```bash
 # Apple Silicon example (swap the asset name for your platform)
 curl -fsSL -o acpbot.tar.gz \
-  "https://github.com/pmdroid/acpbot/releases/download/v0.2.2/acpbot-v0.2.2-darwin-arm64.tar.gz"
+  "https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-darwin-arm64.tar.gz"
 tar -xzf acpbot.tar.gz
-chmod +x acpbot-v0.2.2-darwin-arm64
-sudo mv acpbot-v0.2.2-darwin-arm64 /usr/local/bin/acpbot   # or ~/.local/bin
+chmod +x acpbot-v0.3.0-darwin-arm64
+sudo mv acpbot-v0.3.0-darwin-arm64 /usr/local/bin/acpbot   # or ~/.local/bin
 acpbot help    # host, worker, setup, services, …
 ```
 
-Checksums ship on the release (`SHA256SUMS`, `SHA256SUMS-darwin-v0.2.2`).
+Checksums ship on the release (`SHA256SUMS`, `SHA256SUMS-darwin-v0.3.0`).
 
 **Config is created automatically** on first start under `~/.config/acpbot/` (no manual `mkdir` / `cp`).  
 Full reference: [Configuration](/docs/configuration).
@@ -58,11 +58,11 @@ Full reference: [Configuration](/docs/configuration).
 ### Docker (optional)
 
 ```bash
-docker pull ghcr.io/pmdroid/acpbot:v0.2.2
+docker pull ghcr.io/pmdroid/acpbot:v0.3.0
 # or compose from the repo — see docker-compose.yml and Configuration → Docker
 ```
 
-Image tags: `v0.2.2`, `0.2.2`, `latest`. Multi-arch (`linux/amd64`, `linux/arm64`).
+Image tags: `v0.3.0`, `0.3.0`, `latest`. Multi-arch (`linux/amd64`, `linux/arm64`).
 
 ## 3. Setup + start host and worker
 

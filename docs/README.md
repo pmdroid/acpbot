@@ -1,6 +1,6 @@
 # Documentation
 
-Operator docs live on the Astro site (current release **[v0.2.2](https://github.com/pmdroid/acpbot/releases/tag/v0.2.2)**):
+Operator docs live on the Astro site (current release **[v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0)**):
 
 | | |
 |---|---|
