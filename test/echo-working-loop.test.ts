@@ -105,7 +105,6 @@ describe("working surface with shipped echoAgents", () => {
       telegram.outbound.filter((c) => c.method === "editForumTopic"),
     ).toHaveLength(0);
 
-    // Live turn posts a “⏳ Working…” bubble in-topic, then deletes it.
     const workingPosts = telegram
       .sentMessages()
       .filter(
@@ -114,6 +113,15 @@ describe("working surface with shipped echoAgents", () => {
           m.text?.startsWith("⏳"),
       );
     expect(workingPosts.length).toBeGreaterThan(0);
+    expect(workingPosts.every((m) => m.disableNotification === true)).toBe(
+      true,
+    );
+    const echoReply = topicReplies.find(
+      (m) =>
+        m.text?.includes("hello surface") && m.text?.includes("[echo/acpbot]"),
+    );
+    expect(echoReply).toBeDefined();
+    expect(echoReply?.disableNotification).toBeUndefined();
     const deletes = telegram.outbound.filter((c) => c.method === "deleteMessage");
     expect(deletes.length).toBeGreaterThan(0);
   });

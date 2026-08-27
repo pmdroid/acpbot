@@ -638,8 +638,8 @@ telegram_send({ text: "Preview: https://…" })
 \`\`\`
 
 - **\`update\`**: progress only; edits the single working bubble.
-- **\`telegram_send\`**: permanent mid-turn messages (links, intermediate results).
-- Do **not** use either for the final answer (use the normal reply).
+- **\`telegram_send\`**: permanent mid-turn messages (links, intermediate results). Silent — no Telegram ping.
+- Do **not** use either for the final answer (use the normal reply). The final assistant message is what notifies.
 
 ## Photos and files
 

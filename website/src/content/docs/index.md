@@ -7,7 +7,7 @@ section: start
 
 Operator and architecture docs for **acpbot** — Telegram as a control surface for ACP coding agents.
 
-**Current release:** [v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0) — [download binaries](/#install) · [install guide](/docs/getting-started)
+**Current release:** [v0.3.1](https://github.com/pmdroid/acpbot/releases/tag/v0.3.1) — [download binaries](/#install) · [install guide](/docs/getting-started)
 
 ## Start here
 

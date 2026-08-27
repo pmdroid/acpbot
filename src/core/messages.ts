@@ -2,9 +2,7 @@
  * Telegram text chunking helpers.
  *
  * Delivery policy (see turn-runner):
- * - Progressive mid-turn flush on paragraph / size / tool boundaries
- *   (fire-and-forget so the ACP event queue stays unblocked)
- * - Remainder at turn end (chunked under Telegram's 4096 cap)
+ * - Buffer agent text until turn end (chunked under Telegram's 4096 cap)
  * - Never emit tool-call payloads or diffs as agent messages
  */
 

@@ -37,7 +37,7 @@ export async function awaitInlineDecision<T>(
     waitingBubbleText?: string;
     text: string;
     keyboard: unknown;
-    sendOpts?: { html?: boolean; alreadyHtml?: boolean };
+    sendOpts?: { html?: boolean; alreadyHtml?: boolean; notify?: boolean };
     /**
      * Register with the feature broker once the prompt message exists.
      * Call `resolve(value)` when the operator answers (usually from settle).
@@ -74,7 +74,7 @@ export async function awaitInlineDecision<T>(
     session,
     opts.text,
     opts.keyboard,
-    opts.sendOpts,
+    { ...opts.sendOpts, notify: true },
   );
 
   deps.log.info("inline decision: waiting for operator", {

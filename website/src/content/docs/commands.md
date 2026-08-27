@@ -73,7 +73,7 @@ No thumbs-only filter — all emojis forward. Mid-turn reactions are **queued** 
 
 ### Live “working” bubble
 
-While a turn is in flight, the topic shows one **⏳** status message. It updates when the agent starts tools (e.g. *Running subagent…*, *Waiting on background tasks…*, *Searching the web…*) and every ~15s appends elapsed time so long waits (research subagents, slow tools) don’t look frozen.
+While a turn is in flight, the topic shows one **⏳** status message (silent notification). It updates when the agent starts tools (e.g. *Running subagent…*, *Waiting on background tasks…*, *Searching the web…*) and every ~15s appends elapsed time so long waits (research subagents, slow tools) don’t look frozen. Agent text lands once when the turn ends and **does** notify.
 
 | Bubble | Meaning |
 |---|---|

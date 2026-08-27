@@ -5,9 +5,8 @@ import type { AcpTurnEvent, TelegramUpdate } from "../src/env/types";
 
 /**
  * Ticket 03: event queue must be drained without *awaiting* Telegram inside
- * the for-await consumer. Mid-turn text flush and working-bubble paints are
- * fire-and-forget (may race Telegram after pulls start) but must not delay
- * consuming every ACP event.
+ * the for-await consumer. Working-bubble paints are fire-and-forget (may race
+ * Telegram after pulls start) but must not delay consuming every ACP event.
  */
 
 const OPERATOR = 3;
@@ -119,19 +118,19 @@ describe("drainTurn does not gate the event queue on Telegram", () => {
     const pullMs = Date.now() - started;
 
     expect(pullCount).toBe(scripted.length);
-    // If drain awaited each 10ms Telegram send, five events would take ≥50ms+.
-    // Fire-and-forget mid-turn I/O should still finish all pulls quickly.
     expect(pullMs).toBeLessThan(80);
 
-    // Wait for mid-turn / end-of-turn Telegram side effects.
     for (let i = 0; i < 50; i++) await Promise.resolve();
     await Bun.sleep(200);
 
-    // Reply still delivered (possibly progressive + remainder).
     const replies = env.telegram
       .sentMessages()
       .filter((m) => m.messageThreadId === session.messageThreadId);
     const joined = replies.map((m) => m.text ?? "").join("");
     expect(joined.includes("a") && joined.includes("b")).toBe(true);
+    const agentReply = replies.find(
+      (m) => (m.text ?? "").includes("a") && (m.text ?? "").includes("b"),
+    );
+    expect(agentReply?.disableNotification).toBeUndefined();
   });
 });

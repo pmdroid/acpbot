@@ -24,6 +24,7 @@ export type SendInTopic = (
      * Callers that auto-bump after outbound must skip bump for these.
      */
     workingBubble?: boolean;
+    notify?: boolean;
   },
 ) => Promise<{ message_id: number }>;
 

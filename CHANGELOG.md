@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-26
+
+### Changed
+
+- **Quieter Telegram** — agent text is held until the turn ends (no mid-turn paragraph posts). Working bubble, queue acks, slash replies, and `telegram_send` use `disable_notification`. Final agent reply, failures, plan-ready, permission/ask, EVE done/ask, photos/files/voice, and child summaries still notify.
+
+### Install
+
+- Binaries: [v0.3.1](https://github.com/pmdroid/acpbot/releases/tag/v0.3.1) (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`)
+- Docker: `ghcr.io/pmdroid/acpbot:v0.3.1` (`:0.3.1`, `:latest`)
+
 ## [0.3.0] — 2026-08-26
 
 ### Removed

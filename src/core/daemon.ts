@@ -619,7 +619,7 @@ export function createDaemon(
   async function sendForSession(
     session: PersistedSession,
     text: string,
-    opts?: { html?: boolean },
+    opts?: { html?: boolean; notify?: boolean },
   ): Promise<void> {
     const surface = resolveOperatorSurface(session);
     const body =
@@ -867,6 +867,7 @@ export function createDaemon(
       alreadyHtml?: boolean;
       /** When true, this send *is* the working bubble — do not bump after. */
       workingBubble?: boolean;
+      notify?: boolean;
     },
   ): Promise<{ message_id: number }> {
     if (
@@ -889,6 +890,7 @@ export function createDaemon(
         ? chunkHtmlForTelegram(formatted.text)
         : [formatted.text];
 
+    const disableNotification = opts?.notify !== true;
     let last = { message_id: 0 };
     for (let i = 0; i < chunks.length; i++) {
       const isLast = i === chunks.length - 1;
@@ -900,9 +902,9 @@ export function createDaemon(
           messageThreadId: session.messageThreadId,
           ...(formatted.parseMode ? { parseMode: formatted.parseMode } : {}),
           ...(isLast && replyMarkup !== undefined ? { replyMarkup } : {}),
+          ...(disableNotification ? { disableNotification: true } : {}),
         });
       } catch (err) {
-        // Invalid HTML from model markdown → plain text fallback
         log.warn("HTML send failed; plain fallback", {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -915,6 +917,7 @@ export function createDaemon(
             .replace(/&amp;/g, "&"),
           messageThreadId: session.messageThreadId,
           ...(isLast && replyMarkup !== undefined ? { replyMarkup } : {}),
+          ...(disableNotification ? { disableNotification: true } : {}),
         });
       }
       // Index every chunk (incl. text) so reactions resolve + agent sees content.
@@ -2004,7 +2007,7 @@ export function createDaemon(
           });
         }
       }
-      void sendInTopic(s, text, keyboard).catch((err) => {
+      void sendInTopic(s, text, keyboard, { notify: true }).catch((err) => {
         log.warn("eve_notify telegram failed", {
           sessionKey,
           error: err instanceof Error ? err.message : String(err),
@@ -2298,7 +2301,9 @@ export function createDaemon(
                   "idle",
                 );
                 if (child && summary.trim()) {
-                  await sendForSession(child, summary.trim().slice(0, 3500));
+                  await sendForSession(child, summary.trim().slice(0, 3500), {
+                    notify: true,
+                  });
                 }
                 return { summary: text };
               } finally {
@@ -2436,7 +2441,9 @@ export function createDaemon(
                 }
                 await turn.done;
                 if (summary.trim()) {
-                  await sendForSession(sess, summary.trim().slice(0, 3500));
+                  await sendForSession(sess, summary.trim().slice(0, 3500), {
+                    notify: true,
+                  });
                   await markChildResult(
                     stateDir,
                     input.sessionKey,
