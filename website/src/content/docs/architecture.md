@@ -185,9 +185,11 @@ Host `promptQueue` (acp-host) remains a separate serialization for concurrent ho
 
 ## Message volume policy
 
-**Progressive agent text:** complete paragraphs (or large chunks) are posted mid-turn so long work is visible before tools finish; remainder flushes at turn end (chunked to Telegram limits). Fire-and-forget so the ACP event stream is never blocked on Telegram I/O.
+**Agent text** is buffered until the turn ends, then posted once (chunked to Telegram limits). The ⏳ working bubble is the live progress line; tool-call payloads and diffs are never mirrored as chat text.
 
-Mid-turn pings still use MCP tools when the agent chooses them (`update` → edit working bubble; `telegram_send`, photo, file, speak → permanent messages). Tool-call payloads and diffs are never mirrored as chat text.
+Telegram notifications: chatter is silent (`disable_notification`) — working bubble, queue acks, slash replies, `telegram_send`. These still **notify**: final agent reply, failures, plan-ready, permission/ask, EVE done/ask, photos/files/voice, child summaries.
+
+Mid-turn pings still use MCP tools when the agent chooses them (`update` → edit working bubble; `telegram_send`, photo, file, speak → permanent messages).
 
 ## Security notes
 

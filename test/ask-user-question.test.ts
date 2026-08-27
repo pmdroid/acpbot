@@ -129,6 +129,7 @@ describe("Grok ask_user_question → Telegram multi-choice", () => {
     }
     expect(msg).toBeDefined();
     expect(msg?.parseMode).toBe("HTML");
+    expect(msg?.disableNotification).toBeUndefined();
 
     const kb = msg!.replyMarkup as {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;

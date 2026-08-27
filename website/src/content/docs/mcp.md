@@ -34,7 +34,7 @@ The name `acpbot` is reserved.
 - **`update` is the default progress tool.** Call it after major steps, long waits, or plan changes so the operator sees progress without waiting for the final reply. Prefer short 1–3 sentence pings; do not dump the final answer into `update`, and do not call on every tiny tool step.
 - When the turn needs the operator (permission / question), the bubble becomes `❓ Waiting for…`.
 - When the turn ends, the worker **deletes** the bubble, then delivers the final assistant reply.
-- Use **`telegram_send`** for content that should stay in the chat history (links, intermediate results).
+- Use **`telegram_send`** for content that should stay in the chat history (links, intermediate results). Those posts are silent; the final assistant reply still notifies.
 
 Agent-facing habit text lives in the bundled **telegram** skill (`skills/telegram/SKILL.md`).
 

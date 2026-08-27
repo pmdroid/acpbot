@@ -190,6 +190,7 @@ export type SendMessageParams = {
   replyMarkup?: unknown;
   replyToMessageId?: number;
   parseMode?: string;
+  disableNotification?: boolean;
 };
 
 /** Telegram sendChatAction (typing / upload indicators; optional utility). */
@@ -208,6 +209,7 @@ export type SendVoiceParams = {
   messageThreadId?: number;
   caption?: string;
   replyToMessageId?: number;
+  disableNotification?: boolean;
 };
 
 export type SendDocumentParams = {
@@ -216,6 +218,7 @@ export type SendDocumentParams = {
   filename: string;
   messageThreadId?: number;
   caption?: string;
+  disableNotification?: boolean;
 };
 
 export type SendPhotoParams = {
@@ -224,6 +227,7 @@ export type SendPhotoParams = {
   filename?: string;
   messageThreadId?: number;
   caption?: string;
+  disableNotification?: boolean;
 };
 
 export type TelegramFileInfo = {

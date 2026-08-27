@@ -108,6 +108,7 @@ describe("prompt queue while turn busy", () => {
       .sentMessages()
       .find((m) => /Queued/i.test(m.text ?? ""));
     expect(queuedAck).toBeDefined();
+    expect(queuedAck?.disableNotification).toBe(true);
 
     // Finish first turn → second should start; queue ack deleted from chat
     releaseFirst();

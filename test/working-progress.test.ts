@@ -73,10 +73,10 @@ describe("formatElapsedWorking", () => {
   });
 });
 
-describe("turn runner progressive text", () => {
-  test("flushes agent text mid-turn before tools, remainder at end", async () => {
+describe("turn runner holds agent text until turn end", () => {
+  test("one notified send after tools, no mid-turn posts", async () => {
     const paints: string[] = [];
-    const sent: string[] = [];
+    const sent: Array<{ text: string; notify?: boolean }> = [];
     const session: PersistedSession = {
       sessionKey: "demo/s",
       identity: { repo: "demo", name: "s", agent: "echo" },
@@ -127,8 +127,10 @@ describe("turn runner progressive text", () => {
         bump: async () => {},
         messageId: () => undefined,
       },
-      sendInTopic: async (_s, text) => {
-        sent.push(text);
+      sendInTopic: async (_s, text, _m, opts) => {
+        sent.push(
+          opts?.notify === true ? { text, notify: true } : { text },
+        );
         return { message_id: sent.length };
       },
       setSessionStatus: async () => {},
@@ -139,15 +141,12 @@ describe("turn runner progressive text", () => {
       for (const e of events) yield e;
     })());
 
-    // Mid-turn: narrative before tool should already have been posted.
-    expect(sent.length).toBeGreaterThanOrEqual(2);
-    expect(sent[0]).toContain("Protocol negotiation");
-    expect(sent.some((s) => s.includes("Updating probe"))).toBe(true);
-    // End remainder
-    expect(sent[sent.length - 1]).toContain("re-run the scan");
-    // No full-turn duplicate of the early paragraphs
-    const joined = sent.join("\n---\n");
-    expect(joined.match(/Protocol negotiation/g)?.length).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toContain("Protocol negotiation");
+    expect(sent[0]!.text).toContain("Updating probe");
+    expect(sent[0]!.text).toContain("re-run the scan");
+    expect(sent[0]!.notify).toBe(true);
+    expect(paints.some((p) => p.includes("Writing"))).toBe(true);
   });
 });
 

@@ -53,19 +53,19 @@ In [@BotFather](https://t.me/BotFather): create a bot, enable **Threaded Mode** 
 
 ### 2. Download the binary
 
-**[v0.3.0](https://github.com/pmdroid/acpbot/releases/tag/v0.3.0)** — download **one** binary for your platform (`linux-x64`, `linux-arm64`, or notarized `darwin-arm64` / `darwin-x64`). Platform table + Docker: [acpbot.app](https://acpbot.app/#install).
+**[v0.3.1](https://github.com/pmdroid/acpbot/releases/tag/v0.3.1)** — download **one** binary for your platform (`linux-x64`, `linux-arm64`, or notarized `darwin-arm64` / `darwin-x64`). Platform table + Docker: [acpbot.app](https://acpbot.app/#install).
 
 ```bash
 # Apple Silicon example
 curl -fsSL -o acpbot.tar.gz \
-  "https://github.com/pmdroid/acpbot/releases/download/v0.3.0/acpbot-v0.3.0-darwin-arm64.tar.gz"
+  "https://github.com/pmdroid/acpbot/releases/download/v0.3.1/acpbot-v0.3.1-darwin-arm64.tar.gz"
 tar -xzf acpbot.tar.gz
-chmod +x acpbot-v0.3.0-darwin-arm64
-sudo mv acpbot-v0.3.0-darwin-arm64 /usr/local/bin/acpbot
+chmod +x acpbot-v0.3.1-darwin-arm64
+sudo mv acpbot-v0.3.1-darwin-arm64 /usr/local/bin/acpbot
 acpbot help    # host, worker, setup, services, …
 ```
 
-Docker: `docker pull ghcr.io/pmdroid/acpbot:v0.3.0`
+Docker: `docker pull ghcr.io/pmdroid/acpbot:v0.3.1`
 
 ### 3. Guided setup TUI
 

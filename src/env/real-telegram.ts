@@ -142,6 +142,7 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
         reply_markup: params.replyMarkup,
         reply_to_message_id: params.replyToMessageId,
         parse_mode: params.parseMode,
+        ...(params.disableNotification ? { disable_notification: true } : {}),
       });
       return { message_id: result.message_id };
     },
@@ -314,6 +315,9 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
           ...(params.replyToMessageId !== undefined
             ? { reply_to_message_id: String(params.replyToMessageId) }
             : {}),
+          ...(params.disableNotification
+            ? { disable_notification: "true" }
+            : {}),
         },
         {
           field: "voice",
@@ -343,6 +347,9 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
             ? { message_thread_id: String(params.messageThreadId) }
             : {}),
           ...(params.caption ? { caption: params.caption } : {}),
+          ...(params.disableNotification
+            ? { disable_notification: "true" }
+            : {}),
         },
         {
           field: "document",
@@ -370,6 +377,9 @@ export function realTelegram(options: RealTelegramOptions): TelegramPort {
             ? { message_thread_id: String(params.messageThreadId) }
             : {}),
           ...(params.caption ? { caption: params.caption } : {}),
+          ...(params.disableNotification
+            ? { disable_notification: "true" }
+            : {}),
         },
         {
           field: "photo",
