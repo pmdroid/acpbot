@@ -44,5 +44,14 @@ export function reposJsonEnv(
   return envFirst(env, "ACPBOT_REPOS_JSON");
 }
 
+export function telegramBotApiBase(
+  token: string,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
+): string | undefined {
+  const root = envFirst(env, "ACPBOT_TELEGRAM_API_BASE");
+  if (!root) return undefined;
+  return `${root.replace(/\/$/, "")}/bot${token}`;
+}
+
 /** Per-repo config directory name. */
 export const REPO_CONFIG_DIR_PREFERRED = ".acpbot";
