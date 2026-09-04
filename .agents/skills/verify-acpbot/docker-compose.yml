@@ -1,0 +1,75 @@
+services:
+  telegram-mock:
+    image: oven/bun:1
+    command:
+      [
+        "bun",
+        "/skill/scripts/telegram-mock.ts",
+        "--bind",
+        "0.0.0.0",
+        "--port",
+        "8080",
+        "--token",
+        "999999:verify-acpbot-mock-token-xxxxxxxx",
+      ]
+    volumes:
+      - ./:/skill:ro
+    ports:
+      - "18080:8080"
+    networks:
+      - acpbot-verify
+
+  host-local:
+    build:
+      context: ${ACPBOT_VERIFY_REPO:-../../..}
+      dockerfile: Dockerfile
+    image: acpbot:verify
+    command: ["host"]
+    environment:
+      ACPBOT_CONFIG: /data/config.toml
+      ACPBOT_STATE_DIR: /data/state
+      ACPBOT_STORE_PATH: /data/store.json
+    volumes:
+      - ${ACPBOT_VERIFY_RUN_DIR}:/data
+    networks:
+      - acpbot-verify
+
+  host-remote:
+    image: acpbot:verify
+    command: ["host"]
+    depends_on:
+      - host-local
+    environment:
+      ACPBOT_CONFIG: /data/config.toml
+      ACPBOT_STATE_DIR: /data/remote-state
+      ACPBOT_STORE_PATH: /data/remote-store.json
+      ACPBOT_HOST_LISTEN_PORT: "8790"
+      ACPBOT_HOST_LISTEN_HOST: "0.0.0.0"
+      ACPBOT_HOST_TOKEN: verify-host-token
+    volumes:
+      - ${ACPBOT_VERIFY_RUN_DIR}:/data
+    ports:
+      - "18790:8790"
+    networks:
+      - acpbot-verify
+
+  worker:
+    image: acpbot:verify
+    command: ["worker"]
+    depends_on:
+      - host-local
+      - telegram-mock
+    environment:
+      ACPBOT_CONFIG: /data/config.toml
+      ACPBOT_STATE_DIR: /data/state
+      ACPBOT_STORE_PATH: /data/store.json
+      ACPBOT_TELEGRAM_API_BASE: http://telegram-mock:8080
+      ACPBOT_BOT_TOKEN: "999999:verify-acpbot-mock-token-xxxxxxxx"
+    volumes:
+      - ${ACPBOT_VERIFY_RUN_DIR}:/data
+    networks:
+      - acpbot-verify
+
+networks:
+  acpbot-verify:
+    driver: bridge

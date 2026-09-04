@@ -16,6 +16,7 @@ import { systemClock } from "./env/clock";
 import { createLogger } from "./env/logger";
 import { realAgents } from "./env/real-agents";
 import { realTelegram } from "./env/real-telegram";
+import { telegramBotApiBase } from "./env/env-keys";
 import { speechFromConfig } from "./env/speech";
 import { createJsonFileStore } from "./env/store";
 import type { Environment } from "./env/types";
@@ -79,6 +80,7 @@ export async function runWorkerMain(): Promise<void> {
       ? { operatorChatId: cfg.operatorChatId }
       : {}),
     repos: { ...(cfg.repos ?? {}) },
+    ...(cfg.hostsCatalog ? { hostsCatalog: cfg.hostsCatalog } : {}),
     ...(cfg.defaultAgent ? { defaultAgent: cfg.defaultAgent } : {}),
     ...(cfg.skillRoots ? { skillRoots: [...cfg.skillRoots] } : {}),
     ...(cfg.acpMediaAttachments !== undefined
@@ -114,9 +116,14 @@ export async function runWorkerMain(): Promise<void> {
     log,
   });
 
+  const telegramApiBase = telegramBotApiBase(cfg.botToken);
   const env: Environment = {
     config: acpbotConfig,
-    telegram: realTelegram({ token: cfg.botToken, log }),
+    telegram: realTelegram({
+      token: cfg.botToken,
+      log,
+      ...(telegramApiBase ? { apiBase: telegramApiBase } : {}),
+    }),
     agents,
     clock: systemClock(),
     store,
