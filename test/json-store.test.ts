@@ -172,7 +172,7 @@ describe("daemon + createJsonFileStore durable path", () => {
       clock: systemClock(),
       store: store2,
     };
-    const d2 = createDaemon(env2);
+    const d2 = createDaemon(env2, { pollTimeoutSec: 0, conflictBackoffMs: 1 });
     const recovered = await d2.listSessions();
     expect(recovered).toHaveLength(1);
     expect(recovered[0]?.sessionKey).toBe("acpbot/durable");
@@ -183,11 +183,19 @@ describe("daemon + createJsonFileStore durable path", () => {
 
     // Routing still works after JSON restart.
     await d2.handleUpdate(topic(threadId, "still here", 5));
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    await Bun.sleep(20);
-    const replies = telegram2
+    const deadline = Date.now() + 2000;
+    let replies = telegram2
       .sentMessages()
       .filter((m) => m.messageThreadId === threadId);
+    while (
+      Date.now() < deadline &&
+      !replies.some((m) => m.text?.includes("still here"))
+    ) {
+      await Bun.sleep(10);
+      replies = telegram2
+        .sentMessages()
+        .filter((m) => m.messageThreadId === threadId);
+    }
     expect(replies.some((m) => m.text?.includes("still here"))).toBe(true);
   });
 });

@@ -7,10 +7,10 @@
 **Telegram control surface for ACP coding agents.**  
 **Site:** [acpbot.app](https://acpbot.app) · **Docs:** [docs](https://acpbot.app/docs) · **License:** [MIT](LICENSE)
 
-Each agent session is a **forum topic** in your private chat with the bot. Talk to Grok, Claude, Codex, or OpenCode from Telegram — permissions, media, MCP tools, and schedules on **your** machine.
+Each agent session is a **forum topic** in your private chat with the bot. Talk to Grok, Claude, Codex, OpenCode, Cursor, or Pi from Telegram — permissions, media, MCP tools, and schedules on **your** machine.
 
 ```text
-You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / codex / opencode / cursor
+You (Telegram) ──topic──► acpbot ──ACP──► grok / claude / codex / opencode / cursor / pi
 ```
 
 ---
@@ -31,7 +31,7 @@ By running acpbot you accept these terms.
 ## Features
 
 - **Topic = session** — `/new` opens a forum topic bound to a repo + agent
-- **Real agents** — Grok Build, Claude, Codex, OpenCode
+- **Real agents** — Grok Build, Claude, Codex, OpenCode, Cursor, Pi
 - **`/model` · `/effort` · `/agent` · `/mode`** — switch mid-session without leaving the topic
 - **Working bubble** — one live `⏳` / `❓` status message per turn
 - **Permissions in chat** — inline keyboards for ACP prompts
@@ -49,7 +49,7 @@ No Bun or source checkout required for normal use.
 
 ### 1. Bot (once)
 
-In [@BotFather](https://t.me/BotFather): create a bot, enable **Threaded Mode** (Bot Settings; also called topics in private chats). Setup will not finish until `getMe.has_topics_enabled` is true. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, `opencode`, or `cursor-agent`).
+In [@BotFather](https://t.me/BotFather): create a bot, enable **Threaded Mode** (Bot Settings; also called topics in private chats). Setup will not finish until `getMe.has_topics_enabled` is true. Install at least one agent CLI on `PATH` (`grok`, `claude`, `codex`, `opencode`, `cursor-agent`, or `pi`).
 
 ### 2. Download the binary
 

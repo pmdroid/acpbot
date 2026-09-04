@@ -24,7 +24,7 @@ bot_token = "123456:REPLACE_ME"          # from @BotFather
 # store_path = "~/.local/share/acpbot/store.json"
 # state_dir  = "~/.local/share/acpbot/state"
 
-default_agent = "grok-build"             # grok-build | claude | codex | opencode | cursor-agent
+default_agent = "grok-build"             # grok-build | claude | codex | opencode | cursor-agent | pi
 log_level = "info"                       # debug | info | warn | error | silent
 
 # ── Repos for /new picker + schedule scan ──────────────────────────────────
@@ -115,6 +115,7 @@ tts_mode = "agent"                       # agent | always | off
 [agents]
 # claude_acp_pkg = "@agentclientprotocol/claude-agent-acp@0.64.0"
 # codex_acp_pkg = "@agentclientprotocol/codex-acp@1.1.7"
+# pi_acp_pkg = "pi-acp@0.0.33"
 # command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
 
 # ── Multi-agent spawn (optional) ────────────────────────────────────────────

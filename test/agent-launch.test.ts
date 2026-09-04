@@ -43,6 +43,10 @@ describe("agent-launch", () => {
       ACPBOT_CODEX_ACP_PKG: "@agentclientprotocol/codex-acp@8.8.8",
     });
     expect(codex.args).toContain("@agentclientprotocol/codex-acp@8.8.8");
+    const pi = resolveAgentLaunch("pi", {
+      ACPBOT_PI_ACP_PKG: "pi-acp@9.9.9",
+    });
+    expect(pi.args).toContain("pi-acp@9.9.9");
   });
 
   test("grok-build keeps native stdio", () => {
@@ -93,6 +97,18 @@ describe("agent-launch", () => {
     expect(resolveAgentLaunch("cursor")).toEqual(launch);
   });
 
+  test("pi uses pi-acp adapter not pi acp", () => {
+    expect(normalizeAgentName("pi.dev")).toBe("pi");
+    expect(normalizeAgentName("pi-dev")).toBe("pi");
+    expect(normalizeAgentName("pi-acp")).toBe("pi");
+    expect(normalizeAgentName("pi-coding-agent")).toBe("pi");
+    const launch = resolveAgentLaunch("pi");
+    expect(launch.command).toBe("npx");
+    expect(launch.args.join(" ")).toContain("pi-acp@0.0.33");
+    expect(launch.args).not.toContain("acp");
+    expect(resolveAgentLaunch("pi.dev")).toEqual(launch);
+  });
+
   test("display names are human-friendly", () => {
     expect(agentDisplayName("grok-build")).toBe("grok");
     expect(agentDisplayName("grok")).toBe("grok");
@@ -100,6 +116,8 @@ describe("agent-launch", () => {
     expect(agentDisplayName("claude-code")).toBe("claude");
     expect(agentDisplayName("cursor")).toBe("cursor");
     expect(agentDisplayName("cursor-agent")).toBe("cursor");
+    expect(agentDisplayName("pi.dev")).toBe("pi");
+    expect(agentDisplayName("pi")).toBe("pi");
   });
 });
 
@@ -116,6 +134,7 @@ describe("listRegisteredAgents availability", () => {
       "codex",
       "opencode",
       "cursor-agent",
+      "pi",
     ]);
     expect(ids.filter((id) => id.includes("opencode"))).toEqual(["opencode"]);
   });
@@ -126,6 +145,7 @@ describe("listRegisteredAgents availability", () => {
     expect(ids).toEqual(["grok-build", "claude", "opencode"]);
     expect(ids).not.toContain("codex");
     expect(ids).not.toContain("cursor-agent");
+    expect(ids).not.toContain("pi");
   });
 
   test("empty PATH yields empty picker list", () => {
@@ -147,6 +167,7 @@ describe("listRegisteredAgents availability", () => {
       "codex",
       "opencode",
       "cursor-agent",
+      "pi",
     ]);
   });
 
@@ -162,6 +183,7 @@ describe("listRegisteredAgents availability", () => {
       "codex",
       "opencode",
       "cursor-agent",
+      "pi",
     ]);
   });
 
@@ -210,13 +232,22 @@ describe("listRegisteredAgents availability", () => {
     expect(ids).toContain("grok-build");
   });
 
+  test("pi listed when npx and pi exist", () => {
+    const whichPi: WhichFn = (cmd) =>
+      cmd === "npx" || cmd === "pi" ? `/bin/${cmd}` : null;
+    expect(listRegisteredAgents({ env: {}, which: whichPi })).toEqual(["pi"]);
+    expect(isAgentAvailable("pi", { which: whichPi })).toBe(true);
+  });
+
   test("isAgentAvailable + requiredBins", () => {
     expect(requiredBinsForAgent("grok-build")).toEqual(["grok"]);
     expect(requiredBinsForAgent("claude")).toEqual(["npx", "claude"]);
     expect(requiredBinsForAgent("cursor-agent")).toEqual(["cursor-agent"]);
+    expect(requiredBinsForAgent("pi")).toEqual(["npx", "pi"]);
     expect(isAgentAvailable("opencode", { which })).toBe(true);
     expect(isAgentAvailable("codex", { which })).toBe(false);
     expect(isAgentAvailable("cursor-agent", { which })).toBe(false);
+    expect(isAgentAvailable("pi", { which })).toBe(false);
   });
 
   test("agentSelectOptions only lists PATH-available agents", () => {

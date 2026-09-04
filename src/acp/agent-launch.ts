@@ -2,7 +2,7 @@
  * Resolve acpbot agent names → stdio spawn command.
  * Small built-in registry of ACP agent launches.
  *
- * Claude/Codex need the official ACP adapters (not bare `claude acp` / `codex acp`).
+ * Claude/Codex/Pi need ACP adapters (not bare `claude acp` / `codex acp` / `pi acp`).
  * OpenCode has a native `opencode acp` command.
  * Cursor CLI has a native `cursor-agent acp` command.
  *
@@ -52,11 +52,12 @@ const PREFERRED_ORDER = [
   "codex",
   "opencode",
   "cursor-agent",
+  "pi",
 ] as const;
 
 /**
  * Default npm package pins for ACP adapters (update when bumping adapters).
- * Override with ACPBOT_CLAUDE_ACP_PKG / ACPBOT_CODEX_ACP_PKG (full package@ver).
+ * Override with ACPBOT_CLAUDE_ACP_PKG / ACPBOT_CODEX_ACP_PKG / ACPBOT_PI_ACP_PKG (full package@ver).
  *
  * https://github.com/agentclientprotocol/claude-agent-acp
  * https://github.com/agentclientprotocol/codex-acp
@@ -64,12 +65,13 @@ const PREFERRED_ORDER = [
 export const DEFAULT_CLAUDE_ACP_PKG =
   "@agentclientprotocol/claude-agent-acp@0.64.0";
 export const DEFAULT_CODEX_ACP_PKG = "@agentclientprotocol/codex-acp@1.1.7";
+export const DEFAULT_PI_ACP_PKG = "pi-acp@0.0.33";
 
 /**
  * Built-in launches. Override with ACPBOT_AGENT_COMMAND_JSON:
  * {"grok-build":{"command":"grok","args":["agent","stdio"]}}
  *
- * Claude/Codex use @agentclientprotocol/* adapters via npx.
+ * Claude/Codex/Pi use ACP adapters via npx.
  */
 function claudeAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
   return env.ACPBOT_CLAUDE_ACP_PKG?.trim() || DEFAULT_CLAUDE_ACP_PKG;
@@ -77,6 +79,10 @@ function claudeAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
 
 function codexAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
   return env.ACPBOT_CODEX_ACP_PKG?.trim() || DEFAULT_CODEX_ACP_PKG;
+}
+
+function piAcpPkg(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ACPBOT_PI_ACP_PKG?.trim() || DEFAULT_PI_ACP_PKG;
 }
 
 const BUILTINS_BASE: Record<
@@ -122,6 +128,14 @@ const BUILTINS_BASE: Record<
     requires: ["cursor-agent"],
     label: "cursor",
   },
+  pi: {
+    launchFor: (env) => ({
+      command: "npx",
+      args: ["-y", piAcpPkg(env)],
+    }),
+    requires: ["npx", "pi"],
+    label: "pi",
+  },
 };
 
 /** Normalize friendly names onto canonical ids. */
@@ -132,6 +146,15 @@ export function normalizeAgentName(name: string): string {
   if (n === "opencode-ai" || n === "open-code") return "opencode";
   if (n === "cursor" || n === "cursor-cli" || n === "cursor-agent") {
     return "cursor-agent";
+  }
+  if (
+    n === "pi" ||
+    n === "pi.dev" ||
+    n === "pi-dev" ||
+    n === "pi-acp" ||
+    n === "pi-coding-agent"
+  ) {
+    return "pi";
   }
   return n;
 }
@@ -427,6 +450,7 @@ const SETUP_LABELS: Record<string, string> = {
   codex: "Codex",
   opencode: "OpenCode",
   "cursor-agent": "Cursor Agent",
+  pi: "Pi",
 };
 
 /** Human label for setup pickers (e.g. grok-build → Grok Build). */

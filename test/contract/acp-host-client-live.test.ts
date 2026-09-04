@@ -47,10 +47,11 @@ const AGENTS = [
   "opencode",
   "claude",
   "cursor-agent",
+  "pi",
 ] as const;
 type AgentId = (typeof AGENTS)[number];
 
-const SOFT_LAUNCH = new Set<AgentId>(["claude", "codex"]);
+const SOFT_LAUNCH = new Set<AgentId>(["claude", "codex", "pi"]);
 
 // Grok session modes are default/plan/ask (effort is separate: /effort).
 const MODE_MUST: Partial<Record<AgentId, string[]>> = {
