@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-04
+
 ### Added
 
 - **Pi** — built-in `pi` registry entry (`npx -y pi-acp@0.0.33`), aliases (`pi.dev`, `pi-dev`, `pi-acp`, `pi-coding-agent`). Requires `npx` + the [Pi](https://pi.dev) CLI on `PATH`. Pin override: `agents.pi_acp_pkg` / `ACPBOT_PI_ACP_PKG`.
+
+### Install
+
+- Binaries: [v0.4.0](https://github.com/pmdroid/acpbot/releases/tag/v0.4.0) (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`)
+- Docker: `ghcr.io/pmdroid/acpbot:v0.4.0` (`:0.4.0`, `:latest`)
 
 ## [0.3.1] — 2026-08-26
 

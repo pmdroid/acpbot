@@ -1,6 +1,6 @@
 {
   "name": "acpbot",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "acpbot — Telegram control surface for ACP coding agents (acpbot.app)",
   "type": "module",
   "module": "src/main.ts",
