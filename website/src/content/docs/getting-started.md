@@ -17,6 +17,7 @@ No Bun or source checkout required for normal use. Download a **[v0.3.1](https:/
   - **Codex** — `codex` + `npx` (ACP adapter)
   - **OpenCode** — `opencode` (`opencode acp`)
   - **Cursor Agent** — `cursor-agent` (`cursor-agent acp`; run `cursor-agent login` once)
+  - **Pi** — `pi` + `npx` (ACP adapter `pi-acp`; install from [pi.dev](https://pi.dev))
 
 ## 1. Provision the bot
 

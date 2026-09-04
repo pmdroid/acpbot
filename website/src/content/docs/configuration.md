@@ -34,7 +34,7 @@ Interactive (@clack) walkthrough (re-run anytime):
 | Step | What |
 |---|---|
 | Telegram | Bot token; operator claim-on-first-DM **or** numeric user id |
-| Agent | grok-build · claude · codex · opencode · cursor-agent |
+| Agent | grok-build · claude · codex · opencode · cursor-agent · pi |
 | Tool permissions | `permission_mode = "ask"` (default) or `"bypass"` — see [Commands](/docs/commands) `/permissions` |
 | Workspace | `[repos]` via `acpbot repo` — required before `/new` can start a session |
 | Speech | TTS mode + OpenAI / ElevenLabs API keys & voice |

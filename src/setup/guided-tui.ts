@@ -359,6 +359,7 @@ export type FullConfigTomlInput = {
     agentCommandJson?: string;
     claudeAcpPkg?: string;
     codexAcpPkg?: string;
+    piAcpPkg?: string;
     storePath?: string;
     stateDir?: string;
     verbose?: boolean;
@@ -527,7 +528,8 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
   if (
     a.preserve?.agentCommandJson ||
     a.preserve?.claudeAcpPkg ||
-    a.preserve?.codexAcpPkg
+    a.preserve?.codexAcpPkg ||
+    a.preserve?.piAcpPkg
   ) {
     lines.push(`[agents]`);
     if (a.preserve.claudeAcpPkg) {
@@ -535,6 +537,9 @@ export function renderFullConfigToml(a: FullConfigTomlInput): string {
     }
     if (a.preserve.codexAcpPkg) {
       lines.push(`codex_acp_pkg = ${tomlString(a.preserve.codexAcpPkg)}`);
+    }
+    if (a.preserve.piAcpPkg) {
+      lines.push(`pi_acp_pkg = ${tomlString(a.preserve.piAcpPkg)}`);
     }
     if (a.preserve.agentCommandJson) {
       lines.push(`command_json = ${tomlString(a.preserve.agentCommandJson)}`);
@@ -571,6 +576,7 @@ function preserveFromExisting(
       : {}),
     ...(existing.claudeAcpPkg ? { claudeAcpPkg: existing.claudeAcpPkg } : {}),
     ...(existing.codexAcpPkg ? { codexAcpPkg: existing.codexAcpPkg } : {}),
+    ...(existing.piAcpPkg ? { piAcpPkg: existing.piAcpPkg } : {}),
     ...(existing.verbose ? { verbose: true } : {}),
     // store_path / state_dir: leave to XDG defaults unless user hand-edited;
     // ProcessConfig always resolves them, so we do not re-emit them here.
@@ -676,7 +682,7 @@ export async function runGuidedSetupTui(
         "Install at least one, then re-run setup (or show the full list):",
         ...known.map((id) => `  • ${id}`),
         "",
-        "Claude and Codex also need `npx` (Node).",
+        "Claude, Codex, and Pi also need `npx` (Node).",
       ].join("\n"),
       "No agents installed",
     );

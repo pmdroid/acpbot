@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Pi** — built-in `pi` registry entry (`npx -y pi-acp@0.0.33`), aliases (`pi.dev`, `pi-dev`, `pi-acp`, `pi-coding-agent`). Requires `npx` + the [Pi](https://pi.dev) CLI on `PATH`. Pin override: `agents.pi_acp_pkg` / `ACPBOT_PI_ACP_PKG`.
+
 ## [0.3.1] — 2026-08-26
 
 ### Changed

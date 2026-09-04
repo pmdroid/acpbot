@@ -487,7 +487,7 @@ server.tool(
         .min(1)
         .optional()
         .describe(
-          "Agent id: grok-build | claude | codex | opencode | cursor-agent",
+          "Agent id: grok-build | claude | codex | opencode | cursor-agent | pi",
         ),
       role: z.string().min(1).optional().describe("Optional role label"),
       prompt: z

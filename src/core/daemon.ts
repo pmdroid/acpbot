@@ -3764,6 +3764,7 @@ export function createDaemon(
         "grok-build",
         "opencode",
         "cursor-agent",
+        "pi",
       ];
       const ordered = [
         ...preferred.filter((p) => agents.includes(p)),
@@ -3939,7 +3940,7 @@ export function createDaemon(
       await sendInTopic(
         session,
         "No agent CLIs found on PATH.\n\n" +
-          "Install `grok`, `claude`, `codex`, `opencode`, and/or `cursor-agent`, then retry `/agent`.\n" +
+          "Install `grok`, `claude`, `codex`, `opencode`, `cursor-agent`, and/or `pi`, then retry `/agent`.\n" +
           "Or set `TACP_AGENTS_ALL=1` to list the full registry regardless of PATH.",
       );
       return;

@@ -139,6 +139,28 @@ tick_ms = 15000
     expect(JSON.parse(env.ACPBOT_REPOS_JSON!)).toEqual({ d: "/tmp/d" });
   });
 
+  test("pi.dev default agent and pi_acp_pkg pin", () => {
+    const dir = mkdtempSync(join(tmpdir(), "acpbot-pi-cfg-"));
+    const path = join(dir, "config.toml");
+    writeFileSync(
+      path,
+      `
+bot_token = "tok-pi"
+default_agent = "pi.dev"
+
+[agents]
+pi_acp_pkg = "pi-acp@9.9.9"
+`,
+      "utf8",
+    );
+    const cfg = loadConfig({ configPath: path, env: { HOME: dir } });
+    expect(cfg.defaultAgent).toBe("pi");
+    expect(cfg.piAcpPkg).toBe("pi-acp@9.9.9");
+    const env: Record<string, string | undefined> = {};
+    applyConfigToEnv(cfg, env as NodeJS.ProcessEnv);
+    expect(env.ACPBOT_PI_ACP_PKG).toBe("pi-acp@9.9.9");
+  });
+
   test("normalizeToml accepts snake_case tables", () => {
     const n = normalizeToml(
       parseTomlConfig(`

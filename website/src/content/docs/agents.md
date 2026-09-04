@@ -16,6 +16,7 @@ Defined in `src/acp/agent-launch.ts`. The `/agent` picker **only lists agents wh
 | `codex` | codex | `npx -y @agentclientprotocol/codex-acp@1.1.7` | `npx`, `codex` |
 | `opencode` | opencode | `opencode acp` | `opencode` |
 | `cursor-agent` | cursor | `cursor-agent acp` | `cursor-agent` |
+| `pi` | pi | `npx -y pi-acp@0.0.33` | `npx`, `pi` |
 
 Adapter pins (npm) — TOML `[agents]` or env override:
 
@@ -23,8 +24,9 @@ Adapter pins (npm) — TOML `[agents]` or env override:
 |---|---|
 | `agents.claude_acp_pkg` / `ACPBOT_CLAUDE_ACP_PKG` | `@agentclientprotocol/claude-agent-acp@0.64.0` |
 | `agents.codex_acp_pkg` / `ACPBOT_CODEX_ACP_PKG` | `@agentclientprotocol/codex-acp@1.1.7` |
+| `agents.pi_acp_pkg` / `ACPBOT_PI_ACP_PKG` | `pi-acp@0.0.33` |
 
-Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp), [Cursor CLI ACP](https://cursor.com/docs/cli/acp).
+Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), [codex-acp](https://github.com/agentclientprotocol/codex-acp), [Cursor CLI ACP](https://cursor.com/docs/cli/acp), [pi-acp](https://github.com/svkozak/pi-acp) ([Pi](https://pi.dev)).
 
 **Aliases** (normalized before launch):
 
@@ -34,8 +36,11 @@ Upstream: [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent
 | `claude-code`, `claude-acp` | `claude` |
 | `opencode-ai`, `open-code` | `opencode` |
 | `cursor`, `cursor-cli`, `cursor-agent` | `cursor-agent` |
+| `pi`, `pi.dev`, `pi-dev`, `pi-acp`, `pi-coding-agent` | `pi` |
 
 **Cursor notes:** install the Cursor CLI so `cursor-agent` is on `PATH` (often `~/.local/bin/cursor-agent`). Run `cursor-agent login` once (or set `CURSOR_API_KEY`). We intentionally use the `cursor-agent` binary name — bare `agent` can collide with Grok’s CLI.
+
+**Pi notes:** install the [Pi](https://pi.dev) CLI (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent` or `curl -fsSL https://pi.dev/install.sh | sh`) so `pi` is on `PATH`, plus `npx`. Authenticate in Pi (`/login` or provider API keys). Official Pi has no native ACP mode; acpbot launches the [ACP registry](https://agentclientprotocol.com/registry) adapter `pi-acp`, which spawns `pi --mode rpc`.
 
 ### Overrides
 
@@ -45,6 +50,7 @@ default_agent = "grok-build"
 [agents]
 # command_json = '{"grok-build":{"command":"grok","args":["agent","stdio"]}}'
 # claude_acp_pkg = "@agentclientprotocol/claude-agent-acp@0.64.0"
+# pi_acp_pkg = "pi-acp@0.0.33"
 ```
 
 JSON command overrides merge on top of the built-in registry (same shape: `command` + `args`).

@@ -53,6 +53,7 @@ export type ProcessConfig = AcpbotConfig & {
   agentCommandJson?: string;
   claudeAcpPkg?: string;
   codexAcpPkg?: string;
+  piAcpPkg?: string;
   /** Multi-host catalog (local unix + remote wss). */
   hostsCatalog?: HostsCatalog;
   /** Remote listen for host process (WSS). */
@@ -112,6 +113,15 @@ export function normalizeAgentName(name: string): string {
   if (n === "opencode-ai" || n === "open-code") return "opencode";
   if (n === "cursor" || n === "cursor-cli" || n === "cursor-agent") {
     return "cursor-agent";
+  }
+  if (
+    n === "pi" ||
+    n === "pi.dev" ||
+    n === "pi-dev" ||
+    n === "pi-acp" ||
+    n === "pi-coding-agent"
+  ) {
+    return "pi";
   }
   return n;
 }
@@ -237,6 +247,7 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
   pick("agentCommandJson", "agent_command_json");
   pick("claudeAcpPkg", "claude_acp_pkg");
   pick("codexAcpPkg", "codex_acp_pkg");
+  pick("piAcpPkg", "pi_acp_pkg");
 
   // Keep raw tables for parseHostsCatalog later in loadConfig;
   // also flatten string paths onto out.repos for normalizeToml callers/tests.
@@ -331,6 +342,7 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     }
     if (a.claude_acp_pkg !== undefined) out.claudeAcpPkg = String(a.claude_acp_pkg);
     if (a.codex_acp_pkg !== undefined) out.codexAcpPkg = String(a.codex_acp_pkg);
+    if (a.pi_acp_pkg !== undefined) out.piAcpPkg = String(a.pi_acp_pkg);
     const spawn =
       a.spawn && typeof a.spawn === "object" && !Array.isArray(a.spawn)
         ? (a.spawn as Record<string, unknown>)
@@ -919,6 +931,9 @@ export function loadConfig(options: LoadConfigOptions = {}): ProcessConfig {
   config.codexAcpPkg =
     str(file.codexAcpPkg as string | undefined) ??
     firstEnv(env, "ACPBOT_CODEX_ACP_PKG", "TACP_CODEX_ACP_PKG");
+  config.piAcpPkg =
+    str(file.piAcpPkg as string | undefined) ??
+    firstEnv(env, "ACPBOT_PI_ACP_PKG", "TACP_PI_ACP_PKG");
 
   // Speech: TOML [speech] + nested tables; env fills gaps via merge in speechFromConfig
   const speechFile = file.speech;
@@ -1083,6 +1098,10 @@ export function applyConfigToEnv(
   if (cfg.codexAcpPkg) {
     env.ACPBOT_CODEX_ACP_PKG = cfg.codexAcpPkg;
     env.TACP_CODEX_ACP_PKG = cfg.codexAcpPkg;
+  }
+  if (cfg.piAcpPkg) {
+    env.ACPBOT_PI_ACP_PKG = cfg.piAcpPkg;
+    env.TACP_PI_ACP_PKG = cfg.piAcpPkg;
   }
   const sp = cfg.speech;
   if (sp) {
