@@ -7,13 +7,15 @@ interface Props {
   description?: string;
   canonicalPath?: string;
   ogImage?: string;
+  ogImageAlt?: string;
 }
 
 const {
   title,
   description = "Telegram control surface for ACP coding agents. Forum topics become agent sessions on your machine.",
   canonicalPath = "/",
-  ogImage = "/assets/acpbot-logo.png",
+  ogImage = "/assets/acpbot-card.png",
+  ogImageAlt = "acpbot — paper plane mark with metallic wordmark",
 } = Astro.props;
 
 const site = Astro.site ?? new URL("https://acpbot.app");
@@ -34,12 +36,18 @@ const ogImageUrl = new URL(ogImage, site).href;
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="600" />
+    <meta property="og:image:alt" content={ogImageAlt} />
     <meta property="og:url" content={canonical} />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="acpbot" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
