@@ -331,6 +331,22 @@ export function normalizeToml(raw: Record<string, unknown>): Partial<ProcessConf
     out.speech = normalizeSpeechToml(speech as Record<string, unknown>);
   }
 
+  const telegram = raw.telegram;
+  if (telegram && typeof telegram === "object" && !Array.isArray(telegram)) {
+    const t = telegram as Record<string, unknown>;
+    const tg: { replyGuidance?: string | false; maxReplyChars?: number } = {};
+    const guidance = t.reply_guidance ?? t.replyGuidance;
+    if (guidance === false) tg.replyGuidance = false;
+    else if (typeof guidance === "string" && guidance.trim()) {
+      tg.replyGuidance = guidance;
+    }
+    const max = t.max_reply_chars ?? t.maxReplyChars;
+    if (typeof max === "number" && Number.isFinite(max) && max >= 0) {
+      tg.maxReplyChars = Math.floor(max);
+    }
+    if (Object.keys(tg).length) out.telegram = tg;
+  }
+
   const agents = raw.agents;
   if (agents && typeof agents === "object" && !Array.isArray(agents)) {
     const a = agents as Record<string, unknown>;

@@ -95,7 +95,7 @@ describe("02 — sessions become topics and survive restart", () => {
     await daemon.handleUpdate(topicMsg(threadId, "fix the bug", 2));
 
     expect(env.agents.turns).toHaveLength(1);
-    expect(env.agents.turns[0]?.input.text).toBe("fix the bug");
+    expect(env.agents.turns[0]?.input.text).toContain("fix the bug");
     expect(env.agents.turns[0]?.handle.sessionKey).toBe("acpbot/work");
 
     // Root /ping still a command, not a turn.
@@ -138,10 +138,9 @@ describe("02 — sessions become topics and survive restart", () => {
     await daemon.handleUpdate(topicMsg(a.messageThreadId, "do refactor", 3));
     await daemon.handleUpdate(topicMsg(b.messageThreadId, "do bugfix", 4));
 
-    expect(env.agents.turns.map((t) => t.input.text)).toEqual([
-      "do refactor",
-      "do bugfix",
-    ]);
+    const texts = env.agents.turns.map((t) => t.input.text);
+    expect(texts[0]!.endsWith("do refactor")).toBe(true);
+    expect(texts[1]!.endsWith("do bugfix")).toBe(true);
   });
 
   test("restart recovers session list and topic mapping from acpbot store", async () => {
@@ -185,7 +184,7 @@ describe("02 — sessions become topics and survive restart", () => {
       events: [{ type: "turn_started" }, { type: "turn_ended" }],
     });
     await d2.handleUpdate(topicMsg(session.messageThreadId, "still here", 3));
-    expect(env2.agents.turns[0]?.input.text).toBe("still here");
+    expect(env2.agents.turns[0]?.input.text).toContain("still here");
   });
 
   test("/new wizard ends after create; later free-text does not spawn topics", async () => {

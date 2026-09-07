@@ -176,6 +176,28 @@ a = "/b"
     expect(n.repos?.a).toBe("/b");
   });
 
+  test("normalizeToml parses [telegram] reply policy", () => {
+    const n = normalizeToml(
+      parseTomlConfig(`
+[telegram]
+reply_guidance = false
+max_reply_chars = 2000
+`),
+    );
+    expect(n.telegram?.replyGuidance).toBe(false);
+    expect(n.telegram?.maxReplyChars).toBe(2000);
+
+    const custom = normalizeToml(
+      parseTomlConfig(`
+[telegram]
+reply_guidance = "Be terse."
+maxReplyChars = 0
+`),
+    );
+    expect(custom.telegram?.replyGuidance).toBe("Be terse.");
+    expect(custom.telegram?.maxReplyChars).toBe(0);
+  });
+
   test("default paths helpers", () => {
     const env = { HOME: "/h" };
     expect(defaultConfigPath(env)).toBe("/h/.config/acpbot/config.toml");

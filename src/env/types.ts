@@ -70,6 +70,17 @@ export type AcpbotConfig = {
     /** Soft-close idle children after N hours (0 = off). Default 24. */
     idleCloseHours?: number;
   };
+  /**
+   * Operator-facing reply policy ([telegram]).
+   * - replyGuidance: instruction prepended to operator prompts so agents keep
+   *   replies Telegram-sized. `false` disables; string overrides the default.
+   * - maxReplyChars: hard cap on the relayed final reply. Longer replies are
+   *   truncated inline and the full text is sent as a document. 0 disables.
+   */
+  telegram?: {
+    replyGuidance?: string | false;
+    maxReplyChars?: number;
+  };
   /** EVE background directives ([eve]). */
   eve?: {
     enabled?: boolean;

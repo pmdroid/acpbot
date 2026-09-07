@@ -12,6 +12,7 @@ import { TelegramApiError } from "../env/types";
 import { assertBotMeHasTopics } from "../env/telegram-topics";
 import { silentLogger, summarizeUpdate } from "../env/logger";
 import { createOutboundMessageIndex } from "./outbound-messages";
+import { DEFAULT_REPLY_GUIDANCE } from "./telegram-reply";
 import {
   formatTelegramReactionPrompt,
   reactionSetChanged,
@@ -4941,7 +4942,14 @@ export function createDaemon(
     attachments: PromptAttachment[],
     skillId?: string,
   ): Promise<void> {
-    const textForAgent = agentText;
+    const tg = env.config.telegram;
+    const guidance =
+      tg?.replyGuidance === false
+        ? undefined
+        : (tg?.replyGuidance ?? DEFAULT_REPLY_GUIDANCE);
+    const textForAgent = guidance
+      ? `${guidance}\n\n${agentText}`
+      : agentText;
 
     log.info("action: start turn", {
       sessionKey: session.sessionKey,

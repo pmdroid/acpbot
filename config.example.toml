@@ -47,6 +47,14 @@ tts_mode = "agent"                       # agent | always | off
 # stt = true                             # speech-to-text when a key is set
 # verbose = false
 
+# ── Reply policy (optional) ────────────────────────────────────────────────
+# Keeps agent replies Telegram-sized. Defaults are on without any config.
+# [telegram]
+# reply_guidance = false                # false = disable the prepended brevity instruction
+# reply_guidance = "Reply in at most 3 sentences."   # custom instruction
+# max_reply_chars = 3500                # cap on relayed replies; longer → inline
+#                                       # preview + full text as .md document. 0 = off
+
 # ── Remote MCP OAuth (optional) ────────────────────────────────────────────
 # Always listen on 8788. MagicDNS uses https:// + Tailscale certs; IP stays http://
 # Certs: ~/.local/share/tailscale-certs/<dns>.crt|.key  (auto-detected)
