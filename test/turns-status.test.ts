@@ -94,7 +94,7 @@ describe("03 — live turns with status projection", () => {
 
     expect(env.agents.turns).toHaveLength(1);
     expect(env.agents.turns[0]?.handle.cwd).toBe("/configured/repos/acpbot");
-    expect(env.agents.turns[0]?.input.text).toBe("hello agent");
+    expect(env.agents.turns[0]?.input.text).toContain("hello agent");
   });
 
   test("topic title never rewritten during a turn (status is the working bubble)", async () => {

@@ -13,6 +13,7 @@ import type {
 import { textForTts } from "./media";
 import type { PersistedSession } from "./persistence";
 import { isSpeakToolName, stripSpeakMarkers, type SpeakRequest } from "./speak";
+import { capReply, DEFAULT_MAX_REPLY_CHARS } from "./telegram-reply";
 import { reduceStatus } from "./status";
 import {
   formatElapsedWorking,
@@ -242,7 +243,9 @@ export function createTurnRunner(deps: {
             stopReason: turnStopReason ?? null,
           });
           await deliverPlanExitFallback(session, planMdPath, sendInTopic, log);
-          const pre = stripSpeakMarkers(textParts.join("")).trim();
+          const preMax =
+            env.config.telegram?.maxReplyChars ?? DEFAULT_MAX_REPLY_CHARS;
+          const pre = capReply(stripSpeakMarkers(textParts.join("")).trim(), preMax).text;
           if (pre) {
             await sendInTopic(session, pre, undefined, {
               html: true,
@@ -259,7 +262,10 @@ export function createTurnRunner(deps: {
 
         const rawReply = textParts.join("");
         const visibleText = stripSpeakMarkers(rawReply);
-        const remaining = visibleText.trim();
+        const maxReplyChars =
+          env.config.telegram?.maxReplyChars ?? DEFAULT_MAX_REPLY_CHARS;
+        const capped = capReply(visibleText.trim(), maxReplyChars);
+        const remaining = capped.text;
         const ttsMode = env.config.ttsMode ?? "agent";
         const speakReq: SpeakRequest | undefined =
           ttsMode === "always"
@@ -273,6 +279,24 @@ export function createTurnRunner(deps: {
             html: true,
             notify: true,
           });
+          if (capped.truncated && env.telegram.sendDocument) {
+            const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+            try {
+              await env.telegram.sendDocument({
+                chatId: session.chatId,
+                messageThreadId: session.messageThreadId,
+                data: new TextEncoder().encode(capped.full),
+                filename: `reply-${stamp}.md`,
+                caption: `full reply (${capped.full.length} chars)`,
+                disableNotification: true,
+              });
+            } catch (err) {
+              log.warn("full-reply document send failed", {
+                sessionKey: session.sessionKey,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
         } else if (status === "done" && !speakReq && !visibleText.trim()) {
           await sendInTopic(
             session,
