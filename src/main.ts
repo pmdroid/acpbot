@@ -119,6 +119,11 @@ async function main(): Promise<void> {
   }
 
   // Built-in acpbot tools MCP (speak / telegram / schedules) over stdio
+  if (cmd === "notify-mcp") {
+    await import("./mcp/external-server");
+    return;
+  }
+
   if (cmd === "mcp-server" || cmd === "mcp_server") {
     await import("./mcp/server");
     return;

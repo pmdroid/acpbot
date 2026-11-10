@@ -72,8 +72,9 @@ describe("01 — authenticated daemon with working lobby", () => {
     expect(env.telegram.sentMessages()).toHaveLength(0);
   });
 
-  test("startup asserts has_topics_enabled and fails clearly when false", async () => {
+  test("missing topics still permits pairing while readiness check rejects sessions", async () => {
     const env = createFakeEnvironment({
+      config: { operatorUserId: 0 },
       telegram: {
         me: {
           id: 1,
@@ -91,9 +92,17 @@ describe("01 — authenticated daemon with working lobby", () => {
 
     const ac = new AbortController();
     const daemon = createDaemon(env, { pollTimeoutSec: 0 });
-    // run() should throw before polling forever
+    env.telegram.inject(msg({ text: "/start" }));
     const runPromise = daemon.run(ac.signal);
-    await expect(runPromise).rejects.toBeInstanceOf(TopicsDisabledError);
+    try {
+      await env.telegram.waitFor("sendMessage", 1, 1000);
+      const reply = env.telegram.sentMessages()[0]?.text ?? "";
+      expect(reply).toContain("Pairing code");
+      expect(reply).toContain("Threaded Mode");
+    } finally {
+      ac.abort();
+      await runPromise;
+    }
   });
 
   test("redelivered update produces no duplicate effect (offset-as-ack)", async () => {

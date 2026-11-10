@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDaemon } from "../src/core/daemon";
-import { topicName } from "../src/core/status";
+import { initialTopicName } from "../src/core/status";
 import { createFakeEnvironment } from "../src/env/fake-env";
 import { memoryStore } from "../src/env/store";
 import type { TelegramUpdate } from "../src/env/types";
@@ -61,7 +61,7 @@ describe("02 — sessions become topics and survive restart", () => {
     );
     expect(creates).toHaveLength(1);
     if (creates[0]?.method === "createForumTopic") {
-      expect(creates[0].params.name).toBe(topicName("acpbot", "auth-refactor"));
+      expect(creates[0].params.name).toBe(initialTopicName("acpbot", "auth-refactor", env.config.defaultAgent));
       expect(creates[0].params.chatId).toBe(CHAT);
     }
 
