@@ -87,6 +87,7 @@ import {
   prepareAgentMedia,
 } from "./media";
 import { createWorkerApiServer } from "./worker-api-server";
+import { createExternalBridge } from "./external-bridge";
 import { awaitInlineDecision } from "./inline-decision";
 import { createTurnRunner } from "./turn-runner";
 import { createWorkingStatus } from "./working-status";
@@ -398,7 +399,8 @@ export function createDaemon(
       });
       await env.telegram.sendMessage({
         chatId,
-        text: pairingMessageForUser(pending),
+        text: pairingMessageForUser(pending) + (topicsEnabled ? "" :
+          "\n\nSetup needed: in @BotFather, open this bot → Bot Settings → enable Threaded Mode. Then send /start again."),
         parseMode: "HTML",
       });
     } catch (err) {
@@ -513,6 +515,8 @@ export function createDaemon(
 
   const repoKeys = (): string[] => Object.keys(env.config.repos ?? {});
 
+  let topicsEnabled = true;
+
   async function assertTopicsEnabled(): Promise<void> {
     const me = await env.telegram.getMe();
     botUserId = me.id;
@@ -521,7 +525,10 @@ export function createDaemon(
       username: me.username,
       has_topics_enabled: me.has_topics_enabled,
     });
-    assertBotMeHasTopics(me);
+    topicsEnabled = me.has_topics_enabled === true;
+    if (!topicsEnabled) {
+      log.warn("Threaded Mode disabled; serving pairing/setup only");
+    }
   }
 
   async function hydrate(): Promise<void> {
@@ -803,7 +810,7 @@ export function createDaemon(
     });
     const topic = await env.telegram.createForumTopic({
       chatId: operatorChatId,
-      name: initialTopicName(identity.repo, identity.name),
+      name: initialTopicName(identity.repo, identity.name, identity.agent ?? env.config.defaultAgent),
     });
 
     const now = env.clock.now();
@@ -2211,7 +2218,7 @@ export function createDaemon(
               if (!isHeadless) {
                 const topic = await env.telegram.createForumTopic({
                   chatId: operatorChatId!,
-                  name: initialTopicName(repo, namePart),
+                  name: initialTopicName(repo, namePart, input.agent),
                 });
                 messageThreadId = topic.message_thread_id;
               }
@@ -2614,10 +2621,13 @@ export function createDaemon(
       },
   };
 
+  const externalBridge = createExternalBridge({ store: env.store, telegram: env.telegram,
+    operator: () => ({ userId: env.config.operatorUserId, chatId: operatorChatId }) });
   const workerApi = createWorkerApiServer({
     stateDir: stateDir,
     log,
     handlers: workerHandlers,
+    external: externalBridge.request,
   });
 
   async function handleEveCommand(
@@ -3974,6 +3984,9 @@ export function createDaemon(
         sessionIndex.byKey[session.sessionKey] = session;
         await saveSessionIndex(env.store, sessionIndex);
       }
+      await env.telegram.editForumTopic({ chatId: session.chatId,
+        messageThreadId: session.messageThreadId,
+        name: initialTopicName(session.identity.repo, session.identity.name, agentId) });
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
@@ -4289,6 +4302,9 @@ export function createDaemon(
       }
       sessionIndex.byKey[session.sessionKey] = session;
       await saveSessionIndex(env.store, sessionIndex);
+      await env.telegram.editForumTopic({ chatId: session.chatId,
+        messageThreadId: session.messageThreadId,
+        name: initialTopicName(session.identity.repo, session.identity.name, agentId) });
       const launch = resolveAgentLaunch(agentId);
       await sendInTopic(
         session,
@@ -5604,6 +5620,23 @@ export function createDaemon(
       log.debug("ignore non-operator update", summary);
       return;
     }
+
+    // Pairing must work before BotFather setup. Never launch an agent until
+    // topics are available; recheck on operator input so no restart is needed.
+    if (!topicsEnabled) {
+      await assertTopicsEnabled();
+      if (!topicsEnabled) {
+        const chatId = update.message?.chat.id ?? update.edited_message?.chat.id ??
+          update.callback_query?.message?.chat.id;
+        if (chatId !== undefined) {
+          await env.telegram.sendMessage({ chatId, text:
+            "Enable Threaded Mode in @BotFather → this bot → Bot Settings, then send /start again. Pairing is saved; agent sessions will be available after that step." });
+        }
+        return;
+      }
+    }
+
+    if (await externalBridge.handleUpdate(update)) return;
 
     log.info("handle update", summary);
     wirePermissionHandler();

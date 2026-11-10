@@ -48,6 +48,8 @@ export function topicName(repo: string, name: string): string {
 }
 
 /** Bare session identity for createForumTopic. */
-export function initialTopicName(repo: string, name: string): string {
-  return topicName(repo, name);
+export function initialTopicName(repo: string, name: string, agent?: string): string {
+  if (!agent) return topicName(repo, name);
+  const label = ({ codex: "Codex", mimo: "MiMo", opencode: "OpenCode", claude: "Claude" } as Record<string, string>)[agent] ?? agent;
+  return `${label} · ${name}`.slice(0, 128);
 }

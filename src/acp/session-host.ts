@@ -948,7 +948,10 @@ export function createSessionHost(options: SessionHostOptions): SessionHost {
     const authMethods = Array.isArray(initResult.authMethods)
       ? initResult.authMethods
       : [];
-    if (authMethods.length > 0) {
+    // These CLIs already use the operator's saved login. Calling authenticate
+    // here starts a fresh interactive login even when session/new works.
+    const usesSavedCliLogin = ["mimo", "codex"].includes(input.agent);
+    if (authMethods.length > 0 && !usesSavedCliLogin) {
       const preferred =
         authMethods.find((m) => m && typeof m === "object" && m.id === "cursor_login") ??
         authMethods.find((m) => m && typeof m === "object" && typeof m.id === "string");

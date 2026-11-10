@@ -193,6 +193,7 @@ export function createWorkerApiServer(options: {
   sockPath?: string;
   stateDir?: string;
   log?: Logger;
+  external?: (action: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
 }): WorkerApiServer {
   const log = (options.log ?? silentLogger()).child("worker-api");
   const sockPath =
@@ -229,6 +230,16 @@ export function createWorkerApiServer(options: {
         ok: false,
         error: err instanceof Error ? err.message : "invalid json body",
       });
+      return;
+    }
+
+    if (pathname.startsWith("/v1/external/") && options.external) {
+      try {
+        const result = await options.external(pathname.slice("/v1/external/".length), body);
+        sendJson(res, 200, { ok: true, ...result });
+      } catch (err) {
+        sendJson(res, 400, { ok: false, error: err instanceof Error ? err.message : "External bridge request failed" });
+      }
       return;
     }
 
